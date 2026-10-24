@@ -4,10 +4,13 @@ _Last updated: 2026-10-24_
 
 ## Current phase
 
-**Ready to start M0.** Project docs and the `.ai/` workspace exist; git repository initialized and the
-first commit made. No code yet besides `go.mod` and a placeholder `main.go`.
+**M0 (Foundation) is done.** kest loads a strictly validated YAML config, builds the component graph
+through the extension registry, serves HTTP with virtual hosts, routes and `direct_response`, exposes
+admin `/ready` and `/server_info`, and shuts down gracefully. `make check` is green (unit tests with
+`-race` plus e2e against a `-race` binary).
 
-Active plan: [`plans/M0-foundation.md`](plans/M0-foundation.md).
+Next milestone: **M1 — worker pool and relay**. No plan file yet; `plans/M1-*.md` gets written at the
+start of M1.
 
 ## In progress
 
@@ -15,26 +18,28 @@ Nothing.
 
 ## Next up
 
-1. **User:** review the Proposed ADRs 0002–0006; accept or adjust.
-2. **Agent:** start M0 with K-001 (repo skeleton), following `plans/M0-foundation.md`.
+1. **User:** review the M0 code and the Proposed ADRs 0002–0006; accept or adjust them.
+2. **Agent:** before M1, decide K-017 (goroutine leak checks: approve `goleak` or write a helper).
+3. **Agent:** start M1 with K-020: verify the goridge frame format and the RoadRunner worker protocol
+   against upstream sources, then write `plans/M1-worker-pool.md`.
 
 ## Open questions (need a decision from the user)
 
-None right now.
+- **Q7 — goleak.** Add `go.uber.org/goleak` (tests only, MIT) for goroutine leak checks? The worker pool
+  in M1 will start many goroutines. The alternative is a small in-house helper.
 
-## Resolved decisions (2026-10-24)
+## Resolved decisions
 
-- **Language:** every artifact (code, docs, commits, PRs) in English; communication in Russian.
-- **No AI attribution** in commits, PRs, code or docs (recorded in AGENTS.md and `rules.md` §9).
-- **Typed extension syntax:** `{type, config}` (ADR-0002).
-- **License:** MIT (`LICENSE`).
-- **PHP versions:** kest doesn't restrict the PHP version; the protocol is version-agnostic. The real
-  floor comes from the PHP worker libraries: currently `php >=8.2` for `spiral/roadrunner-worker` 3.8.2 and
-  `spiral/roadrunner-http` 4.2.1 (see `research/roadrunner.md`). We develop on 8.5 and test against
-  8.3+ (target matrix 8.3 / 8.4 / 8.5).
-- **Hosting:** public repo `github.com/berrymore/kest`. No CI for now (single developer, local workflow);
-  CI is added later (K-003, deferred).
-- **git:** initialized with branch `main` and remote `origin` (SSH). Nothing pushed yet.
+- 2026-10-24 — Every artifact (code, docs, commits, PRs) in English; communication in Russian.
+- 2026-10-24 — No AI attribution in commits, PRs, code or docs.
+- 2026-10-24 — Typed extension syntax: `{type, config}` (ADR-0002).
+- 2026-10-24 — License: MIT.
+- 2026-10-24 — PHP: kest doesn't restrict the version; RoadRunner PHP libs need 8.2+; we test on 8.3+
+  (matrix 8.3 / 8.4 / 8.5), develop on 8.5.
+- 2026-10-24 — Public repo `github.com/berrymore/kest`, no CI for now (K-003 deferred); `make check` instead.
+- 2026-10-24 — YAML library: `go.yaml.in/yaml/v4` v4.0.0-rc.6, chosen by experiment (ADR-0005).
+- 2026-10-24 — Commits: never without asking; coarse (1–3 per large task); squash merge once PRs start
+  (`rules.md` §9).
 
 ## Environment (as of 2026-10-24)
 
@@ -49,6 +54,10 @@ None right now.
 
 ## Session log (newest first, keep ~15)
 
+- **2026-10-24** — M0 implemented end to end: config (env expansion, strict decoding, located errors, dump),
+  registry, httpx router, listener, admin, server lifecycle, CLI (`serve`, `validate`, `version`),
+  hello example, e2e tests, `docs/config.md`. Found and fixed: port 0 counted as a duplicate address.
+  Commit and squash policy added to the rules.
 - **2026-10-24** — Installed golangci-lint 2.15.0 into `~/go/bin` (release binary, no brew); the user
   installed Composer. `golangci-lint run` on the repo: 0 issues.
 - **2026-10-24** — Resolved Q1–Q6 (English artifacts, `{type, config}`, MIT, PHP 8.3+ test floor,

@@ -5,8 +5,8 @@ Work items live in `backlog.md` (IDs in brackets). Reprioritization is the user'
 
 | Milestone | Theme | Status |
 |---|---|---|
-| M0 | Foundation | ⚪ next |
-| M1 | Worker pool and relay | ⚪ |
+| M0 | Foundation | ✅ done 2026-10-24 |
+| M1 | Worker pool and relay | ⚪ next |
 | M2 | PHP HTTP — **MVP** | ⚪ |
 | M3 | Operability | ⚪ |
 | M4 | HTTP edge features | ⚪ |

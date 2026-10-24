@@ -2,8 +2,10 @@
 
 An Envoy-inspired application server for PHP (and, later, WebAssembly), written in Go.
 
-> **Status: experimental.** Nothing is usable yet: this README describes where the project is going.
-> The goal is production quality. The plan is in [`.ai/roadmap.md`](.ai/roadmap.md).
+> **Status: experimental.** Milestone M0 (foundation) is done: kest loads a strictly validated config,
+> routes HTTP requests by host and path, and serves direct responses with graceful shutdown.
+> PHP workers arrive in M1–M2. The goal is production quality; the plan is in [`.ai/roadmap.md`](.ai/roadmap.md).
+> Most of this README describes where the project is going.
 
 ## Why
 
@@ -111,13 +113,25 @@ Details: [`.ai/architecture.md`](.ai/architecture.md).
 
 | Milestone | Goal |
 |---|---|
-| **M0** Foundation | CLI, strict config loader, extension registry, lifecycle, admin `/ready`, `direct_response` |
+| **M0** Foundation ✅ | CLI, strict config loader, extension registry, lifecycle, admin `/ready`, `direct_response` |
 | **M1** Worker pool | Language-agnostic process pool, supervisor, RoadRunner-compatible relay |
 | **M2** PHP HTTP — *MVP* | Serve PSR-7 apps through unmodified RoadRunner HTTP workers |
 | **M3** Operability | Metrics, admin API, rolling restarts, access logs, limits, benchmarks |
 | **M4** HTTP edge | TLS, HTTP/2, static files, compression, reverse-proxy clusters |
 | **M5** WASM sandbox | wazero runtime, `wasm` clusters and filters |
 | **M6** Dynamic config | Hot reload of the config file, config API |
+
+## Try it
+
+```sh
+make build
+./bin/kest serve -c examples/hello/kest.yaml
+curl localhost:8080/          # hello from kest
+curl localhost:9901/ready     # admin API: ready
+./bin/kest validate -c examples/hello/kest.yaml -dump
+```
+
+Configuration reference: [`docs/config.md`](docs/config.md).
 
 ## Development
 
@@ -130,8 +144,8 @@ Requirements:
 - Docker, later on, for reproducible end-to-end tests across PHP versions
 
 ```sh
-go build ./...
-go test -race ./...
+make check   # build, vet, lint, unit tests (-race), end-to-end tests
+make help    # all targets
 ```
 
 Contributors and AI agents: start with [`AGENTS.md`](AGENTS.md).

@@ -36,31 +36,44 @@ Docs that drift from the code are worse than no docs. Keep them true, short and 
 
 ## Commands
 
-Only build/test/vet work today. Once the Makefile lands (K-001), keep this table in sync with it.
+Keep this table in sync with the Makefile (`make help` lists every target).
 
 | Task | Command |
 |---|---|
-| Build | `go build ./...` |
-| Test (unit) | `go test -race ./...` |
-| Test (integration, needs `php` in PATH) | `go test -race -tags integration ./...` |
-| Vet | `go vet ./...` |
-| Lint | `golangci-lint run` (v2.15.0 in `~/go/bin`; project config arrives with K-002) |
-| Format | `gofmt -w .` |
-| Run | `go run ./cmd/kest serve -c examples/hello/kest.yaml` (after M0; today only a placeholder `main.go`) |
+| **Everything before "done"** | `make check` (build, vet, lint, unit tests with `-race`, e2e) |
+| Build | `make build` → `bin/kest` |
+| Unit tests | `make test` (`go test -race ./...`) |
+| End-to-end tests | `make test-e2e` (builds the binary with `-race`, runs it against configs) |
+| Integration tests (need `php`, `composer`) | `make test-integration` (none yet; from M1) |
+| Lint | `make lint` (golangci-lint 2.15.0 pinned; config in `.golangci.yml`) |
+| Format | `make fmt` |
+| Run | `./bin/kest serve -c examples/hello/kest.yaml` |
+| Validate a config | `./bin/kest validate -c FILE [-dump]` |
+
+Build tags: `integration` (needs PHP), `e2e` (real binary). Lint and vet run with both.
 
 ## Repository layout
 
-Current: `go.mod` (module `github.com/berrymore/kest`, Go 1.27), placeholder `main.go`, docs.
-Target layout is described in `.ai/architecture.md` §7 — follow it when adding packages.
+Module `github.com/berrymore/kest`, Go 1.27. Package responsibilities and the target layout are in
+`.ai/architecture.md` §7; follow it when adding packages.
 
 ```
-AGENTS.md        this file (CLAUDE.md imports it)
-README.md        user-facing overview
-.ai/             agent workspace: status, rules, architecture, roadmap, backlog, plans, ADRs, research
-cmd/kest/        CLI entrypoint                    (planned, M0)
-internal/        all implementation packages       (planned, M0+)
-examples/        runnable configs and PHP apps     (planned)
-docs/            user documentation                (planned)
+AGENTS.md            this file (CLAUDE.md imports it)
+README.md            user-facing overview
+.ai/                 agent workspace: status, rules, architecture, roadmap, backlog, plans, ADRs, research
+cmd/kest/            CLI: serve, validate, version
+internal/config/     YAML loading, env expansion, strict decoding, defaults, validation, dump
+internal/registry/   compiled-in extension categories and factories
+internal/server/     builds the component graph; start/stop order; drain
+internal/httpx/      HTTP filter chain and router
+internal/listener/   HTTP listeners
+internal/cluster/    cluster interface and registry category
+internal/admin/      admin API
+internal/logging/    slog setup
+internal/buildinfo/  version information
+examples/            runnable configs
+docs/                user documentation (config reference)
+test/e2e/            end-to-end tests against the real binary
 ```
 
 ## Rules in brief
@@ -85,12 +98,15 @@ Full list: `.ai/rules.md`. The ones that matter most:
 - **Prior art is not memory.** RoadRunner/Envoy behavior noted as ❓ in `.ai/research/` is unverified:
   check the upstream source before implementing compatibility.
 - **Ask first** before: adding dependencies, changing the config schema, changing an ADR status,
-  deleting files, committing. Never push or rewrite history unless asked.
+  deleting files, committing (see Git below). Never push or rewrite history unless asked.
 
 ## Git
 
 - Remote: `origin` → `git@github.com:berrymore/kest.git` (public). Default branch: `main`.
-- Conventional Commits (`feat(config): …`, `fix(worker): …`, `docs: …`), small and coherent.
+- **Never commit without asking.** When a commit seems due, stop and ask; the user allows it or says to
+  finish first. Commits are coarse: 1–3 per large task, no micro-commits. Never push unless asked.
+- Conventional Commits (`feat(config): …`, `fix(worker): …`, `docs: …`).
+- Work happens on `main` for now; once branches and PRs start, they are merged with **squash merge** only.
 - No CI yet: the user develops alone and locally. Run the checks from the Commands table yourself
   before declaring work done.
 

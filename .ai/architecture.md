@@ -2,9 +2,11 @@
 
 > A living document. It describes the **target** design and marks what is implemented.
 > Legend: 🟢 implemented · 🟡 in progress · ⚪ planned.
-> **Last reviewed: 2026-10-24.** Nothing is implemented yet; everything below is ⚪.
+> **Last reviewed: 2026-10-24 (M0 done).** Implemented: config loading and validation, extension
+> registry, server lifecycle, HTTP listeners, router with `direct_response`, admin `/ready` and
+> `/server_info`. No cluster types or filters exist yet.
 
-## 1. Big picture ⚪
+## 1. Big picture 🟡
 
 ```
                 ┌──────────────────────────────── kest ─────────────────────────────────┐
@@ -37,7 +39,7 @@ kest is a single Go binary. At startup it reads one YAML file and builds a graph
   using a framed protocol (ADR-0003), and is watched by a **supervisor**.
 - The **admin server** exposes readiness, effective config, cluster and worker state, and metrics.
 
-## 2. Request flow: HTTP → PHP ⚪
+## 2. Request flow: HTTP → PHP ⚪ (steps 1–4 🟢)
 
 1. The listener accepts a connection; the `net/http` server parses the request.
 2. HTTP filters run in config order (e.g. `request_id` → `access_log` → `cors`).
@@ -53,9 +55,10 @@ kest is a single Go binary. At startup it reads one YAML file and builds a graph
 8. The worker goes back to the pool. The supervisor checks its limits (max_jobs, memory, TTL) and
    recycles it if needed.
 
-## 3. Configuration model ⚪
+## 3. Configuration model 🟢
 
-Decided in ADR-0002 (Proposed). Full example:
+Decided in ADR-0002 (Proposed). Full example; fields marked in `docs/config.md` as existing are
+implemented, the rest (filters, `php_workers`) are planned:
 
 ```yaml
 version: v1
@@ -122,49 +125,55 @@ Rules:
   extension's config struct.
 - Names are unique per kind. References by name (route → cluster) are validated before startup.
 - `${VAR}` and `${VAR:-default}` are expanded in **scalar values after parsing**, not in the raw text,
-  so env values can't inject YAML structure.
+  so env values can't inject YAML structure. A plain scalar is re-typed after expansion (`${PORT}` → int);
+  a quoted one stays a string, and the type error says so.
+- Implementation (`internal/config`): parse into a `yaml.Node` tree → walk it once to expand env and index
+  `path ↔ line:column` → strict decode (`WithKnownFields`) → defaults → validation. Errors are
+  `config.Errors`, each `file:line:col: path: message`, all reported at once. Extension `config` blocks
+  stay as raw nodes (`config.Extension`) and are decoded by `registry.Build` against the same index, so
+  their errors are located too.
 - The effective config (defaults applied, secrets redacted) is available through
   `kest validate --dump` and admin `/config_dump`.
 
-## 4. Core abstractions ⚪
+## 4. Core abstractions
 
-A sketch to guide implementation; it will change as code lands. Update this section when it does.
+Implemented 🟢 (see the packages for the full contracts):
 
 ```go
-// Component is anything with a lifecycle managed by the server.
-type Component interface {
-	// Start brings the component up and returns once it is ready (or has failed).
-	// Long-running work happens in goroutines the component owns.
-	Start(ctx context.Context) error
-	// Stop shuts down gracefully. The ctx deadline is the drain budget; when it
-	// expires, the component aborts remaining work and returns.
-	Stop(ctx context.Context) error
-}
+// Every long-lived component (listeners, clusters, admin) has this lifecycle.
+// Start returns once the component is ready; long-running work runs in
+// goroutines it owns. Stop is graceful within the ctx deadline.
+Start(ctx context.Context) error
+Stop(ctx context.Context) error
 
-// Registry (ADR-0004): one category per extension point.
+// internal/registry (ADR-0004): one Category per extension point, filled from init().
 type Factory[T any] struct {
 	Type      string                                    // "php_workers", "access_log", …
-	NewConfig func() any                                // pointer to a zero config struct, decoded strictly
+	NewConfig func() any                                // pointer to a config struct pre-filled with defaults; may implement Validate() error
 	Build     func(bc BuildContext, cfg any) (T, error) // no side effects: no goroutines, no I/O
 }
-
-// BuildContext gives factories what they need without globals.
 type BuildContext struct {
-	Logger   *slog.Logger
-	Clusters ClusterLookup // resolve references by name
-	// metrics registry, data dir, …
+	Name   string // component name (clusters)
+	Logger *slog.Logger
 }
+func Build[T any](c *Category[T], ext *config.Extension, bc BuildContext) (T, error)
 
-// HTTP filters are plain middleware for now (open question Q-A).
+// internal/httpx: filters are plain middleware for now (open question Q-A).
 type Filter func(next http.Handler) http.Handler
+var Filters = registry.NewCategory[Filter]("http filter")
 
-// Cluster is a named upstream.
+// internal/cluster: the name lives in config/BuildContext, not on the interface.
 type Cluster interface {
-	Component
-	Name() string
-	http.Handler // initial approach (open question Q-D)
+	http.Handler // must honor the request context; answers 504 on route timeout (Q-D)
+	Start(ctx context.Context) error
+	Stop(ctx context.Context) error
 }
+var Types = registry.NewCategory[Cluster]("cluster")
+```
 
+Planned ⚪:
+
+```go
 // Worker pool: language-agnostic, knows nothing about HTTP or PHP.
 type Payload struct {
 	Codec   Codec  // how Context is encoded: raw, json, proto
@@ -223,52 +232,59 @@ A worker is never recycled mid-request, except on `exec_ttl` or a crash, in whic
 with a 5xx and is logged. Respawn uses exponential backoff so a broken worker script can't
 fork-bomb the host. The pool reports "unhealthy" if it can't keep its minimum of live workers.
 
-## 6. Startup, shutdown, reload ⚪
+## 6. Startup, shutdown, reload 🟢 (reload ⚪)
 
-**Startup**
+**Startup** (`config.Load` → `server.New` → `Server.Run`)
 
 1. Parse flags → read file → parse YAML → expand env in scalars → strict decode → apply defaults → validate
    (including cross-references).
-2. Build the component graph through the registry. This step has no side effects.
-3. Start clusters: spawn workers and wait for readiness (bounded by a startup timeout).
-4. Start the admin server, then the listeners (bind ports).
-5. Mark ready (`/ready` returns 200).
+2. `server.New` builds the component graph through the registry, decoding extension configs. No side
+   effects, so `kest validate` runs this step too.
+3. Start clusters (M1+: spawn workers and wait for readiness, bounded by a startup timeout).
+4. Start the admin server, then the listeners (bind ports). If anything fails to start, the components
+   already started are stopped and `Run` returns the error.
+5. Mark ready (`/ready` returns 200); `Server.Ready()` is closed.
 
-**Shutdown** (SIGINT / SIGTERM)
+**Shutdown** (SIGINT / SIGTERM, or a fatal error from a running component)
 
-1. Mark not ready.
-2. Listeners stop accepting; in-flight requests drain (bounded by `drain_timeout`).
-3. Clusters stop: each worker gets a stop frame, then SIGKILL after `destroy_timeout`.
-4. Exit. A second signal forces an immediate exit.
+1. `/ready` → `503 draining`.
+2. Listeners stop accepting and drain in-flight requests in parallel, within `drain_timeout`; then the
+   remaining connections are closed (logged as a warning, not an error).
+3. Clusters stop, within the same budget again (M1: stop frame, then SIGKILL after `destroy_timeout`).
+4. The admin server stops last (1s budget).
+5. The first signal cancels the context and restores default signal handling, so a second signal kills
+   the process immediately.
 
 **Reload**
 
 - M3: worker reset (rolling restart) via admin `POST /clusters/{name}/reset` or SIGHUP; config unchanged.
 - M6: full config reload: diff the old and new graphs and restart only the components that changed.
 
-## 7. Package layout (target) ⚪
+## 7. Package layout
 
 ```
-cmd/kest/                    CLI: serve, validate, version
-internal/config/             load, env expansion, strict decode, defaults, validation, dump
-internal/registry/           extension categories and factories
-internal/server/             build graph from config; start/stop/reload; signals
-internal/listener/           TCP listeners
-internal/httpx/              HTTP connection manager, filter chain, router, route actions
-internal/filters/<name>/     built-in HTTP filters, one package each
-internal/cluster/            Cluster interface
-internal/cluster/phpworkers/ php_workers: HTTP ↔ RoadRunner payload mapping
-internal/worker/             process, pool, supervisor (language-agnostic)
-internal/relay/              goridge-compatible frame codec; pipes and socket transports
-internal/admin/              admin HTTP API
-internal/observability/      logging setup, metrics
-internal/wasm/               (M5) wazero runtime, module cache, instance pools
-examples/                    runnable configs and PHP apps
-docs/                        user documentation
-test/e2e/                    end-to-end tests: build the binary, run it against configs
+cmd/kest/                    🟢 CLI: serve, validate [-dump], version
+internal/buildinfo/          🟢 version information (ldflags or embedded VCS data)
+internal/config/             🟢 load, env expansion, strict decode, defaults, validation, dump
+internal/registry/           🟢 extension categories and factories
+internal/server/             🟢 build graph from config; start/stop order; drain
+internal/listener/           🟢 HTTP listeners (bind in Start, drain in Stop)
+internal/httpx/              🟢 filter chain, router, route actions
+internal/admin/              🟢 admin HTTP API
+internal/logging/            🟢 slog setup
+internal/cluster/            🟢 Cluster interface and registry category
+internal/filters/<name>/     ⚪ built-in HTTP filters, one package each
+internal/cluster/phpworkers/ ⚪ php_workers: HTTP ↔ RoadRunner payload mapping
+internal/worker/             ⚪ process, pool, supervisor (language-agnostic)
+internal/relay/              ⚪ goridge-compatible frame codec; pipes and socket transports
+internal/metrics/            ⚪ (M3) metrics
+internal/wasm/               ⚪ (M5) wazero runtime, module cache, instance pools
+examples/                    🟢 runnable configs (PHP apps from M2)
+docs/                        🟢 user documentation (config reference)
+test/e2e/                    🟢 end-to-end tests: build the binary with -race, run it against configs
 ```
 
-## 8. Observability and admin ⚪
+## 8. Observability and admin 🟡
 
 - **Logs:** `log/slog`, text or JSON, level set in config. Worker stderr goes to logs tagged with
   `cluster` and `worker_pid`.
@@ -279,8 +295,8 @@ test/e2e/                    end-to-end tests: build the binary, run it against 
 
 | Endpoint | Purpose | Milestone |
 |---|---|---|
-| `GET /ready` | 200 when serving, 503 while starting or draining | M0 |
-| `GET /server_info` | version, uptime, config path | M0 |
+| `GET /ready` | 200 when serving, 503 while starting or draining | 🟢 M0 |
+| `GET /server_info` | version, uptime, config path | 🟢 M0 |
 | `GET /config_dump` | effective config, defaults applied, secrets redacted | M3 |
 | `GET /clusters` | clusters, pools, workers (pid, state, jobs, memory, age) | M3 |
 | `POST /clusters/{name}/reset` | rolling restart of a pool | M3 |

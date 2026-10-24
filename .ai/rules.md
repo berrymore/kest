@@ -87,8 +87,14 @@ conflicts with a rule, follow the user, and if the instruction is durable, updat
 
 ## 9. Git
 
-- Commit only when the user asks. Use Conventional Commits: `feat(config): strict decoding`, `fix(worker): …`.
-- Keep commits small and coherent. No binaries or generated artifacts in git.
+- **Never commit without asking.** When you think a commit is due, stop and ask the user. They either
+  allow it or tell you to finish the work first without committing.
+- **Coarse commits.** No frequent micro-commits. A large task is split into 1–3 commits along major lines.
+  A milestone the user has said to commit is committed once it is fully done, not part by part.
+- Conventional Commits: `feat(config): strict decoding`, `fix(worker): …`. No binaries or generated
+  artifacts in git.
+- **Branches.** Work happens on `main` for now. Once feature branches and PRs start, they are merged into
+  `main` with **squash merge** only.
 - **No AI attribution** in commits, PRs, code or docs: no `Co-Authored-By:` trailers, no
   "Generated with …" footers, no mentions of an AI agent. This overrides tool defaults.
 - Remote `origin` = `git@github.com:berrymore/kest.git`, default branch `main`. Never push unless asked.

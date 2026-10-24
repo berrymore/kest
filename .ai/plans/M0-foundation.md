@@ -1,6 +1,6 @@
 # Plan: M0 — Foundation
 
-- **Status:** Ready
+- **Status:** Done (2026-10-24)
 - **Milestone:** M0
 - **Backlog:** K-001…K-015
 
@@ -51,26 +51,26 @@
 
 ## Steps
 
-1. [ ] **Skeleton** (K-001) — `cmd/kest/main.go`, package dirs, Makefile, `.editorconfig`.
+1. [x] **Skeleton** (K-001) — `cmd/kest/main.go`, package dirs, Makefile, `.editorconfig`.
    Acceptance: `make build test` works; the placeholder `main.go` is gone.
-2. [ ] **YAML library choice** (K-005) — short comparison in ADR-0005, user OK.
+2. [x] **YAML library choice** (K-005) — short comparison in ADR-0005, user OK.
    Acceptance: the dependency is added and the ADR table updated.
-3. [ ] **Config loader** (K-006) — types, `Duration`, `ByteSize`, env expansion, strict decode, defaults,
+3. [x] **Config loader** (K-006) — types, `Duration`, `ByteSize`, env expansion, strict decode, defaults,
    validation. Acceptance: table tests for valid and invalid configs (unknown field, bad duration, duplicate
    names, missing version, bad route action); fuzz test for env expansion.
-4. [ ] **Registry** (K-007) — generic categories, factories, typed config decoding.
+4. [x] **Registry** (K-007) — generic categories, factories, typed config decoding.
    Acceptance: unit tests for registration, duplicates and decoding errors with paths.
-5. [ ] **Logging** (K-009) — slog from config. Acceptance: text and JSON outputs tested.
-6. [ ] **HTTP listener + router + direct_response** (K-011). Acceptance: `httptest`-based tests for vhost
+5. [x] **Logging** (K-009) — slog from config. Acceptance: text and JSON outputs tested.
+6. [x] **HTTP listener + router + direct_response** (K-011). Acceptance: `httptest`-based tests for vhost
    selection, match order, 404, direct responses.
-7. [ ] **Admin server** (K-010) — `/ready` (503 → 200 → 503 during drain), `/server_info`.
-8. [ ] **Server lifecycle + CLI** (K-008, K-004) — ordered start/stop, signals, drain, `serve`/`validate`/`version`.
+7. [x] **Admin server** (K-010) — `/ready` (503 → 200 → 503 during drain), `/server_info`.
+8. [x] **Server lifecycle + CLI** (K-008, K-004) — ordered start/stop, signals, drain, `serve`/`validate`/`version`.
    Acceptance: a test that starts the server, sends requests, cancels the context and checks drain and leaks.
-9. [ ] **Example + e2e** (K-012) — `examples/hello/kest.yaml`; an e2e test builds the binary, runs it,
+9. [x] **Example + e2e** (K-012) — `examples/hello/kest.yaml`; an e2e test builds the binary, runs it,
    curls it and sends SIGTERM.
-10. [ ] **Lint + `make check`** (K-002, K-015) — golangci-lint v2 config; one target runs build, vet,
+10. [x] **Lint + `make check`** (K-002, K-015) — golangci-lint v2 config; one target runs build, vet,
     lint and `test -race`. No CI yet (K-003 deferred).
-11. [ ] **Docs** (K-013) — `docs/config.md` for the M0 surface; update README/AGENTS commands and
+11. [x] **Docs** (K-013) — `docs/config.md` for the M0 surface; update README/AGENTS commands and
     `architecture.md` markers (⚪ → 🟢).
 
 ## Risks / open questions
@@ -78,6 +78,19 @@
 - YAML library line numbers: if strict decoding loses positions, validation errors may only carry paths.
   Acceptable for M0.
 
+## Outcome / deviations
+
+- Package names: `internal/logging` instead of `internal/observability`; `internal/buildinfo` added.
+- `cluster.Cluster` has no `Name()`: names live in config and `registry.BuildContext`.
+- `kest validate` also runs `server.New`, so extension configs are checked; `-dump` shows decoded values.
+- Shutdown runs in phases (listeners → clusters → admin); each of the first two gets `drain_timeout`.
+  An expired drain closes connections with a warning and is not an error.
+- Port `0` is allowed and exempt from the duplicate-address check (tests and ephemeral setups).
+- Quoted `${VAR}` references stay strings (YAML semantics); the type error carries a hint.
+- No goroutine leak checker yet (K-017). Timing-sensitive tests pass 20× in a row under `-race`.
+
 ## Log
 
 - 2026-10-24 — Plan drafted. Typed extension syntax settled as `{type, config}`; CI replaced by `make check`.
+- 2026-10-24 — YAML library chosen by experiment: `go.yaml.in/yaml/v4` rc.6 (v3 can't decode strictly from nodes).
+- 2026-10-24 — All steps done; `make check` green (unit + e2e with a `-race` binary).

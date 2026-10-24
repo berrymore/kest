@@ -23,11 +23,25 @@ upgrade and licensing liability. The user develops with Go 1.27 locally.
 
 | Module | Purpose | Status |
 |---|---|---|
-| YAML library — `go.yaml.in/yaml/v3`/`v4` or `github.com/goccy/go-yaml` | Config parsing with strict mode and node positions | To be chosen in K-005 |
+| `go.yaml.in/yaml/v4` v4.0.0-rc.6 (Apache-2.0) | Config parsing: strict decoding from nodes, all errors at once, positions | Approved by the user 2026-10-24; upgrade to GA when released (K-016) |
 | `golang.org/x/sync` | `errgroup` | Approved if needed |
 | `go.uber.org/goleak` | Goroutine leak checks (tests only) | Proposed |
 | `github.com/tetratelabs/wazero` | WASM runtime (M5) | See ADR-0006 |
 | Metrics library | M3 | To be decided (Q-E) |
+
+### YAML library choice (K-005, 2026-10-24)
+
+Tested against kest's needs: strict decoding of a node tree after env expansion, and strict two-phase
+decoding of extension `config` blocks with positions from the original file.
+
+- `go.yaml.in/yaml/v3` v3.0.5 — **rejected**: `Node.Decode` has no known-fields mode, so unknown fields
+  are silently accepted when decoding from a node.
+- `go.yaml.in/yaml/v4` v4.0.0-rc.6 — **chosen**: `Node.Load(v, WithKnownFields())`, reports every
+  construct error with line and column, the canonical go-yaml line (libyaml port), maintained by the YAML
+  organization with daily activity. Risk: still a release candidate; pinned, and the YAML library is
+  only used inside `internal/config`.
+- `github.com/goccy/go-yaml` v1.19.2 — works and has the nicest errors (source snippets), but slower
+  maintenance (last commit April 2026, 256 open issues) and an independent parser with edge-case bugs.
 
 ## Alternatives considered
 

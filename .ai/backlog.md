@@ -6,25 +6,27 @@ Milestone definitions: `roadmap.md`.
 
 ## M0 — Foundation
 
-- [ ] K-001 Repo skeleton: move `main.go` → `cmd/kest/main.go`, create `internal/` layout, Makefile
+- [x] K-001 Repo skeleton: move `main.go` → `cmd/kest/main.go`, create `internal/` layout, Makefile
   (`build`, `test`, `test-integration`, `lint`, `fmt`), `.editorconfig`.
-- [ ] K-002 golangci-lint v2 config (`.golangci.yml`) + `make lint`; the Makefile checks that the
+- [x] K-002 golangci-lint v2 config (`.golangci.yml`) + `make lint`; the Makefile checks that the
   installed linter version matches the pinned one (2.15.0) and prints install instructions if not.
-- [ ] K-004 CLI: `serve`, `validate [--dump]`, `version` (stdlib `flag` with subcommands; version info via `-ldflags`).
-- [ ] K-005 Choose a YAML library (`go.yaml.in/yaml/v3`/`v4` vs `goccy/go-yaml`): strict mode, node
-  line/column for errors, maintenance status. Record the choice in ADR-0005.
-- [ ] K-006 Config loader: parse → env expansion in scalars → strict decode → defaults → validation with
+- [x] K-004 CLI: `serve`, `validate [--dump]`, `version` (stdlib `flag` with subcommands; version info via `-ldflags`).
+- [x] K-005 Choose a YAML library: `go.yaml.in/yaml/v4` rc.6 (ADR-0005).
+- [x] K-006 Config loader: parse → env expansion in scalars → strict decode → defaults → validation with
   YAML paths; `config.Duration`, `config.ByteSize`; fuzz the env expansion.
-- [ ] K-007 Extension registry: generic categories (`http_filter`, `cluster`), duplicate detection, typed config decoding.
-- [ ] K-008 Server lifecycle: build graph, ordered start/stop, SIGINT/SIGTERM, drain timeout, forced exit on second signal.
-- [ ] K-009 Logging: slog setup from config (level, format), component-scoped loggers.
-- [ ] K-010 Admin server: `/ready`, `/server_info`; binds to 127.0.0.1 by default.
-- [ ] K-011 HTTP listener + connection manager + router (virtual hosts by `domains` with wildcards;
+- [x] K-007 Extension registry: generic categories (`http_filter`, `cluster`), duplicate detection, typed config decoding.
+- [x] K-008 Server lifecycle: build graph, ordered start/stop, SIGINT/SIGTERM, drain timeout, forced exit on second signal.
+- [x] K-009 Logging: slog setup from config (level, format), component-scoped loggers.
+- [x] K-010 Admin server: `/ready`, `/server_info`; binds to 127.0.0.1 by default.
+- [x] K-011 HTTP listener + connection manager + router (virtual hosts by `domains` with wildcards;
   `prefix`/`path` match) + `direct_response` action.
-- [ ] K-012 `examples/hello/kest.yaml` + e2e test (build the binary, start it, curl it, SIGTERM it).
-- [ ] K-013 `docs/config.md` skeleton: config reference for everything that exists after M0.
+- [x] K-012 `examples/hello/kest.yaml` + e2e test (build the binary, start it, curl it, SIGTERM it).
+- [x] K-013 `docs/config.md` skeleton: config reference for everything that exists after M0.
 - [x] K-014 License file: MIT (2026-10-24).
-- [ ] K-015 `make check`: build + vet + lint + `test -race` in one target; the local stand-in for CI.
+- [x] K-015 `make check`: build + vet + lint + `test -race` + e2e in one target; the local stand-in for CI.
+- [ ] K-016 Upgrade `go.yaml.in/yaml/v4` from rc.6 to v4.0.0 GA once released; rerun config tests.
+- [ ] K-017 Goroutine leak checks in tests: approve `go.uber.org/goleak` (ADR-0005) or write a small helper.
+  Needed before M1, when the pool starts many goroutines.
 
 ## M1 — Worker pool and relay
 
@@ -66,6 +68,8 @@ Milestone definitions: `roadmap.md`.
 - [ ] K-065 Per-route timeouts; max header and body sizes; slow-client protection (server timeouts).
 - [ ] K-066 Benchmarks against RoadRunner; report in `docs/benchmarks.md`.
 - [ ] K-067 Operations guide.
+- [ ] K-068 Drain delay: after SIGTERM, keep serving with `/ready` = 503 for a configurable delay so load
+  balancers deregister the instance before listeners close.
 
 ## M4 — HTTP edge features
 
@@ -75,6 +79,8 @@ Milestone definitions: `roadmap.md`.
 - [ ] K-083 Compression filter.
 - [ ] K-084 CORS and header-manipulation filters; redirect action.
 - [ ] K-085 `http_proxy` cluster: endpoints, load balancing, health checks, retries.
+- [ ] K-086 Path normalization before routing (dot segments, duplicate slashes; Envoy `normalize_path` /
+  `merge_slashes`), so prefix routes can't be bypassed with `/a/../b`.
 
 ## M5 — WASM sandbox
 

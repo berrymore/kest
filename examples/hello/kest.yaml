@@ -1,0 +1,37 @@
+# A minimal kest configuration: one HTTP listener that answers with direct
+# responses, no workers yet.
+#
+#   kest serve -c examples/hello/kest.yaml
+#   curl localhost:8080/
+#   curl localhost:8080/ping
+#   curl localhost:9901/ready
+#
+# Set KEST_ADDRESS to listen elsewhere, e.g. KEST_ADDRESS=:9090.
+version: v1
+
+log:
+  level: info
+  format: text
+
+admin:
+  address: 127.0.0.1:9901
+
+server:
+  drain_timeout: 15s
+
+listeners:
+  - name: main
+    address: ${KEST_ADDRESS:-127.0.0.1:8080}
+    http:
+      virtual_hosts:
+        - name: default
+          domains: ["*"]
+          routes:
+            - match: { path: /ping }
+              direct_response:
+                status: 200
+                body: "pong\n"
+            - match: { prefix: / }
+              direct_response:
+                status: 200
+                body: "hello from kest\n"
