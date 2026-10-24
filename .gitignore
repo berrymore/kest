@@ -1,5 +1,6 @@
 # Build output
 /kest
+/playground/
 /bin/
 /dist/
 *.test
