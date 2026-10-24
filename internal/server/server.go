@@ -34,6 +34,7 @@ type lifecycle interface {
 type component struct {
 	kind string // "cluster", "listener", "admin"
 	name string
+	typ  string // the extension type of a cluster
 	lifecycle
 }
 
@@ -87,7 +88,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 			continue
 		}
 		handlers[c.Name] = cl
-		s.clusters = append(s.clusters, component{kind: "cluster", name: c.Name, lifecycle: cl})
+		s.clusters = append(s.clusters, component{kind: "cluster", name: c.Name, typ: c.Type, lifecycle: cl})
 	}
 	lookup := func(name string) (http.Handler, bool) {
 		h, ok := handlers[name]
@@ -187,6 +188,23 @@ func (s *Server) NotServing() []string {
 		}
 	}
 	return down
+}
+
+// Clusters implements admin.Source.
+func (s *Server) Clusters() []admin.ClusterInfo {
+	out := make([]admin.ClusterInfo, 0, len(s.clusters))
+	for _, c := range s.clusters {
+		info := admin.ClusterInfo{Name: c.name, Type: c.typ}
+		if p, ok := c.lifecycle.(cluster.Prober); ok {
+			serving := p.Serving()
+			info.Serving = &serving
+		}
+		if r, ok := c.lifecycle.(cluster.Reporter); ok {
+			info.Status = r.Report()
+		}
+		out = append(out, info)
+	}
+	return out
 }
 
 // Metrics implements admin.Source: the server's metrics registry.

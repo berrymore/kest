@@ -97,7 +97,7 @@ The first steps are the vertical slice: real metrics from a PHP app at `/metrics
    set of series round-trips through `expfmt`; unit tests see the HTTP and pool series move.
 2. [x] **`/metrics` and `/ready`** (K-062) — `GET /metrics` on the admin server, `/ready` per D3. Acceptance: e2e
    with `examples/php-hello`: the counters and histograms move as requests are sent.
-3. [ ] **`/clusters`** (K-074) — acceptance: e2e shows every worker of `php-hello` with pid, state and jobs.
+3. [x] **`/clusters`** (K-074) — acceptance: e2e shows every worker of `php-hello` with pid, state and jobs.
 4. [ ] **Rolling reset** (K-063) — `Pool.Reset`, `POST /clusters/{name}/reset`, SIGHUP. Acceptance: a PHP e2e test
    resets under load (all workers busy) with zero failed requests; a reset to a worker that fails to boot leaves
    the old ones serving; `kest_pool_worker_restarts_total{reason="reset"}` counts it.

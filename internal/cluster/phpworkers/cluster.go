@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/berrymore/kest/internal/cluster"
 	"github.com/berrymore/kest/internal/registry"
@@ -42,6 +43,8 @@ type pool interface {
 	Stop(ctx context.Context) error
 	Exec(ctx context.Context, req worker.Payload) (worker.Payload, error)
 	Health() worker.Health
+	Workers() []worker.Info
+	Waiting() int
 }
 
 // Cluster serves HTTP requests with a pool of PHP workers.
@@ -95,6 +98,39 @@ const stdoutHint = "hint: the command must start a RoadRunner worker and print n
 // degraded pool, with some workers being replaced, still serves.
 func (c *Cluster) Serving() bool {
 	return c.pool.Health() != worker.Unhealthy
+}
+
+// Report implements cluster.Reporter: the pool's health and queue, and every
+// worker slot.
+func (c *Cluster) Report() any {
+	now := time.Now()
+	workers := c.pool.Workers()
+	r := report{Health: c.pool.Health().String(), QueueLength: c.pool.Waiting(), Workers: make([]workerReport, len(workers))}
+	for i, w := range workers {
+		wr := workerReport{Slot: w.Slot, State: w.State.String(), Pid: w.Pid, Jobs: w.Jobs, MemoryBytes: w.Memory}
+		if w.Pid != 0 && !w.Started.IsZero() {
+			wr.StartedAt = w.Started.UTC().Format(time.RFC3339)
+			wr.AgeSeconds = int64(now.Sub(w.Started).Seconds())
+		}
+		r.Workers[i] = wr
+	}
+	return r
+}
+
+type report struct {
+	Health      string         `json:"health"` // healthy, degraded or unhealthy
+	QueueLength int            `json:"queue_length"`
+	Workers     []workerReport `json:"workers"`
+}
+
+type workerReport struct {
+	Slot        int    `json:"slot"`
+	State       string `json:"state"`
+	Pid         int    `json:"pid,omitempty"`
+	Jobs        uint64 `json:"jobs"`
+	StartedAt   string `json:"started_at,omitempty"`
+	AgeSeconds  int64  `json:"age_seconds,omitempty"`
+	MemoryBytes int64  `json:"memory_bytes,omitempty"`
 }
 
 // Stop lets running requests finish, then stops the workers.

@@ -112,6 +112,38 @@ func TestServePHPHelloExample(t *testing.T) {
 		t.Errorf("requests went to %d worker(s), want several", len(pids))
 	}
 
+	_, body, err := get(t, "http://"+adminAddr+"/clusters")
+	var clusters struct {
+		Clusters []struct {
+			Name    string `json:"name"`
+			Type    string `json:"type"`
+			Serving bool   `json:"serving"`
+			Status  struct {
+				Health  string `json:"health"`
+				Workers []struct {
+					State string `json:"state"`
+					Pid   int    `json:"pid"`
+					Jobs  int    `json:"jobs"`
+				} `json:"workers"`
+			} `json:"status"`
+		} `json:"clusters"`
+	}
+	if err != nil || json.Unmarshal([]byte(body), &clusters) != nil || len(clusters.Clusters) != 1 {
+		t.Fatalf("GET /clusters: %v\n%s", err, body)
+	}
+	c := clusters.Clusters[0]
+	jobs := 0
+	for _, w := range c.Status.Workers {
+		jobs += w.Jobs
+		if w.State != "ready" || !pids[w.Pid] {
+			t.Errorf("/clusters worker %+v: want ready, with the pid of a worker that served requests", w)
+		}
+	}
+	if c.Name != "hello" || c.Type != "php_workers" || !c.Serving || c.Status.Health != "healthy" ||
+		len(c.Status.Workers) != 4 || jobs != 503 {
+		t.Errorf("/clusters = %+v, want 4 ready workers that ran 503 jobs", c)
+	}
+
 	_, metrics, err := get(t, "http://"+adminAddr+"/metrics")
 	for _, want := range []string{
 		`kest_http_requests_total{listener="main",virtual_host="default",cluster="hello",code="200"} 502`,

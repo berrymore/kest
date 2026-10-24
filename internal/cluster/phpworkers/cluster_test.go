@@ -29,6 +29,8 @@ type fakePool struct {
 	exec     func(ctx context.Context, req worker.Payload) (worker.Payload, error)
 	startErr error
 	health   worker.Health
+	workers  []worker.Info
+	waiting  int
 	last     worker.Payload
 	calls    int
 	started  bool
@@ -38,6 +40,8 @@ type fakePool struct {
 func (p *fakePool) Start(context.Context) error { p.started = true; return p.startErr }
 func (p *fakePool) Stop(context.Context) error  { p.stopped = true; return nil }
 func (p *fakePool) Health() worker.Health       { return p.health }
+func (p *fakePool) Workers() []worker.Info      { return p.workers }
+func (p *fakePool) Waiting() int                { return p.waiting }
 
 func (p *fakePool) Exec(ctx context.Context, req worker.Payload) (worker.Payload, error) {
 	p.calls++
@@ -235,6 +239,24 @@ func TestServing(t *testing.T) {
 		if got := c.Serving(); got != want {
 			t.Errorf("Serving() with a %s pool = %v, want %v", health, got, want)
 		}
+	}
+}
+
+func TestReport(t *testing.T) {
+	started := time.Now().Add(-90 * time.Second)
+	c := newTestCluster(t, nil, &fakePool{health: worker.Degraded, waiting: 3, workers: []worker.Info{
+		{Slot: 0, State: worker.StateWorking, Pid: 4242, Jobs: 7, Started: started, Memory: 30 << 20},
+		{Slot: 1, State: worker.StateBackoff},
+	}})
+	b, err := json.Marshal(c.Report())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"health":"degraded","queue_length":3,"workers":[` +
+		`{"slot":0,"state":"working","pid":4242,"jobs":7,"started_at":"` + started.UTC().Format(time.RFC3339) +
+		`","age_seconds":90,"memory_bytes":31457280},{"slot":1,"state":"backoff","jobs":0}]}`
+	if string(b) != want {
+		t.Errorf("Report:\n%s\nwant:\n%s", b, want)
 	}
 }
 

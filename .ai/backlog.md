@@ -108,8 +108,9 @@ Milestone definitions: `roadmap.md`.
   `make test`) checks links, make targets, IDs, the ADR index, the layout, the config reference, tool versions,
   status dates; `.ai/review.md` and the `docs-reviewer` agent run before every milestone PR and merge. Asked for
   on 2026-10-25 after `status.md` still said "waiting for review" with M2 merged.
-- [ ] K-074 Admin `/clusters`: each cluster's type and health, and its workers (slot, state, pid, jobs, age,
-  memory), from an optional interface that clusters implement.
+- [x] K-074 Admin `/clusters`: each cluster's type and health, and its workers (slot, state, pid, jobs, age,
+  memory), from an optional interface that clusters implement. `cluster.Reporter`; the php-hello e2e test checks
+  the pids against the workers that served requests.
 - [ ] K-075 Admin `/config_dump`: the effective config as YAML, with the `env` values of clusters redacted.
 
 ## M4 — HTTP edge features

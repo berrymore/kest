@@ -14,13 +14,15 @@ import (
 type fakeSource struct {
 	state      State
 	notServing []string
+	clusters   []ClusterInfo
 	metrics    *metrics.Registry
 }
 
-func (f *fakeSource) State() State         { return f.state }
-func (f *fakeSource) StartedAt() time.Time { return time.Now().Add(-90 * time.Second) }
-func (f *fakeSource) ConfigFile() string   { return "/etc/kest/kest.yaml" }
-func (f *fakeSource) NotServing() []string { return f.notServing }
+func (f *fakeSource) State() State            { return f.state }
+func (f *fakeSource) StartedAt() time.Time    { return time.Now().Add(-90 * time.Second) }
+func (f *fakeSource) ConfigFile() string      { return "/etc/kest/kest.yaml" }
+func (f *fakeSource) NotServing() []string    { return f.notServing }
+func (f *fakeSource) Clusters() []ClusterInfo { return f.clusters }
 
 func (f *fakeSource) Metrics() *metrics.Registry {
 	if f.metrics == nil {
@@ -64,6 +66,35 @@ func TestReady(t *testing.T) {
 	if rec := serve(t, h, http.MethodGet, "/ready"); rec.Code != http.StatusServiceUnavailable ||
 		rec.Body.String() != "not serving: app, reports\n" {
 		t.Errorf("/ready with clusters down = %d %q, want 503", rec.Code, rec.Body.String())
+	}
+}
+
+func TestClusters(t *testing.T) {
+	serving := true
+	src := &fakeSource{clusters: []ClusterInfo{
+		{Name: "app", Type: "php_workers", Serving: &serving, Status: map[string]int{"queue_length": 2}},
+		{Name: "plain", Type: "test"},
+	}}
+	rec := serve(t, NewHandler(src), http.MethodGet, "/clusters")
+	want := `{
+  "clusters": [
+    {
+      "name": "app",
+      "type": "php_workers",
+      "serving": true,
+      "status": {
+        "queue_length": 2
+      }
+    },
+    {
+      "name": "plain",
+      "type": "test"
+    }
+  ]
+}
+`
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "application/json" || rec.Body.String() != want {
+		t.Errorf("GET /clusters = %d %q\n%s", rec.Code, rec.Header().Get("Content-Type"), rec.Body.String())
 	}
 }
 

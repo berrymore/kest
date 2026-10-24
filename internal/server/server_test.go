@@ -340,3 +340,12 @@ func TestReadyFollowsClusters(t *testing.T) {
 		t.Errorf("/ready after the cluster recovered = %d", code)
 	}
 }
+
+func TestClusters(t *testing.T) {
+	s := newServer(t, "")
+	got := s.Clusters()
+	if len(got) != 1 || got[0].Name != "gate" || got[0].Type != "test_gate" || got[0].Serving == nil ||
+		!*got[0].Serving || got[0].Status != nil {
+		t.Errorf("Clusters() = %+v", got)
+	}
+}

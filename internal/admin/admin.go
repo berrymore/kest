@@ -1,6 +1,6 @@
 // Package admin implements the admin HTTP API, modeled on Envoy's admin
-// interface: readiness, server information, metrics and, later, config dumps
-// and cluster state.
+// interface: readiness, server information, cluster state, metrics and,
+// later, config dumps.
 package admin
 
 import (
@@ -32,7 +32,17 @@ type Source interface {
 	// NotServing names the clusters that can't serve requests now
 	// (cluster.Prober).
 	NotServing() []string
+	// Clusters describes every cluster, in config order.
+	Clusters() []ClusterInfo
 	Metrics() *metrics.Registry
+}
+
+// ClusterInfo describes a cluster for /clusters.
+type ClusterInfo struct {
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	Serving *bool  `json:"serving,omitempty"` // nil if the cluster can't tell (no cluster.Prober)
+	Status  any    `json:"status,omitempty"`  // the cluster's cluster.Reporter output
 }
 
 var endpoints = []struct {
@@ -40,6 +50,7 @@ var endpoints = []struct {
 }{
 	{"GET /ready", "200 when serving traffic; 503 while starting, draining, or a cluster has no live worker"},
 	{"GET /server_info", "version, state, uptime and config file (JSON)"},
+	{"GET /clusters", "every cluster with its state and workers (JSON)"},
 	{"GET /metrics", "metrics in the Prometheus text format"},
 }
 
@@ -67,6 +78,11 @@ func NewHandler(src Source) http.Handler {
 			return
 		}
 		fmt.Fprintln(w, state)
+	})
+	mux.HandleFunc("GET /clusters", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, struct {
+			Clusters []ClusterInfo `json:"clusters"`
+		}{src.Clusters()})
 	})
 	mux.Handle("GET /metrics", src.Metrics().Handler())
 	mux.HandleFunc("GET /server_info", func(w http.ResponseWriter, _ *http.Request) {

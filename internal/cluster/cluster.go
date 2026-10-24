@@ -31,5 +31,12 @@ type Prober interface {
 	Serving() bool
 }
 
+// Reporter is implemented by clusters that describe their state for the
+// admin /clusters endpoint.
+type Reporter interface {
+	// Report returns the cluster's state; it is encoded as JSON.
+	Report() any
+}
+
 // Types is the registry of cluster implementations, keyed by config type.
 var Types = registry.NewCategory[Cluster]("cluster")

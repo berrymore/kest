@@ -11,8 +11,8 @@ user's Symfony app in `playground/` (git-ignored, the user's sandbox) turned up,
 Done on the branch: **K-071** (a worker that prints to stdout gets an error that shows what it printed, plus a
 PHP hint), **K-073** (`make docs-check` and the milestone docs review in `review.md`), **K-060** (metrics:
 ADR-0007, a hand-written core with the Prometheus text format), **K-061** (`internal/metrics`; HTTP, pool, Go
-and process metrics) and **K-062** (`GET /metrics`, `/ready` per cluster). The plan is `plans/M3-operability.md`
-(Active).
+and process metrics), **K-062** (`GET /metrics`, `/ready` per cluster) and **K-074** (`GET /clusters`). The plan is
+`plans/M3-operability.md` (Active).
 
 ## In progress
 
@@ -81,6 +81,7 @@ None.
 
 ## Session log (newest first, keep ~15)
 
+- **2026-10-25** — K-074: `GET /clusters` through the optional `cluster.Reporter`.
 - **2026-10-25** — K-062: `GET /metrics`, `/ready` fails while a cluster has no live worker (`cluster.Prober`),
   `docs/metrics.md` with example queries.
 - **2026-10-25** — K-061: `internal/metrics` (fuzzed against Prometheus's parser), HTTP metrics in the router,
