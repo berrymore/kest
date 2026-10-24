@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
+	"syscall"
 	"time"
 
 	"github.com/berrymore/kest/internal/relay"
@@ -72,11 +74,52 @@ func (e *ProcessError) Unwrap() error {
 	return e.Err
 }
 
+// StdoutError reports bytes on a worker's stdout that are not a frame. Stdout
+// carries the protocol, so the command is not a RoadRunner worker, or it
+// printed something: an echo, a PHP warning with display_errors on.
+type StdoutError struct {
+	Output []byte // the start of what the worker printed, at most stdoutLimit bytes
+	Err    error  // what the relay reported: a *relay.ProtocolError or a broken pipe
+}
+
+// stdoutLimit bounds the output kept in a StdoutError.
+const stdoutLimit = 256
+
+func (e *StdoutError) Error() string {
+	more := ""
+	if len(e.Output) >= stdoutLimit {
+		more = "..."
+	}
+	return fmt.Sprintf("stdout is reserved for the RoadRunner protocol, but the worker printed %q%s", e.Output, more)
+}
+
+func (e *StdoutError) Unwrap() error {
+	return e.Err
+}
+
 // failed kills p, waits for it to exit and describes the failure.
 func failed(p process, op string, err error) *ProcessError {
 	p.Kill()
 	<-p.Done()
+	if out := strayOutput(p, err); len(out) > 0 {
+		err = &StdoutError{Output: out, Err: err}
+	}
 	return &ProcessError{Pid: p.Pid(), Op: op, Err: err, Exit: p.Err(), Stderr: p.Stderr()}
+}
+
+// strayOutput returns what the exited process p printed to stdout outside the
+// protocol, if err is what such output causes: a header the relay rejected,
+// or a broken pipe from a process that printed and exited before it read a
+// frame. Other errors leave frame bytes in the pipe, not stray output.
+func strayOutput(p process, err error) []byte {
+	if pe, ok := errors.AsType[*relay.ProtocolError](err); ok {
+		// pe.Data is the header the relay read: the first bytes printed.
+		return slices.Concat(pe.Data, p.UnreadStdout(stdoutLimit-len(pe.Data)))
+	}
+	if errors.Is(err, syscall.EPIPE) {
+		return p.UnreadStdout(stdoutLimit)
+	}
+	return nil
 }
 
 // handshake sends kest's pid and expects the worker's pid back, as RoadRunner

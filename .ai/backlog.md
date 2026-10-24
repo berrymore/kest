@@ -89,6 +89,11 @@ Milestone definitions: `roadmap.md`.
   `max_request_body`) before it queues for a worker, so up to `(workers + max_queue_size) × max_request_body`
   can be in memory (16 GB with the defaults and 1000 waiting uploads). Admit before reading the body, or cap
   the buffered bytes per cluster. (Found in M2; RR reads up to 1000 MB per request the same way.)
+- [x] K-071 Clear error when a worker prints to stdout outside the protocol: show what it printed (the rejected
+  header plus what is left in the pipe, up to 256 bytes; also when the pipe broke because a plain script printed
+  and exited) and, from `php_workers`, a hint: no RoadRunner loop, `display_errors=stderr`, Symfony's
+  `APP_RUNTIME` in `env` or `extra.runtime.class` rather than `.env` (`research/roadrunner.md`, Framework
+  runtimes). Found on 2026-10-25 with a Symfony app in `playground/`.
 
 ## M4 — HTTP edge features
 

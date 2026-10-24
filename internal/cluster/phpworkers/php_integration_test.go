@@ -295,6 +295,35 @@ func TestPHPErrors(t *testing.T) {
 	}
 }
 
+// A PHP script that is not a worker, like a Symfony app without the
+// RoadRunner runtime: it prints a page to stdout and exits.
+func TestPHPNotAWorker(t *testing.T) {
+	php, err := exec.LookPath("php")
+	if err != nil {
+		t.Skip("php is not in PATH")
+	}
+	cfg := DefaultConfig()
+	cfg.Command = []string{php, "-r", `echo "<!DOCTYPE html>\n<p>Hello</p>\n";`}
+	cfg.Pool.Workers = 1
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	c, err := New(&cfg, t.TempDir(), os.Environ(), logging.Discard())
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = c.Start(t.Context())
+	if err == nil {
+		_ = c.Stop(t.Context())
+		t.Fatal("Start succeeded")
+	}
+	for _, want := range []string{`but the worker printed "<!DOCTYPE html>\n<p>Hello</p>\n"`, "; " + stdoutHint} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("Start = %v\nwant it to contain %s", err, want)
+		}
+	}
+}
+
 func TestPHPConcurrent(t *testing.T) {
 	srv := phpServer(t, CodecJSON, func(c *Config) { c.Pool.Workers = 4 })
 	var wg sync.WaitGroup

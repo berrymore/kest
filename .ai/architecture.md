@@ -192,7 +192,8 @@ func (p *Pool) Exec(ctx context.Context, req Payload) (Payload, error)
 func (p *Pool) Workers() []Info                   // per slot: state, pid, jobs, started, memory
 func (p *Pool) Health() Health                    // healthy / degraded / unhealthy
 // Errors: ErrQueueFull, ErrNoWorker, ErrStopped, ErrStopRequested, *JobError (soft, worker kept),
-// *ProcessError (worker gone; wraps ErrExecTimeout or ErrStartTimeout on timeouts).
+// *ProcessError (worker gone; wraps ErrExecTimeout or ErrStartTimeout on timeouts, *StdoutError
+// with the start of the output when the worker printed to stdout outside the protocol).
 
 // internal/relay: goridge framing, verified against goridge v4 and roadrunner/goridge.
 type Frame struct {

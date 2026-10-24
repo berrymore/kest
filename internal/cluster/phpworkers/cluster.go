@@ -5,6 +5,7 @@ package phpworkers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -71,8 +72,18 @@ func newCluster(cfg *Config, configDir string, p pool, logger *slog.Logger) *Clu
 
 // Start starts the workers and returns once every one of them has booted.
 func (c *Cluster) Start(ctx context.Context) error {
-	return c.pool.Start(ctx)
+	err := c.pool.Start(ctx)
+	if _, ok := errors.AsType[*worker.StdoutError](err); ok {
+		return fmt.Errorf("%w; %s", err, stdoutHint)
+	}
+	return err
 }
+
+// stdoutHint explains the usual causes of a worker printing to stdout.
+const stdoutHint = "hint: the command must start a RoadRunner worker and print nothing to stdout " +
+	"(display_errors=stderr sends PHP errors to stderr); " +
+	"Symfony reads APP_RUNTIME before .env: " +
+	"set it in the cluster's env or as extra.runtime.class in composer.json"
 
 // Stop lets running requests finish, then stops the workers.
 func (c *Cluster) Stop(ctx context.Context) error {

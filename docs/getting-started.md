@@ -103,7 +103,9 @@ the [configuration reference](config.md#php_workers).
   mechanism.
 - **Stdout belongs to kest.** It carries the protocol. After `Worker::create()` the library sends
   `echo` and `print` output to stderr, which kest logs. Output before that, such as a PHP warning
-  during boot (the PHP CLI prints errors to stdout by default), makes the worker fail to start.
+  during boot (the PHP CLI prints errors to stdout by default; `display_errors=stderr` changes that),
+  makes the worker fail to start, and kest shows what it printed: `stdout is reserved for the
+  RoadRunner protocol, but the worker printed "…"`.
 - **Code changes need a restart.** A worker loads your code once. Restart kest to deploy; rolling
   worker restarts without downtime are planned (M3).
 - **Leaks are bounded by limits.** `pool.max_jobs` replaces a worker after that many requests,
@@ -134,7 +136,10 @@ Anything that runs on RoadRunner's HTTP worker should run on kest; kest is teste
           APP_RUNTIME: Runtime\RoadRunnerSymfonyNyholm\Runtime
   ```
 
-  (the test app is in [`test/e2e/testdata/symfony`](../test/e2e/testdata/symfony)).
+  (the test app is in [`test/e2e/testdata/symfony`](../test/e2e/testdata/symfony)). Set `APP_RUNTIME` in
+  `env` (or `extra.runtime.class` in `composer.json`), not in `.env`: `symfony/runtime` picks the runtime
+  before it reads `.env`. Without it the app runs as a plain script, prints a page to stdout, and the worker
+  fails to start.
 
 Other integrations (Laravel Octane, Spiral, Yii) haven't been tested yet. Those that need RoadRunner's
 RPC plugin, for example to reset workers from PHP or for RoadRunner's KV and jobs plugins, won't work:

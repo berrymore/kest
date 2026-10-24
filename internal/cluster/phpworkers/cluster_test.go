@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -22,14 +23,15 @@ func TestMain(m *testing.M) { leaktest.VerifyTestMain(m) }
 
 // fakePool answers every job with exec and records the last request.
 type fakePool struct {
-	exec    func(ctx context.Context, req worker.Payload) (worker.Payload, error)
-	last    worker.Payload
-	calls   int
-	started bool
-	stopped bool
+	exec     func(ctx context.Context, req worker.Payload) (worker.Payload, error)
+	startErr error
+	last     worker.Payload
+	calls    int
+	started  bool
+	stopped  bool
 }
 
-func (p *fakePool) Start(context.Context) error { p.started = true; return nil }
+func (p *fakePool) Start(context.Context) error { p.started = true; return p.startErr }
 func (p *fakePool) Stop(context.Context) error  { p.stopped = true; return nil }
 
 func (p *fakePool) Exec(ctx context.Context, req worker.Payload) (worker.Payload, error) {
@@ -195,6 +197,30 @@ func TestStartStop(t *testing.T) {
 	}
 	if err := c.Stop(t.Context()); err != nil || !p.stopped {
 		t.Errorf("Stop: %v, stopped %v", err, p.stopped)
+	}
+}
+
+func TestStartErrors(t *testing.T) {
+	printed := &worker.ProcessError{Pid: 1, Op: "handshake", Err: &worker.StdoutError{Output: []byte("<!DOCTYPE html>")}}
+	tests := []struct {
+		name     string
+		err      error
+		wantHint bool
+	}{
+		{name: "output on stdout", err: fmt.Errorf("start workers: %w", printed), wantHint: true},
+		{name: "other", err: errors.New("start workers: boom")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := newTestCluster(t, nil, &fakePool{startErr: tt.err})
+			err := c.Start(t.Context())
+			if !errors.Is(err, tt.err) {
+				t.Fatalf("Start = %v, want it to wrap %v", err, tt.err)
+			}
+			if hint := strings.Contains(err.Error(), "; "+stdoutHint); hint != tt.wantHint {
+				t.Errorf("Start = %v, hint %v, want %v", err, hint, tt.wantHint)
+			}
+		})
 	}
 }
 

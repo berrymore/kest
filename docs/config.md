@@ -279,8 +279,8 @@ if one of them can't boot (the error shows the worker's exit status and the end 
 Workers that crash later are replaced, with a growing delay (up to 30s) if they keep failing. On
 shutdown, running requests finish first. Worker stderr is logged line by line with `cluster` and
 `worker_pid`. Anything a worker prints to stdout before `Worker::create()` (for example a PHP warning
-during boot, since PHP's CLI prints errors to stdout) breaks the protocol: kest reports it as a
-failed start.
+during boot, since PHP's CLI prints errors to stdout) breaks the protocol: the worker fails to start,
+and the error shows the start of what it printed.
 
 **Codec.** The request head (method, URI, headers, cookies, …) travels as JSON or protobuf. PHP's
 `roadrunner/http` reads either and answers in the same format. `json` (the default) works with every

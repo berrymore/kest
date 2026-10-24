@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -33,6 +34,11 @@ type process interface {
 	Err() error
 	// Stderr returns the last lines the process wrote to stderr.
 	Stderr() string
+	// UnreadStdout returns up to n bytes the process wrote to stdout that
+	// nobody has read. Call it after Done, to show what a process printed
+	// outside the protocol. It takes no context: it reads the pipe of a dead
+	// process, for at most unreadWait.
+	UnreadStdout(n int) []byte
 	// Close releases the streams. Call it after Done.
 	Close()
 }
@@ -40,6 +46,10 @@ type process interface {
 // waitDelay bounds how long Wait waits for stderr after the process exits:
 // a child of the worker may keep the pipe open.
 const waitDelay = time.Second
+
+// unreadWait bounds UnreadStdout: a child of the worker may keep the pipe
+// open, so EOF may never come.
+const unreadWait = 100 * time.Millisecond
 
 // processConfig describes the command to run.
 type processConfig struct {
@@ -121,6 +131,15 @@ func (p *execProcess) Pid() int              { return p.cmd.Process.Pid }
 func (p *execProcess) Conn() *relay.Conn     { return p.conn }
 func (p *execProcess) Done() <-chan struct{} { return p.done }
 func (p *execProcess) Stderr() string        { return p.stderr.tail() }
+
+func (p *execProcess) UnreadStdout(n int) []byte {
+	if n <= 0 || p.stdout.SetReadDeadline(time.Now().Add(unreadWait)) != nil {
+		return nil
+	}
+	b := make([]byte, n)
+	n, _ = io.ReadFull(p.stdout, b) // the pipe holds what the process wrote before it died
+	return b[:n]
+}
 
 func (p *execProcess) Err() error {
 	<-p.done

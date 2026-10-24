@@ -236,6 +236,23 @@ after `HTTP/` (`2.0` → `2`). A request with an empty context and an empty body
 `Environment::getVersion()`; nothing in `roadrunner/http` or `roadrunner/worker` uses it ✅. Frameworks branch on
 `RR_MODE` (e.g. Spiral's dispatchers) ❓.
 
+## Framework runtimes ✅ (checked 2026-10-25)
+
+**Symfony** (`symfony/runtime` v8.1.9 at
+[8670c7b](https://github.com/symfony/runtime/tree/8670c7b20dacb5b1bcc07891dc35546376685af1), with
+`runtime/roadrunner-symfony-nyholm` 1.0.0; read in the installed sources): the generated
+`vendor/autoload_runtime.php`
+([template](https://github.com/symfony/runtime/blob/8670c7b20dacb5b1bcc07891dc35546376685af1/Internal/autoload_runtime.template))
+picks the runtime class with `$_SERVER['APP_RUNTIME'] ??= $_ENV['APP_RUNTIME'] ?? <class>`, where `<class>` is
+`extra.runtime.class` from `composer.json`, by default `SymfonyRuntime`
+([ComposerPlugin.php](https://github.com/symfony/runtime/blob/8670c7b20dacb5b1bcc07891dc35546376685af1/Internal/ComposerPlugin.php)).
+`.env` is loaded later, by the runtime's constructor
+([SymfonyRuntime.php](https://github.com/symfony/runtime/blob/8670c7b20dacb5b1bcc07891dc35546376685af1/SymfonyRuntime.php)),
+so `APP_RUNTIME` in `.env` has no effect, although the README of `runtime/roadrunner-symfony-nyholm` shows it
+there. It has to be a real environment variable (kest: the cluster's `env`; RoadRunner: `server.env`) or
+`extra.runtime.class`. Without it the app handles one request built from the CLI environment (`GET http://:/`),
+prints the response to stdout and exits; reproduced with Symfony 8.1 in `playground/` (K-071).
+
 ## Other RR notes ❓
 
 - Plugins are wired by the Endure container; the RPC plugin (goridge RPC over TCP, default `127.0.0.1:6001`)
