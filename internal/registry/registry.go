@@ -38,6 +38,9 @@ type BuildContext struct {
 	// Name is the component's configured name, for named components such as clusters.
 	Name   string
 	Logger *slog.Logger
+	// ConfigDir is the absolute directory of the config file. Extensions
+	// resolve relative paths against it. Empty when there is no file.
+	ConfigDir string
 }
 
 // Category is the set of factories for one extension point.

@@ -50,12 +50,22 @@ func DefaultConfig() Config {
 	}
 }
 
-// Validate reports every invalid field. Messages start with the Go field
-// name; callers with a config file translate them to YAML paths.
+// FieldError is an invalid Config field. Callers with a config file
+// translate Field, the Go field name, to their own path.
+type FieldError struct {
+	Field string // e.g. "Workers"
+	Msg   string
+}
+
+func (e *FieldError) Error() string {
+	return e.Field + ": " + e.Msg
+}
+
+// Validate reports every invalid field as a *FieldError, joined.
 func (c *Config) Validate() error {
 	var errs []error
 	add := func(field, format string, args ...any) {
-		errs = append(errs, fmt.Errorf("%s: %s", field, fmt.Sprintf(format, args...)))
+		errs = append(errs, &FieldError{Field: field, Msg: fmt.Sprintf(format, args...)})
 	}
 
 	if len(c.Command) == 0 || c.Command[0] == "" {

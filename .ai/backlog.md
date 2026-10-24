@@ -49,8 +49,10 @@ Milestone definitions: `roadmap.md`.
 - [x] K-040 Research: RR HTTP payload (JSON vs protobuf request context, uploads, cookies, attributes,
   response format, streaming/chunked responses), RR `rpc` plugin usage by PHP libraries (Q-G). Verified against
   RR http plugin v6.0.0 and `roadrunner/http` 4.2.1, plus an experiment → `research/roadrunner.md` (2026-10-25).
-- [ ] K-041 `php_workers` cluster type: config, defaults, validation, wiring to pool. Decide the worker
+- [x] K-041 `php_workers` cluster type: config, defaults, validation, wiring to pool. Decide the worker
   environment policy (inherit kest's environment like RR, or explicit only) and `RR_MODE`/`RR_VERSION`.
+  Inherit by default (`inherit_env`), `RR_MODE=http`, no `RR_VERSION`; paths relative to the config file
+  (plan D2–D4).
 - [x] K-042 Request encoding: method, URI, headers, cookies, query, body (bounded), remote address, TLS info.
   `internal/rrhttp`: JSON and protobuf contexts, PHP form trees (checked against RR's code by a differential fuzz).
 - [ ] K-043 Multipart uploads: temp files, size limits, cleanup.

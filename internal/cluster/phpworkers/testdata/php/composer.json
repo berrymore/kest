@@ -1,0 +1,14 @@
+{
+    "name": "kest/phpworkers-integration-test",
+    "description": "PSR-7 worker for kest's internal/cluster/phpworkers integration tests",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.2",
+        "nyholm/psr7": "^1.8",
+        "roadrunner/http": "^4.2"
+    },
+    "config": {
+        "sort-packages": true
+    }
+}

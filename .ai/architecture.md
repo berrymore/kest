@@ -2,10 +2,10 @@
 
 > A living document. It describes the **target** design and marks what is implemented.
 > Legend: 🟢 implemented · 🟡 in progress · ⚪ planned.
-> **Last reviewed: 2026-10-25 (M1 done).** Implemented: config loading and validation, extension
+> **Last reviewed: 2026-10-25 (M2 in progress).** Implemented: config loading and validation, extension
 > registry, server lifecycle, HTTP listeners, router with `direct_response`, admin `/ready` and
-> `/server_info`; the goridge relay and the worker pool (`internal/relay`, `internal/worker`), not yet wired
-> into a cluster type. No cluster types or filters exist yet.
+> `/server_info`; the goridge relay and the worker pool (`internal/relay`, `internal/worker`); the RoadRunner
+> HTTP payload (`internal/rrhttp`) and the `php_workers` cluster type. No HTTP filters exist yet.
 
 ## 1. Big picture 🟡
 
@@ -40,19 +40,21 @@ kest is a single Go binary. At startup it reads one YAML file and builds a graph
   using a framed protocol (ADR-0003), and is watched by a **supervisor**.
 - The **admin server** exposes readiness, effective config, cluster and worker state, and metrics.
 
-## 2. Request flow: HTTP → PHP ⚪ (steps 1–4 🟢)
+## 2. Request flow: HTTP → PHP 🟢
 
 1. The listener accepts a connection; the `net/http` server parses the request.
 2. HTTP filters run in config order (e.g. `request_id` → `access_log` → `cors`).
 3. The router picks a virtual host by `Host`, then the first route whose `match` fits.
 4. Action `route: {cluster: php_app, timeout: 30s}` → the request context gets the route timeout.
-5. The `php_workers` cluster encodes the request into a **payload**: `context` = request head
-   (method, URI, headers, cookies, remote address, …) encoded with a codec; `body` = raw bytes, bounded
-   by `max_request_body`.
+5. The `php_workers` cluster encodes the request into a **payload** (`rrhttp.NewRequest`): `context` =
+   request head (method, absolute URI, headers, cookies, remote IP, …) as JSON or protobuf (`codec`);
+   `body` = the raw body or, for forms, a JSON tree of fields in PHP's bracket syntax; bounded by
+   `max_request_body`.
 6. The **pool** takes a free worker, waiting at most `allocate_timeout` in a bounded queue, and sends
    the payload over the relay.
 7. The PHP worker (`$worker->waitRequest()` … `$worker->respond()`) answers; kest decodes status,
-   headers and body and writes the response.
+   headers and body (`rrhttp.DecodeResponse`) and writes the response with its own framing
+   (`rrhttp.WriteResponse`). Pool and worker errors become 5xx (`rrhttp.ErrorStatus`).
 8. The worker goes back to the pool. The supervisor checks its limits (max_jobs, memory, TTL) and
    recycles it if needed.
 
@@ -75,7 +77,6 @@ listeners:
   - name: public
     address: 0.0.0.0:8080
     http:
-      max_request_body: 16MB
       filters:               # run in order; the router is implicit and always last
         - type: request_id
         - type: access_log
@@ -96,9 +97,10 @@ clusters:
   - name: php_app
     type: php_workers
     config:
-      command: [php, public/worker.php]
-      env: { APP_ENV: prod }
-      relay: pipes
+      command: [php, public/worker.php]   # dir defaults to the config file's directory
+      env: { APP_ENV: prod }               # added to kest's environment (inherit_env: true)
+      codec: json                          # json | proto
+      max_request_body: 16MB
       pool:
         workers: 8
         max_jobs: 1000
@@ -154,8 +156,9 @@ type Factory[T any] struct {
 	Build     func(bc BuildContext, cfg any) (T, error) // no side effects: no goroutines, no I/O
 }
 type BuildContext struct {
-	Name   string // component name (clusters)
-	Logger *slog.Logger
+	Name      string // component name (clusters)
+	Logger    *slog.Logger
+	ConfigDir string // absolute directory of the config file: relative paths resolve against it
 }
 func Build[T any](c *Category[T], ext *config.Extension, bc BuildContext) (T, error)
 
@@ -258,7 +261,8 @@ Stopped ──▶ Starting ──▶ Ready ⇄ Working ──▶ Stopping ──
   unused worker is replaced too. Only memory is polled (`watch_tick`); the other limits are timers and counters.
 - Backoff applies after a worker fails without completing a job within 10 s of its start; the pool never
   panics, `Health()` reports it.
-- Processes: explicit environment (`Config.Env` + `RR_RELAY=pipes`), own process group (SIGKILL hits the
+- Processes: explicit environment (`Config.Env` + `RR_RELAY=pipes`; `php_workers` builds it from kest's
+  environment unless `inherit_env: false`, then `env`, then `RR_MODE=http`), own process group (SIGKILL hits the
   group), `Pdeathsig` on Linux, stderr logged line by line with `worker_pid`.
 
 ## 6. Startup, shutdown, reload 🟢 (reload ⚪)
@@ -304,8 +308,8 @@ internal/logging/            🟢 slog setup
 internal/cluster/            🟢 Cluster interface and registry category
 internal/leaktest/           🟢 goroutine-leak check for test binaries (goleak)
 internal/filters/<name>/     ⚪ built-in HTTP filters, one package each
-internal/cluster/phpworkers/ ⚪ php_workers: config, pool lifecycle, HTTP handler
-internal/rrhttp/             🟡 HTTP ↔ RoadRunner HTTP payload (request context JSON/protobuf, form trees, responses)
+internal/cluster/phpworkers/ 🟢 php_workers: config, worker environment, pool lifecycle, HTTP handler
+internal/rrhttp/             🟢 HTTP ↔ RoadRunner HTTP payload (request context JSON/protobuf, form trees, responses)
 internal/worker/             🟢 process, pool, supervisor (language-agnostic); workertest/ has fake workers
 internal/relay/              🟢 goridge-compatible frame codec and Conn (pipes; sockets later, K-029)
 internal/metrics/            ⚪ (M3) metrics
@@ -318,7 +322,7 @@ test/e2e/                    🟢 end-to-end tests: build the binary with -race,
 ## 8. Observability and admin 🟡
 
 - **Logs:** `log/slog`, text or JSON, level set in config. Worker stderr goes to logs line by line, tagged
-  with `worker_pid` (🟢) and `cluster` (M2).
+  with `cluster` and `worker_pid` (🟢).
 - **Metrics (M3):** requests (count, latency, status) per listener, route and cluster; pool queue length
   and wait time; workers by state; restarts by reason; worker memory. Library to be chosen (Q-E).
 - **Tracing:** OpenTelemetry later; the `request_id` filter arrives in M3.
@@ -351,9 +355,9 @@ at the start of M5.
 | ID | Question | Current leaning |
 |---|---|---|
 | Q-A | HTTP filter model: `func(http.Handler) http.Handler`, or Envoy-like decode/encode phases with per-filter state? | Middleware first; revisit when WASM filters arrive |
-| Q-B | Request body: buffer it whole (RR-style, bounded by `max_request_body`) or stream it to the worker? | Buffer in M2; streaming later |
-| Q-C | Streaming responses from PHP (SSE, large downloads) | Research in K-040; implement after M2 |
+| Q-B | Request body: buffer it whole (RR-style, bounded by `max_request_body`) or stream it to the worker? | Buffered (M2). The RR protocol sends the body in the request frame, so streaming it would need a protocol extension |
+| Q-C | Streaming responses from PHP (SSE, large downloads) | Protocol known (K-040: `STREAM` frames, opt-in on the PHP side); implement after M2 |
 | Q-D | Cluster interface: `http.Handler`, or a kest request/response type shared by php, wasm and proxy? | `http.Handler` until a second cluster type exists |
 | Q-E | Metrics: `prometheus/client_golang`, OpenTelemetry metrics, or a minimal custom exposition? | Decide at the start of M3 |
 | Q-F | Per-route priority and queueing inside one pool, on top of pool isolation | After M3 |
-| Q-G | PHP → kest RPC (RoadRunner's `rpc` plugin equivalent): needed for which PHP libraries? | Research in K-040 |
+| Q-G | PHP → kest RPC (RoadRunner's `rpc` plugin equivalent): needed for which PHP libraries? | Not for HTTP: `roadrunner/http` and `roadrunner/worker` don't use it (K-040); libraries for RR's KV, jobs, metrics, lock plugins do |

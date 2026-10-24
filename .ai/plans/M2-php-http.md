@@ -130,7 +130,7 @@ plugin v6.0.0 and `roadrunner/http` 4.2.1, and by experiment). Layering: `cluste
    tree clean, fuzz targets clean.
 3. [x] **Response decoding and errors** (K-044) — `rrhttp`: both codecs, header hygiene, trailers, body framing,
    error → status. Acceptance: tests for each rule in D5 and D7; decoder fuzz clean.
-4. [ ] **`php_workers` cluster** (K-041) — config, defaults, validation, env, `BuildContext` config dir,
+4. [x] **`php_workers` cluster** (K-041) — config, defaults, validation, env, `BuildContext` config dir,
    `ServeHTTP`, registration. Acceptance: config and handler tests; PHP integration tests green on both codecs.
 5. [ ] **`examples/php-hello`** (K-045) — composer project, PSR-7 worker, `kest.yaml`, README; e2e test with the
    real binary. Acceptance: `curl` works; e2e green. **The vertical slice is done here.**

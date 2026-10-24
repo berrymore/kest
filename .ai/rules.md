@@ -84,7 +84,8 @@ conflicts with a rule, follow the user, and if the instruction is durable, updat
 - The admin server binds to `127.0.0.1` by default.
 - Request header and body sizes are bounded by default.
 - Config dumps redact secrets (fields marked sensitive, env values).
-- Worker processes get an explicit, documented environment.
+- Worker processes get a documented environment: `php_workers` passes kest's own (like RoadRunner; off with
+  `inherit_env: false`), then the configured `env`, then the protocol variables (`RR_MODE`, `RR_RELAY`).
 
 ## 9. Git
 
