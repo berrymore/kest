@@ -54,4 +54,14 @@ func main() {
 		Attributes: map[string]*httpV1.HeaderValue{"route": hv("home")},
 	})
 	write(dir, "request_minimal.pb", &httpV1.Request{Method: "GET", Uri: "http://localhost/"})
+	write(dir, "response_full.pb", &httpV1.Response{
+		Status: 201,
+		Headers: map[string]*httpV1.HeaderValue{
+			"Content-Type": hv("application/json"),
+			"Set-Cookie":   hv("a=1; Path=/", "b=2; Path=/"),
+			"X-Empty":      hv(),
+			"X-Long":       hv(strings.Repeat("v", 300)),
+		},
+	})
+	write(dir, "response_negative_status.pb", &httpV1.Response{Status: -1})
 }

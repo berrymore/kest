@@ -2,6 +2,8 @@ package rrhttp
 
 import (
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"maps"
 	"slices"
 )
@@ -27,7 +29,9 @@ import (
 // Protobuf wire types.
 const (
 	wireVarint = 0
+	wireI64    = 1
 	wireBytes  = 2
+	wireI32    = 5
 )
 
 // Field numbers of http.v1.Request.
@@ -41,6 +45,12 @@ const (
 	reqRawQuery   = 7
 	reqParsed     = 8
 	reqAttributes = 10
+)
+
+// Field numbers of http.v1.Response.
+const (
+	respStatus  = 1
+	respHeaders = 2
 )
 
 // appendRequestProto appends req's context as an http.v1.Request.
@@ -121,4 +131,114 @@ func uvarintLen(v uint64) int {
 		n++
 	}
 	return n
+}
+
+// decodeResponseProto decodes an http.v1.Response. As protobuf says, the
+// last value of a repeated scalar field and the last entry for a map key
+// win, and unknown fields are skipped.
+func decodeResponseProto(b []byte, resp *Response) error {
+	for len(b) > 0 {
+		field, wire, data, rest, err := nextField(b)
+		if err != nil {
+			return err
+		}
+		b = rest
+		switch {
+		case field == respStatus && wire == wireVarint:
+			v, _ := binary.Uvarint(data)
+			resp.Status = clampStatus(int64(v)) //nolint:gosec // int64 fields are encoded as two's complement
+		case field == respHeaders && wire == wireBytes:
+			name, values, err := decodeHeaderEntry(data)
+			if err != nil {
+				return fmt.Errorf("headers: %w", err)
+			}
+			if resp.Header == nil {
+				resp.Header = make(map[string][]string)
+			}
+			resp.Header[name] = values
+		}
+	}
+	return nil
+}
+
+// decodeHeaderEntry decodes a map<string, HeaderValue> entry.
+func decodeHeaderEntry(b []byte) (string, []string, error) {
+	var (
+		name   string
+		values []string
+	)
+	for len(b) > 0 {
+		field, wire, data, rest, err := nextField(b)
+		if err != nil {
+			return "", nil, err
+		}
+		b = rest
+		switch {
+		case field == 1 && wire == wireBytes:
+			name = string(data)
+		case field == 2 && wire == wireBytes:
+			// A map entry's message value: a repeated field merges.
+			if values, err = decodeHeaderValue(data, values); err != nil {
+				return "", nil, err
+			}
+		}
+	}
+	return name, values, nil
+}
+
+// decodeHeaderValue appends the values of a HeaderValue message to values.
+func decodeHeaderValue(b []byte, values []string) ([]string, error) {
+	for len(b) > 0 {
+		field, wire, data, rest, err := nextField(b)
+		if err != nil {
+			return nil, err
+		}
+		b = rest
+		if field == 1 && wire == wireBytes {
+			values = append(values, string(data))
+		}
+	}
+	return values, nil
+}
+
+var errTruncated = errors.New("truncated protobuf message")
+
+// nextField splits off the first field of b. data is the varint for
+// wireVarint, the contents for wireBytes, and the raw bytes for wireI64 and
+// wireI32.
+func nextField(b []byte) (field uint64, wire int, data, rest []byte, err error) {
+	tag, n := binary.Uvarint(b)
+	if n <= 0 {
+		return 0, 0, nil, nil, errTruncated
+	}
+	field, wire, b = tag>>3, int(tag&7), b[n:]
+	if field == 0 {
+		return 0, 0, nil, nil, errors.New("invalid field number 0")
+	}
+	switch wire {
+	case wireVarint:
+		_, n = binary.Uvarint(b)
+		if n <= 0 {
+			return 0, 0, nil, nil, errTruncated
+		}
+		return field, wire, b[:n], b[n:], nil
+	case wireI64, wireI32:
+		size := 8
+		if wire == wireI32 {
+			size = 4
+		}
+		if len(b) < size {
+			return 0, 0, nil, nil, errTruncated
+		}
+		return field, wire, b[:size], b[size:], nil
+	case wireBytes:
+		l, n := binary.Uvarint(b)
+		if n <= 0 || l > uint64(len(b)-n) { //nolint:gosec // n <= len(b)
+			return 0, 0, nil, nil, errTruncated
+		}
+		b = b[n:]
+		return field, wire, b[:l], b[l:], nil
+	default:
+		return 0, 0, nil, nil, fmt.Errorf("unsupported wire type %d", wire)
+	}
 }

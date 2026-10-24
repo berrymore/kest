@@ -54,7 +54,8 @@ Milestone definitions: `roadmap.md`.
 - [x] K-042 Request encoding: method, URI, headers, cookies, query, body (bounded), remote address, TLS info.
   `internal/rrhttp`: JSON and protobuf contexts, PHP form trees (checked against RR's code by a differential fuzz).
 - [ ] K-043 Multipart uploads: temp files, size limits, cleanup.
-- [ ] K-044 Response decoding: status, multi-value headers, body; error mapping (worker error → 5xx).
+- [x] K-044 Response decoding: status, multi-value headers, body; error mapping (worker error → 5xx).
+  `rrhttp.DecodeResponse` (JSON and protobuf), `WriteResponse` (framing, header hygiene, trailers), `ErrorStatus`.
 - [ ] K-045 `examples/php-hello`: composer.json + PSR-7 worker + kest.yaml.
 - [ ] K-046 Framework smoke test (Symfony RoadRunner runtime or Laravel Octane RR worker).
 - [ ] K-047 Docker e2e environment with a PHP version matrix (8.3 / 8.4 / 8.5), runnable locally
