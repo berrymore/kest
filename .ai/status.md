@@ -10,7 +10,7 @@ user's Symfony app in `playground/` (git-ignored, the user's sandbox) turned up,
 
 Done on the branch: **K-071** (a worker that prints to stdout gets an error that shows what it printed, plus a
 PHP hint), **K-073** (`make docs-check` and the milestone docs review in `review.md`) and **K-060** (metrics:
-ADR-0007, a hand-written core with the Prometheus text format).
+ADR-0007, a hand-written core with the Prometheus text format). The plan is `plans/M3-operability.md` (Active).
 
 ## In progress
 
@@ -18,16 +18,13 @@ Nothing half-done.
 
 ## Next up: how to continue M3 in a fresh session
 
-0. **Git:** `git switch feat/m3-operability`. One commit per backlog item; ask before every commit unless the
-   user says otherwise for M3.
-1. **Read first:** this file → `roadmap.md` § M3 → `backlog.md` § M3 (K-060…K-073) → `architecture.md` § 6 and
-   § 8 → `plans/M2-php-http.md` (decisions and outcome).
-2. **Write `plans/M3-operability.md`.** Metrics follow ADR-0007 (a hand-written core in `internal/metrics`). Candidates for a first vertical slice: `access_log` + `request_id`
-   filters (K-064, the first HTTP filters; Q-A filter model) and `/clusters` in the admin API (K-062), then
-   rolling reset (K-063), which needs a pool API for replacing workers one by one; K-072 (replace workers on
-   file changes) builds on it.
-3. Get the user's approval of the plan before writing code.
-4. **End of M3:** the docs review (`review.md`) before `gh pr create`, and again before the merge if the branch
+0. **Git:** `git switch feat/m3-operability`. One commit per backlog item. For M3 the user allows the agent to
+   commit each item itself once `make check` is green; the PR and the merge still wait for the user.
+1. **Read first:** this file → `plans/M3-operability.md` (Active: decisions D1–D10, steps) → `backlog.md` § M3
+   (K-060…K-075) → `architecture.md` § 4 and § 8 → ADR-0007 (metrics).
+2. **Continue with the plan's first open step.** The user approved the plan with D1–D10 and leaves technical
+   details to the agent; schema changes beyond the plan still need the user's OK.
+3. **End of M3:** the docs review (`review.md`) before `gh pr create`, and again before the merge if the branch
    changed.
 
 ## Open questions (need a decision from the user)
@@ -36,6 +33,9 @@ None.
 
 ## Resolved decisions
 
+- 2026-10-25 — M3: the agent commits each item itself after a green `make check`, until the end of M3.
+- 2026-10-25 — The M3 plan and its decisions D1–D10 approved as a whole (was Q9), including the schema changes
+  it proposes; the user leaves technical details to the agent.
 - 2026-10-25 — Metrics (Q-E, was Q8): ADR-0007 accepted, a hand-written core in `internal/metrics` with the
   Prometheus text format; `github.com/prometheus/common` (`expfmt`) approved as a test-only dependency.
 - 2026-10-25 — The user merged the M2 PR; decisions D1–D8 (`plans/M2-php-http.md`) went in as proposed (was Q7).
@@ -82,7 +82,8 @@ None.
 - **2026-10-25** — K-060: built the same metrics program on `client_golang`, VictoriaMetrics/metrics,
   OpenTelemetry and a 187-line hand-written core; compared binary size, linked modules and update cost; checked
   the prototype's output with Prometheus's own parser; checked that Prometheus 3 scrapes text 0.0.4 by default.
-  Drafted ADR-0007; the user accepted it and the test-only `expfmt`.
+  Drafted ADR-0007; the user accepted it and the test-only `expfmt`. Wrote `plans/M3-operability.md`; the user
+  approved it. Split K-062 into K-062, K-074, K-075.
 - **2026-10-25** — M3 started on `feat/m3-operability`. The user's Symfony 8.1 app in `playground/` didn't start:
   `symfony/runtime` reads `APP_RUNTIME` before `.env`, so the app ran as a plain script and printed HTML to
   stdout, and kest's error showed 12 bytes of it. K-071: `worker.StdoutError` with the output (the rejected

@@ -77,7 +77,7 @@ Out of scope: streaming responses, metrics (M3).
 
 **Goal:** you can run it in production and know what it is doing.
 
-Scope [K-060…K-073]:
+Scope [K-060…K-075]:
 - Metrics (Q-E), admin `/config_dump`, `/clusters`, `/clusters/{name}/reset`, `/metrics`.
 - Rolling worker reset (admin and SIGHUP) without failed requests.
 - Filters: `access_log`, `request_id`, `recovery`; per-route timeouts; header and body limits.

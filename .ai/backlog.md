@@ -75,8 +75,8 @@ Milestone definitions: `roadmap.md`.
   `internal/metrics` with the Prometheus text format, `expfmt` as a test-only oracle; measured against
   `client_golang`, VictoriaMetrics/metrics and OpenTelemetry.
 - [ ] K-061 Metrics: requests, latency, status per listener/route/cluster; pool queue; worker states; restarts; memory.
-- [ ] K-062 Admin: `/config_dump` (with redaction), `/clusters`, `POST /clusters/{name}/reset`, `/metrics`.
-  `/ready` must use `worker.Health() == Unhealthy` only: `Degraded` is normal for a moment whenever a worker is
+- [ ] K-062 Admin: `/metrics` (split on 2026-10-25: `/clusters` is K-074, `/config_dump` K-075,
+  `POST /clusters/{name}/reset` belongs to K-063). `/ready` must use `worker.Health() == Unhealthy` only: `Degraded` is normal for a moment whenever a worker is
   recycled (max_jobs, ttl).
 - [ ] K-063 Rolling reset without failed requests (admin and SIGHUP).
 - [ ] K-064 Filters: `access_log`, `request_id`, `recovery`.
@@ -103,6 +103,9 @@ Milestone definitions: `roadmap.md`.
   `make test`) checks links, make targets, IDs, the ADR index, the layout, the config reference, tool versions,
   status dates; `.ai/review.md` and the `docs-reviewer` agent run before every milestone PR and merge. Asked for
   on 2026-10-25 after `status.md` still said "waiting for review" with M2 merged.
+- [ ] K-074 Admin `/clusters`: each cluster's type and health, and its workers (slot, state, pid, jobs, age,
+  memory), from an optional interface that clusters implement.
+- [ ] K-075 Admin `/config_dump`: the effective config as YAML, with the `env` values of clusters redacted.
 
 ## M4 — HTTP edge features
 
