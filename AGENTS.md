@@ -109,12 +109,15 @@ Full list: `.ai/rules.md`. The ones that matter most:
 
 ## Git
 
+Full workflow: `.ai/rules.md` § 9.
+
 - Remote: `origin` → `git@github.com:berrymore/kest.git` (public). Default branch: `main`.
-- **Never commit without asking.** When a commit seems due, stop and ask; the user allows it or says to
-  finish first. Commits are coarse: 1–3 per large task, no micro-commits. Never push unless asked.
+- **One branch per milestone** from `main`: `feat/m<N>-<slug>`. Nothing is committed to `main` directly.
+- **One commit per backlog item** (`K-NNN` in the subject), plus separate `docs:` commits for plans and status.
+- **Ask before every commit**, unless the user said otherwise for the current milestone. `make check` first.
+- **Merge via PR:** at the end of the milestone, ask, push the branch, `gh pr create`; after the user's review
+  and go-ahead, `gh pr merge --squash --delete-branch`.
 - Conventional Commits (`feat(config): …`, `fix(worker): …`, `docs: …`).
-- Milestone work happens on a branch from `main` (M1: `feat/m1-worker-pool`); branches are merged into `main`
-  with **squash merge** only.
 - No CI yet: the user develops alone and locally. Run the checks from the Commands table yourself
   before declaring work done.
 

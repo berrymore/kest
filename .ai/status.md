@@ -18,6 +18,8 @@ Nothing. M1 was squash-merged into `main` and pushed on 2026-10-25 (branch `feat
 
 ## Next up: how to start M2 in a fresh session
 
+0. **Git first** (`rules.md` § 9): create `feat/m2-php-http` from an up-to-date `main`. From then on, one commit
+   per backlog item.
 1. **Read first:** this file → `roadmap.md` § M2 → `backlog.md` § M2 (K-040…K-048) → `research/roadrunner.md`
    ("HTTP over the worker protocol" is still ❓) → `architecture.md` § 2, § 3, § 4 (worker API) and "Adding an
    extension" → `plans/M1-worker-pool.md` "Outcome".
@@ -25,7 +27,11 @@ Nothing. M1 was squash-merged into `main` and pushed on 2026-10-25 (branch `feat
    mapping and the payload codec) and `roadrunner/http` (PHP, `PSR7Worker`, `HttpWorker`), plus `roadrunner/api-dto`
    (protobuf messages). `go mod download` and `composer require` into the scratchpad; pin links to commits; check
    by experiment with a scratch Go client against a real `PSR7Worker`.
-3. **Write `plans/M2-php-http.md`.** Decisions to raise: the `php_workers` YAML schema (maps onto
+3. **Write `plans/M2-php-http.md`, vertical slice first** (the user's call, 2026-10-25): the first steps make
+   `curl localhost:8080/` reach an unmodified `roadrunner/http` PSR-7 worker and come back, covered by an e2e test:
+   K-040 → K-041 (`php_workers`) → K-042 + K-044 (request/response mapping, error statuses) → K-045
+   (`examples/php-hello`). Only then K-043 (uploads), K-046 (framework smoke test), K-047 (Docker PHP matrix),
+   K-048 (docs). Decisions to raise: the `php_workers` YAML schema (maps onto
    `worker.Config`; draft in `architecture.md` § 3), the worker environment policy (inherit kest's env like RR, or
    explicit only; `RR_MODE=http`, `RR_VERSION`), HTTP status mapping of pool errors (queue full / no worker → 503,
    `ErrExecTimeout` → 504, `*JobError` → 500, `*ProcessError` → 502), the PHP version matrix in Docker (K-047).
@@ -45,10 +51,13 @@ None right now.
   (matrix 8.3 / 8.4 / 8.5), develop on 8.5.
 - 2026-10-24 — Public repo `github.com/berrymore/kest`, no CI for now (K-003 deferred); `make check` instead.
 - 2026-10-24 — YAML library: `go.yaml.in/yaml/v4` v4.0.0-rc.6, chosen by experiment (ADR-0005).
-- 2026-10-24 — Commits: never without asking; coarse (1–3 per large task); squash merge once PRs start.
+- 2026-10-25 — Git workflow (`rules.md` § 9): a branch per milestone; one commit per backlog item; ask before
+  every commit unless told otherwise for the milestone; merge via a PR the user reviews, then squash and merge
+  on their go-ahead. Replaces "coarse commits, 1–3 per task" (2026-10-24).
 - 2026-10-24 — ADR-0002…0006 accepted by the user.
 - 2026-10-24 — `go.uber.org/goleak` approved (tests only), wrapped by `internal/leaktest`.
-- 2026-10-24 — Milestone work happens on a branch from `main` (M1: `feat/m1-worker-pool`), squash-merged.
+- 2026-10-25 — M2 is planned as a vertical slice: PHP hello world end to end first (K-040, K-041, K-042,
+  K-044, K-045), then uploads, framework smoke test, Docker matrix, docs.
 - 2026-10-24 — M1 plan decisions (D1–D4 in `plans/M1-worker-pool.md`): RSS via `/proc` on Linux and one batched
   `ps` per tick on macOS, no new dependency; no config surface in M1 (internal Go API); pipes only (K-029 deferred);
   bounded defaults where RR has none (`ExecTTL` 60s, `MaxQueueSize` 1000, `MaxFrameSize` 64 MiB,
