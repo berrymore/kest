@@ -94,6 +94,9 @@ Milestone definitions: `roadmap.md`.
   and exited) and, from `php_workers`, a hint: no RoadRunner loop, `display_errors=stderr`, Symfony's
   `APP_RUNTIME` in `env` or `extra.runtime.class` rather than `.env` (`research/roadrunner.md`, Framework
   runtimes). Found on 2026-10-25 with a Symfony app in `playground/`.
+- [ ] K-072 Development mode: replace workers when PHP files change (RoadRunner's `reload` plugin): watched
+  directories and patterns, debounce, a rolling replacement on top of K-063. Until then code changes need a
+  restart of kest. Added to M3 with the user's OK on 2026-10-25.
 - [x] K-073 Docs drift checks and the milestone docs review: `test/docs` (`make docs-check`, part of
   `make test`) checks links, make targets, IDs, the ADR index, the layout, the config reference, tool versions,
   status dates; `.ai/review.md` and the `docs-reviewer` agent run before every milestone PR and merge. Asked for

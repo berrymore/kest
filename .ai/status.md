@@ -1,47 +1,45 @@
 # Status
 
-_Last updated: 2026-10-25 (M2)_
+_Last updated: 2026-10-25 (M3)_
 
 ## Current phase
 
-**M2 (PHP HTTP, MVP) is implemented** on `feat/m2-php-http`, waiting for the user's review in a PR. The plan
-`plans/M2-php-http.md` lists what was done, the decisions D1–D8 (taken by the agent: the user delegated M2) and
-the deviations. kest now serves PHP apps through pools of unmodified `roadrunner/http` PSR-7 workers:
-`internal/rrhttp` (request/response mapping, JSON and protobuf, forms, uploads), the `php_workers` cluster type,
-`examples/php-hello`, a Symfony smoke test, `make test-matrix` (PHP 8.3 / 8.4 / 8.5 on Linux in Docker),
-`docs/getting-started.md`.
+**M3 (operability) has started** on `feat/m3-operability`. M2 (PHP HTTP, MVP) is merged into `main` (PR #1,
+2026-10-25); `plans/M2-php-http.md` is its record. There is no M3 plan yet: the first M3 session fixed what the
+user's Symfony app in `playground/` (git-ignored, the user's sandbox) turned up, and added the docs review.
 
-**Next: the user reviews and merges the M2 PR; then M3 (operability).**
+Done on the branch: **K-071** (a worker that prints to stdout gets an error that shows what it printed, plus a
+PHP hint) and **K-073** (`make docs-check` and the milestone docs review in `review.md`).
 
 ## In progress
 
-The M2 PR: review by the user, then `gh pr merge --squash --delete-branch`, update local `main`, delete the
-local branch (`rules.md` § 9).
+Nothing half-done.
 
-## Next up: how to start M3 in a fresh session
+## Next up: how to continue M3 in a fresh session
 
-0. **Git first:** make sure the M2 PR is merged (`gh pr list --state all`); `git switch main && git pull`;
-   create `feat/m3-operability`. One commit per backlog item; ask before every commit unless the user says
-   otherwise for M3.
-1. **Read first:** this file → `roadmap.md` § M3 → `backlog.md` § M3 (K-060…K-070) → `architecture.md` § 6 and
+0. **Git:** `git switch feat/m3-operability`. One commit per backlog item; ask before every commit unless the
+   user says otherwise for M3.
+1. **Read first:** this file → `roadmap.md` § M3 → `backlog.md` § M3 (K-060…K-073) → `architecture.md` § 6 and
    § 8 → `plans/M2-php-http.md` (decisions and outcome).
 2. **K-060 first:** the metrics approach (Q-E) is an ADR decision for the user: `prometheus/client_golang`
    (a dependency), OpenTelemetry metrics (heavier), or a minimal hand-written exposition. Research, draft the
    ADR, ask.
 3. **Write `plans/M3-operability.md`.** Candidates for a first vertical slice: `access_log` + `request_id`
    filters (K-064, the first HTTP filters; Q-A filter model) and `/clusters` in the admin API (K-062), then
-   rolling reset (K-063), which needs a pool API for replacing workers one by one.
+   rolling reset (K-063), which needs a pool API for replacing workers one by one; K-072 (replace workers on
+   file changes) builds on it.
 4. Get the user's approval of the plan before writing code.
+5. **End of M3:** the docs review (`review.md`) before `gh pr create`, and again before the merge if the branch
+   changed.
 
 ## Open questions (need a decision from the user)
 
-- **Q7. M2 decisions D1–D8** (`plans/M2-php-http.md`), taken by the agent while the user was away; to be
-  confirmed in the PR review. The ones that shape the config schema: D1 codec `json` by default (5× cheaper
-  in PHP without ext-protobuf; `proto` available), D2 the `php_workers` schema, D3 relative paths resolve
-  against the config file, D4 workers inherit kest's environment by default.
+None.
 
 ## Resolved decisions
 
+- 2026-10-25 — The user merged the M2 PR; decisions D1–D8 (`plans/M2-php-http.md`) went in as proposed (was Q7).
+- 2026-10-25 — Before every milestone PR and merge, the docs review runs (`review.md`, `docs-reviewer` agent).
 - 2026-10-24 — Every artifact (code, docs, commits, PRs) in English; communication in Russian.
 - 2026-10-24 — No AI attribution in commits, PRs, code or docs.
 - 2026-10-24 — Typed extension syntax: `{type, config}`.
@@ -56,7 +54,8 @@ local branch (`rules.md` § 9).
 - 2026-10-24 — ADR-0002…0006 accepted by the user.
 - 2026-10-24 — `go.uber.org/goleak` approved (tests only), wrapped by `internal/leaktest`.
 - 2026-10-25 — M2: the user delegated the milestone (research, plan, code) and allowed the agent to commit on
-  `feat/m2-php-http` and open the PR without asking. Merging still waits for the user's review.
+  `feat/m2-php-http` and open the PR without asking; the user reviewed and merged it. The delegation ended
+  with M2.
 - 2026-10-25 — M2 is planned as a vertical slice: PHP hello world end to end first (K-040, K-041, K-042,
   K-044, K-045), then uploads, framework smoke test, Docker matrix, docs.
 - 2026-10-24 — M1 plan decisions (D1–D4 in `plans/M1-worker-pool.md`): RSS via `/proc` on Linux and one batched
@@ -64,7 +63,7 @@ local branch (`rules.md` § 9).
   bounded defaults where RR has none (`ExecTTL` 60s, `MaxQueueSize` 1000, `MaxFrameSize` 64 MiB,
   `DestroyTimeout` 10s).
 
-## Environment (as of 2026-10-24)
+## Environment (as of 2026-10-25)
 
 - macOS (darwin/arm64), IDE: GoLand (`.idea/` is git-ignored)
 - Go 1.27.3 from the official installer (`/usr/local/go/bin`), GOPATH `~/go`, `~/go/bin` in PATH.
@@ -80,6 +79,14 @@ local branch (`rules.md` § 9).
 
 ## Session log (newest first, keep ~15)
 
+- **2026-10-25** — M3 started on `feat/m3-operability`. The user's Symfony 8.1 app in `playground/` didn't start:
+  `symfony/runtime` reads `APP_RUNTIME` before `.env`, so the app ran as a plain script and printed HTML to
+  stdout, and kest's error showed 12 bytes of it. K-071: `worker.StdoutError` with the output (the rejected
+  header plus the rest of the pipe; also on a broken pipe) and a `php_workers` hint. K-073: `test/docs` drift
+  checks, which found `make vet`/`make clean` missing from AGENTS.md, a renamed make target in the backlog and an
+  item that never existed in the roadmap's M2 range; `review.md` and the `docs-reviewer` agent, whose dry run
+  found 9 more (no blockers), all fixed. Trigger: this file still said "waiting for review" after the M2 merge.
+  Added K-072 (replace workers on file changes).
 - **2026-10-25** — M2 implemented on `feat/m2-php-http`, autonomously (the user delegated research, plan, code,
   commits and the PR). K-040: RR v3 sends protobuf, the PHP library still reads JSON and answers in kind;
   protobuf costs 141 µs vs 28.5 µs per request in PHP without ext-protobuf. `rrhttp` (hand-written protobuf
@@ -87,7 +94,6 @@ local branch (`rules.md` § 9).
   `php_workers`, uploads, `examples/php-hello`, Symfony 7.4 smoke test, Docker PHP matrix, getting-started guide.
   Found: e2e binaries slept 1 s per exit (`GORACE`); buffered bodies can hold `(workers + queue) × 16 MB`
   (K-070).
-
 - **2026-10-25** — M1 implemented on `feat/m1-worker-pool`: `internal/relay` (codec, golden frames from goridge
   v4 and PHP, fuzz, benchmarks, `Conn`), `internal/worker` (exec process with own pipes, process group,
   Pdeathsig, stderr logging; handshake/exec/stop; pool with per-slot goroutines, limits, backoff, health;

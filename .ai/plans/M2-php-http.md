@@ -1,7 +1,8 @@
 # Plan: M2 — PHP HTTP (MVP)
 
-- **Status:** Done (2026-10-25), in review. The user delegated M2 end to end ("research, plan, code, commit to the
-  branch, open the PR"), so the decisions below were taken by the agent; the user reviews them in the PR.
+- **Status:** Done (2026-10-25), merged (PR #1). The user delegated M2 end to end ("research, plan, code, commit to
+  the branch, open the PR"), so the decisions below were taken by the agent; the user accepted them by merging the
+  PR.
 - **Milestone:** M2
 - **Backlog:** K-040…K-048
 
