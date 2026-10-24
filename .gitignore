@@ -1,0 +1,19 @@
+# Build output
+/kest
+/bin/
+/dist/
+*.test
+*.out
+coverage.*
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+
+# PHP example dependencies
+vendor/
+
+# Local env
+.env
+.env.*
