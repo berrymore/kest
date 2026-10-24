@@ -1,4 +1,6 @@
 GOLANGCI_LINT_VERSION := 2.15.0
+GO_IMAGE              := golang:1.27
+PHP_TESTDATA          := internal/worker/testdata/php
 
 PKG     := github.com/berrymore/kest
 BIN     := bin/kest
@@ -25,7 +27,13 @@ test: ## Run unit tests with the race detector
 
 .PHONY: test-integration
 test-integration: ## Run unit and integration tests (needs php and composer in PATH)
+	composer install --no-interaction --no-progress --working-dir=$(PHP_TESTDATA)
 	go test -race -tags integration ./...
+
+.PHONY: test-linux
+test-linux: ## Run unit tests on Linux in Docker (Linux-only code: Pdeathsig, /proc)
+	docker run --rm --init -v "$(CURDIR)":/src:ro -w /src -e GOFLAGS=-buildvcs=false $(GO_IMAGE) \
+		go test -race -count=1 ./...
 
 .PHONY: vet
 vet: ## Run go vet

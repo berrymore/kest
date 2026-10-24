@@ -1,0 +1,13 @@
+{
+    "name": "kest/worker-integration-test",
+    "description": "PHP worker for kest's internal/worker integration tests",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.2",
+        "roadrunner/worker": "^3.8"
+    },
+    "config": {
+        "sort-packages": true
+    }
+}

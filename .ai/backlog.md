@@ -30,25 +30,26 @@ Milestone definitions: `roadmap.md`.
 
 ## M1 — Worker pool and relay
 
-- [ ] K-020 Research: goridge v3 frame layout, flags, CRC, options; RR worker handshake (pid), stop and
-  error signaling. Verify against `spiral/goridge` (Go and PHP) and `roadrunner-server/pool` sources →
-  `research/roadrunner.md` (✅ with links).
-- [ ] K-021 Frame codec (encode/decode) + fuzz tests + benchmarks.
-- [ ] K-022 Pipes relay (child stdin/stdout); worker stderr → logs.
-- [ ] K-023 Worker process: spawn with explicit env, handshake with timeout, exec with deadline, graceful stop, kill.
-- [ ] K-024 Fake worker in Go (`internal/worker/workertest`): echo, slow, crash, leak-memory, bad-frame modes.
-- [ ] K-025 Pool: fixed size, bounded wait queue, `allocate_timeout`, `max_jobs`, `destroy_timeout`.
-- [ ] K-026 Supervisor: `ttl`, `idle_ttl`, `exec_ttl`, `max_worker_memory` (RSS sampling on linux/macOS).
-- [ ] K-027 Respawn with exponential backoff; pool health state.
-- [ ] K-028 Integration test: PHP echo worker on `spiral/roadrunner-worker` (`testdata/php/` + composer;
-  pin the package versions in `composer.lock`).
+- [x] K-020 Research: goridge frame layout, flags, CRC, options; RR worker handshake (pid), stop and
+  error signaling; pool and supervisor behavior. Verified against RR v3.0.1 (goridge v4, pool v2) and
+  `roadrunner/worker` 3.8.2, plus an experiment → `research/roadrunner.md` (2026-10-24).
+- [x] K-021 Frame codec (encode/decode) + fuzz tests + benchmarks.
+- [x] K-022 Pipes relay (child stdin/stdout); worker stderr → logs.
+- [x] K-023 Worker process: spawn with explicit env, handshake with timeout, exec with deadline, graceful stop, kill.
+- [x] K-024 Fake worker in Go (`internal/worker/workertest`): echo, slow, crash, leak-memory, bad-frame modes.
+- [x] K-025 Pool: fixed size, bounded wait queue, `allocate_timeout`, `max_jobs`, `destroy_timeout`.
+- [x] K-026 Supervisor: `ttl`, `idle_ttl`, `exec_ttl`, `max_worker_memory` (RSS sampling on linux/macOS).
+- [x] K-027 Respawn with exponential backoff; pool health state.
+- [x] K-028 Integration test: PHP echo worker on `roadrunner/worker` (formerly `spiral/roadrunner-worker`;
+  `testdata/php/` + composer; pin the package versions in `composer.lock`).
 - [ ] K-029 Unix socket / TCP relays (only if needed before M3).
 
 ## M2 — PHP HTTP (MVP)
 
 - [ ] K-040 Research: RR HTTP payload (JSON vs protobuf request context, uploads, cookies, attributes,
   response format, streaming/chunked responses), RR `rpc` plugin usage by PHP libraries (Q-G).
-- [ ] K-041 `php_workers` cluster type: config, defaults, validation, wiring to pool.
+- [ ] K-041 `php_workers` cluster type: config, defaults, validation, wiring to pool. Decide the worker
+  environment policy (inherit kest's environment like RR, or explicit only) and `RR_MODE`/`RR_VERSION`.
 - [ ] K-042 Request encoding: method, URI, headers, cookies, query, body (bounded), remote address, TLS info.
 - [ ] K-043 Multipart uploads: temp files, size limits, cleanup.
 - [ ] K-044 Response decoding: status, multi-value headers, body; error mapping (worker error → 5xx).
@@ -63,11 +64,15 @@ Milestone definitions: `roadmap.md`.
 - [ ] K-060 Choose the metrics approach (Q-E) → ADR.
 - [ ] K-061 Metrics: requests, latency, status per listener/route/cluster; pool queue; worker states; restarts; memory.
 - [ ] K-062 Admin: `/config_dump` (with redaction), `/clusters`, `POST /clusters/{name}/reset`, `/metrics`.
+  `/ready` must use `worker.Health() == Unhealthy` only: `Degraded` is normal for a moment whenever a worker is
+  recycled (max_jobs, ttl).
 - [ ] K-063 Rolling reset without failed requests (admin and SIGHUP).
 - [ ] K-064 Filters: `access_log`, `request_id`, `recovery`.
 - [ ] K-065 Per-route timeouts; max header and body sizes; slow-client protection (server timeouts).
 - [ ] K-066 Benchmarks against RoadRunner; report in `docs/benchmarks.md`.
 - [ ] K-067 Operations guide.
+- [ ] K-069 Request frames copy context + body into one payload (one copy of the body per job). If K-066
+  shows it matters, write the frame in segments instead (`relay.Writer` with several payload parts).
 - [ ] K-068 Drain delay: after SIGTERM, keep serving with `/ready` = 503 for a configurable delay so load
   balancers deregister the instance before listeners close.
 
@@ -110,3 +115,6 @@ Milestone definitions: `roadmap.md`.
 - [ ] K-904 Envoy-style hot restart (FD passing to the new process).
 - [ ] K-905 Per-route priority queues within one pool (Q-F).
 - [ ] K-906 ACME (automatic TLS certificates).
+- [ ] K-907 Run workers as another user/group (RR `server.user` / `server.group`).
+- [ ] K-908 Dynamic pool size (RR `pool.dynamic_allocator`).
+- [ ] K-909 One-off command before workers start (RR `server.on_init`).

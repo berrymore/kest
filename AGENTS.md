@@ -47,7 +47,8 @@ Keep this table in sync with the Makefile (`make help` lists every target).
 | Build | `make build` → `bin/kest` |
 | Unit tests | `make test` (`go test -race ./...`) |
 | End-to-end tests | `make test-e2e` (builds the binary with `-race`, runs it against configs) |
-| Integration tests (need `php`, `composer`) | `make test-integration` (none yet; from M1) |
+| Integration tests (need `php`, `composer`) | `make test-integration` (composer install, then PHP worker tests in `internal/worker`) |
+| Unit tests on Linux (needs Docker) | `make test-linux` (Linux-only code paths; run when touching them) |
 | Lint | `make lint` (golangci-lint 2.15.0 pinned; config in `.golangci.yml`) |
 | Format | `make fmt` |
 | Run | `./bin/kest serve -c examples/hello/kest.yaml` |
@@ -71,6 +72,8 @@ internal/server/     builds the component graph; start/stop order; drain
 internal/httpx/      HTTP filter chain and router
 internal/listener/   HTTP listeners
 internal/cluster/    cluster interface and registry category
+internal/relay/      goridge frame codec and connection (RoadRunner worker protocol)
+internal/worker/     worker processes, pool, supervisor; workertest/ fakes, testdata/php/ for integration
 internal/admin/      admin API
 internal/logging/    slog setup
 internal/buildinfo/  version information
@@ -110,7 +113,8 @@ Full list: `.ai/rules.md`. The ones that matter most:
 - **Never commit without asking.** When a commit seems due, stop and ask; the user allows it or says to
   finish first. Commits are coarse: 1–3 per large task, no micro-commits. Never push unless asked.
 - Conventional Commits (`feat(config): …`, `fix(worker): …`, `docs: …`).
-- Work happens on `main` for now; once branches and PRs start, they are merged with **squash merge** only.
+- Milestone work happens on a branch from `main` (M1: `feat/m1-worker-pool`); branches are merged into `main`
+  with **squash merge** only.
 - No CI yet: the user develops alone and locally. Run the checks from the Commands table yourself
   before declaring work done.
 

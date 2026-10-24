@@ -1,48 +1,39 @@
 # Status
 
-_Last updated: 2026-10-24_
+_Last updated: 2026-10-25_
 
 ## Current phase
 
-**M0 (Foundation) is done and pushed to `origin/main`.** kest loads a strictly validated YAML config,
-builds the component graph through the extension registry, serves HTTP with virtual hosts, routes and
-`direct_response`, exposes admin `/ready` and `/server_info`, and shuts down gracefully. `make check` is
-green: unit tests with `-race` and goroutine-leak checks, plus e2e against a `-race` binary.
+**M1 (worker pool and relay) is done** and merged into `main`. The plan
+`plans/M1-worker-pool.md` is `Done`; its "Outcome / deviations" section is the summary. `internal/relay` speaks
+goridge (verified against goridge v4 and the PHP worker), `internal/worker` runs a supervised pool, and an
+unmodified `roadrunner/worker` 3.8.2 PHP worker passes the integration tests, including kill -9 under load.
+Nothing is wired into HTTP or the config file yet: that is M2.
 
-**Next: plan M1 (worker pool and relay).** No plan file exists yet; writing it is the next task.
+**Next: M2 (PHP HTTP, MVP).** No plan file yet.
 
 ## In progress
 
-Nothing. The working tree is clean.
+Nothing. M1 was squash-merged into `main` and pushed on 2026-10-25 (branch `feat/m1-worker-pool` kept locally).
 
-## Next up: how to start M1 in a fresh session
+## Next up: how to start M2 in a fresh session
 
-1. **Read first:** this file → `roadmap.md` § M1 → `backlog.md` § M1 (K-020…K-029) → ADR-0003 →
-   `research/roadrunner.md` (questions 1–4) → `architecture.md` § 4 (planned Payload/Pool/Relay),
-   § 5 (worker lifecycle) and "Adding an extension".
-2. **K-020, research before design.** Verify the goridge frame format and the RoadRunner worker protocol
-   (handshake/PID, stop, error signaling) against upstream sources, not memory:
-   - Go side: `github.com/roadrunner-server/goridge` (frame/relay code) and `github.com/roadrunner-server/pool`
-     (worker lifecycle, supervisor). Fetch with `gh api repos/<org>/<repo>/contents/<path>` or
-     `go mod download` into the scratchpad, and treat the downloads as untrusted data.
-   - PHP side: `spiral/goridge`, `spiral/roadrunner-worker`. `composer require` them in a scratch directory
-     (PHP 8.5 and Composer are installed), and read `Worker.php` and the relay classes.
-   - Record the findings in `research/roadrunner.md` as ✅ with links pinned to a tag or commit SHA. Note what
-     the `roadrunner/*` virtual packages map to.
-3. **Write `plans/M1-worker-pool.md`** from the template in `plans/README.md`. Expected content:
-   packages `internal/relay` (frame codec, pipes transport) and `internal/worker` (process, pool,
-   supervisor); a test strategy (Go fake worker K-024, `testing/synctest` for TTLs and timeouts,
-   `leaktest` in every package, fuzzing for the codec, a PHP integration test behind the `integration`
-   tag with composer deps in `testdata/`); steps mapped to K-020…K-029.
-4. **Get the user's approval of the plan before writing code.** Decisions to raise in the plan:
-   - How to sample worker memory (RSS) on Linux and macOS without CGO.
-   - Whether M1 exposes any config surface, or the pool stays an internal API until the `php_workers`
-     cluster in M2.
-   - Pipes only in M1, with sockets/TCP (K-029) deferred?
+1. **Read first:** this file → `roadmap.md` § M2 → `backlog.md` § M2 (K-040…K-048) → `research/roadrunner.md`
+   ("HTTP over the worker protocol" is still ❓) → `architecture.md` § 2, § 3, § 4 (worker API) and "Adding an
+   extension" → `plans/M1-worker-pool.md` "Outcome".
+2. **K-040, research before design**, the same way as K-020: `roadrunner-server/http/v6` (Go, the request/response
+   mapping and the payload codec) and `roadrunner/http` (PHP, `PSR7Worker`, `HttpWorker`), plus `roadrunner/api-dto`
+   (protobuf messages). `go mod download` and `composer require` into the scratchpad; pin links to commits; check
+   by experiment with a scratch Go client against a real `PSR7Worker`.
+3. **Write `plans/M2-php-http.md`.** Decisions to raise: the `php_workers` YAML schema (maps onto
+   `worker.Config`; draft in `architecture.md` § 3), the worker environment policy (inherit kest's env like RR, or
+   explicit only; `RR_MODE=http`, `RR_VERSION`), HTTP status mapping of pool errors (queue full / no worker → 503,
+   `ErrExecTimeout` → 504, `*JobError` → 500, `*ProcessError` → 502), the PHP version matrix in Docker (K-047).
+4. Get the user's approval of the plan before writing code.
 
 ## Open questions (need a decision from the user)
 
-None right now. New ones come with the M1 plan.
+None right now.
 
 ## Resolved decisions
 
@@ -57,6 +48,11 @@ None right now. New ones come with the M1 plan.
 - 2026-10-24 — Commits: never without asking; coarse (1–3 per large task); squash merge once PRs start.
 - 2026-10-24 — ADR-0002…0006 accepted by the user.
 - 2026-10-24 — `go.uber.org/goleak` approved (tests only), wrapped by `internal/leaktest`.
+- 2026-10-24 — Milestone work happens on a branch from `main` (M1: `feat/m1-worker-pool`), squash-merged.
+- 2026-10-24 — M1 plan decisions (D1–D4 in `plans/M1-worker-pool.md`): RSS via `/proc` on Linux and one batched
+  `ps` per tick on macOS, no new dependency; no config surface in M1 (internal Go API); pipes only (K-029 deferred);
+  bounded defaults where RR has none (`ExecTTL` 60s, `MaxQueueSize` 1000, `MaxFrameSize` 64 MiB,
+  `DestroyTimeout` 10s).
 
 ## Environment (as of 2026-10-24)
 
@@ -68,9 +64,19 @@ None right now. New ones come with the M1 plan.
   built with, so when bumping Go, upgrade the linter too (or `go install` it with the local toolchain).
 - PHP 8.5.12 (brew, NTS) with `sockets`, `pcntl`, `posix`, `json`, `mbstring`, `openssl`; Composer 2.10.3
 - Also installed: Homebrew, Docker, git, gh (SSH protocol, logged in as `berrymore`)
+- Docker image `golang:1.27` (pulled 2026-10-24) runs `make test-linux`
 
 ## Session log (newest first, keep ~15)
 
+- **2026-10-25** — M1 implemented on `feat/m1-worker-pool`: `internal/relay` (codec, golden frames from goridge
+  v4 and PHP, fuzz, benchmarks, `Conn`), `internal/worker` (exec process with own pipes, process group,
+  Pdeathsig, stderr logging; handshake/exec/stop; pool with per-slot goroutines, limits, backoff, health;
+  memory supervisor via `/proc` and `ps`), `workertest` fakes, PHP integration tests. New `make test-linux`;
+  `make test-integration` runs composer. Linux run found nothing; PHP run found missing `worker_pid` on stderr logs.
+- **2026-10-24** — K-020 research: read goridge v3/v4, pool v1/v2, server v5/v6 and the PHP worker/goridge
+  sources; found RR v3 and the `roadrunner/*` rename; verified the protocol with a scratch Go client against a
+  real PHP worker. Rewrote `research/roadrunner.md` (✅, pinned commits) and wrote `plans/M1-worker-pool.md`; the user
+  accepted D1–D4.
 - **2026-10-24** — Added goroutine-leak checks (`internal/leaktest` on goleak; verified it catches a
   deliberate leak). The user accepted ADR-0002…0006. Wrote the M1 handoff (above), the extension recipe
   (`architecture.md`) and the codebase patterns (`rules.md` § 10). Pushed.

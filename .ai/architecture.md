@@ -2,9 +2,10 @@
 
 > A living document. It describes the **target** design and marks what is implemented.
 > Legend: 🟢 implemented · 🟡 in progress · ⚪ planned.
-> **Last reviewed: 2026-10-24 (M0 done).** Implemented: config loading and validation, extension
+> **Last reviewed: 2026-10-25 (M1 done).** Implemented: config loading and validation, extension
 > registry, server lifecycle, HTTP listeners, router with `direct_response`, admin `/ready` and
-> `/server_info`. No cluster types or filters exist yet.
+> `/server_info`; the goridge relay and the worker pool (`internal/relay`, `internal/worker`), not yet wired
+> into a cluster type. No cluster types or filters exist yet.
 
 ## 1. Big picture 🟡
 
@@ -171,29 +172,33 @@ type Cluster interface {
 var Types = registry.NewCategory[Cluster]("cluster")
 ```
 
-Planned ⚪:
+Worker pool and relay 🟢 (M1; used by the `php_workers` cluster from M2):
 
 ```go
-// Worker pool: language-agnostic, knows nothing about HTTP or PHP.
+// internal/worker: language-agnostic, knows nothing about HTTP or PHP.
 type Payload struct {
-	Codec   Codec  // how Context is encoded: raw, json, proto
-	Context []byte // metadata, e.g. the encoded HTTP request head
+	Codec   relay.Flags // how Context is encoded: relay.CodecRaw, CodecJSON, CodecProto
+	Context []byte      // metadata, e.g. the encoded HTTP request head
 	Body    []byte
 }
+func DefaultConfig() Config                       // explicit defaults; zero means "off" where allowed
+func New(cfg Config, logger *slog.Logger) (*Pool, error)
+func (p *Pool) Start(ctx context.Context) error   // all workers handshaked, or an error
+func (p *Pool) Stop(ctx context.Context) error    // jobs finish, stop frames, kill at the deadline
+func (p *Pool) Exec(ctx context.Context, req Payload) (Payload, error)
+func (p *Pool) Workers() []Info                   // per slot: state, pid, jobs, started, memory
+func (p *Pool) Health() Health                    // healthy / degraded / unhealthy
+// Errors: ErrQueueFull, ErrNoWorker, ErrStopped, ErrStopRequested, *JobError (soft, worker kept),
+// *ProcessError (worker gone; wraps ErrExecTimeout or ErrStartTimeout on timeouts).
 
-type Pool interface {
-	Component
-	Exec(ctx context.Context, p Payload) (Payload, error)
-	Reset(ctx context.Context) error // rolling restart of all workers
-	Workers() []WorkerInfo
+// internal/relay: goridge framing, verified against goridge v4 and roadrunner/goridge.
+type Frame struct {
+	Flags   Flags  // FlagControl, FlagError, codec bits
+	Stream  Stream // byte 10: StreamMore, StreamStop, StreamPing, StreamPong
+	Options []uint32
+	Payload []byte
 }
-
-// Relay: transport and framing to a single worker process.
-type Relay interface {
-	Send(f *Frame) error
-	Receive(f *Frame) error
-	io.Closer
-}
+func NewConn(r io.Reader, w io.Writer, maxPayload int) *Conn // Send / Receive; pipes now, sockets later
 ```
 
 Layering (dependencies point down only):
@@ -221,30 +226,39 @@ cmd/kest ─▶ server ─▶ config, registry
    `TestMain` with `leaktest.VerifyTestMain` if the extension starts goroutines.
 6. Document the type and its options in `docs/config.md`.
 
-## 5. Worker lifecycle ⚪
+## 5. Worker lifecycle 🟢
+
+Each pool slot is owned by one goroutine for the pool's lifetime. Slot states (`worker.State`):
 
 ```
-Starting ──▶ Ready ⇄ Working ──▶ Stopping ──▶ Stopped ──▶ replaced (unless the pool is stopping)
-    │                   │                        ▲
-    └───────────────────┴──▶ Errored ────────────┘
+Stopped ──▶ Starting ──▶ Ready ⇄ Working ──▶ Stopping ──▶ (released) ──▶ Starting …
+                │           │        │                                     ▲
+                └───────────┴────────┴──── failure ──▶ (released) ──▶ Backoff
 ```
 
 | From | Event | To |
 |---|---|---|
-| Starting | handshake ok | Ready |
-| Starting | handshake failed / startup timeout | Errored |
-| Ready | exec | Working |
-| Ready | `idle_ttl` or `ttl` reached, reset, pool stop | Stopping |
-| Working | job done, limits ok | Ready |
-| Working | job done, `max_jobs` / `max_worker_memory` / `ttl` reached | Stopping |
-| Working | crash, `exec_ttl` exceeded, protocol error | Errored |
-| Stopping | process exited (stop frame; SIGKILL after `destroy_timeout`) | Stopped |
-| Errored | process killed | Stopped |
+| Starting | handshake ok (within `StartTimeout`, which covers the app's boot) | Ready |
+| Starting | spawn or handshake failed | Backoff (Start fails instead on the first start) |
+| Ready | job handed over | Working |
+| Ready | `idle_ttl`, `ttl`, memory over the limit, pool stop | Stopping |
+| Ready | the process exited on its own | Backoff or Starting |
+| Working | job done (or soft error), no limit reached | Ready |
+| Working | job done, `max_jobs` / `ttl` / memory limit reached, or the worker asked to be replaced | Stopping |
+| Working | crash, protocol error, `exec_ttl` exceeded | killed, then Backoff or Starting |
+| Stopping | process exited after the stop frame, or SIGKILL after `destroy_timeout` | Starting (or done if the pool stops) |
+| Backoff | 100 ms … 30 s elapsed (exponential, jitter) | Starting |
 
-Supervisor limits per pool: `max_jobs`, `ttl`, `idle_ttl`, `exec_ttl`, `max_worker_memory`.
-A worker is never recycled mid-request, except on `exec_ttl` or a crash, in which case the request fails
-with a 5xx and is logged. Respawn uses exponential backoff so a broken worker script can't
-fork-bomb the host. The pool reports "unhealthy" if it can't keep its minimum of live workers.
+- A worker is never recycled mid-request, except on `exec_ttl` or a crash: that request fails.
+- A caller that gives up (client gone, route timeout) doesn't kill the worker: the job finishes within
+  `exec_ttl` and the result is dropped.
+- A worker that asks to be replaced instead of answering (`$worker->stop()`) gets its job retried once on another.
+- `max_jobs` gets +0…14 % jitter (as in RoadRunner). `idle_ttl` counts from when the worker became ready, so an
+  unused worker is replaced too. Only memory is polled (`watch_tick`); the other limits are timers and counters.
+- Backoff applies after a worker fails without completing a job within 10 s of its start; the pool never
+  panics, `Health()` reports it.
+- Processes: explicit environment (`Config.Env` + `RR_RELAY=pipes`), own process group (SIGKILL hits the
+  group), `Pdeathsig` on Linux, stderr logged line by line with `worker_pid`.
 
 ## 6. Startup, shutdown, reload 🟢 (reload ⚪)
 
@@ -254,7 +268,7 @@ fork-bomb the host. The pool reports "unhealthy" if it can't keep its minimum of
    (including cross-references).
 2. `server.New` builds the component graph through the registry, decoding extension configs. No side
    effects, so `kest validate` runs this step too.
-3. Start clusters (M1+: spawn workers and wait for readiness, bounded by a startup timeout).
+3. Start clusters (M2+: `php_workers` starts its pool and waits for every handshake, bounded by a startup timeout).
 4. Start the admin server, then the listeners (bind ports). If anything fails to start, the components
    already started are stopped and `Run` returns the error.
 5. Mark ready (`/ready` returns 200); `Server.Ready()` is closed.
@@ -290,8 +304,8 @@ internal/cluster/            🟢 Cluster interface and registry category
 internal/leaktest/           🟢 goroutine-leak check for test binaries (goleak)
 internal/filters/<name>/     ⚪ built-in HTTP filters, one package each
 internal/cluster/phpworkers/ ⚪ php_workers: HTTP ↔ RoadRunner payload mapping
-internal/worker/             ⚪ process, pool, supervisor (language-agnostic)
-internal/relay/              ⚪ goridge-compatible frame codec; pipes and socket transports
+internal/worker/             🟢 process, pool, supervisor (language-agnostic); workertest/ has fake workers
+internal/relay/              🟢 goridge-compatible frame codec and Conn (pipes; sockets later, K-029)
 internal/metrics/            ⚪ (M3) metrics
 internal/wasm/               ⚪ (M5) wazero runtime, module cache, instance pools
 examples/                    🟢 runnable configs (PHP apps from M2)
@@ -301,8 +315,8 @@ test/e2e/                    🟢 end-to-end tests: build the binary with -race,
 
 ## 8. Observability and admin 🟡
 
-- **Logs:** `log/slog`, text or JSON, level set in config. Worker stderr goes to logs tagged with
-  `cluster` and `worker_pid`.
+- **Logs:** `log/slog`, text or JSON, level set in config. Worker stderr goes to logs line by line, tagged
+  with `worker_pid` (🟢) and `cluster` (M2).
 - **Metrics (M3):** requests (count, latency, status) per listener, route and cluster; pool queue length
   and wait time; workers by state; restarts by reason; worker memory. Library to be chosen (Q-E).
 - **Tracing:** OpenTelemetry later; the `request_id` filter arrives in M3.

@@ -6,8 +6,8 @@ Work items live in `backlog.md` (IDs in brackets). Reprioritization is the user'
 | Milestone | Theme | Status |
 |---|---|---|
 | M0 | Foundation | ✅ done 2026-10-24 |
-| M1 | Worker pool and relay | ⚪ next |
-| M2 | PHP HTTP — **MVP** | ⚪ |
+| M1 | Worker pool and relay | ✅ done 2026-10-25 |
+| M2 | PHP HTTP — **MVP** | ⚪ next |
 | M3 | Operability | ⚪ |
 | M4 | HTTP edge features | ⚪ |
 | M5 | WASM sandbox | ⚪ |
@@ -46,7 +46,7 @@ Scope [K-020…K-029]:
 - Worker process: spawn, handshake, exec, graceful stop, kill.
 - Fixed-size pool: bounded queue, `allocate_timeout`, `max_jobs`, `destroy_timeout`.
 - Supervisor: `ttl`, `idle_ttl`, `exec_ttl`, `max_worker_memory`; respawn with backoff.
-- A fake worker in Go for tests; integration test with a PHP echo worker built on `spiral/roadrunner-worker`.
+- A fake worker in Go for tests; integration test with a PHP echo worker built on `roadrunner/worker`.
 
 Exit criteria:
 - The pool keeps N PHP echo workers serving under concurrent load and survives `kill -9` of random workers.
