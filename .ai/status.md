@@ -9,7 +9,8 @@ _Last updated: 2026-10-25 (M3)_
 user's Symfony app in `playground/` (git-ignored, the user's sandbox) turned up, and added the docs review.
 
 Done on the branch: **K-071** (a worker that prints to stdout gets an error that shows what it printed, plus a
-PHP hint) and **K-073** (`make docs-check` and the milestone docs review in `review.md`).
+PHP hint), **K-073** (`make docs-check` and the milestone docs review in `review.md`) and **K-060** (metrics:
+ADR-0007, a hand-written core with the Prometheus text format).
 
 ## In progress
 
@@ -21,15 +22,12 @@ Nothing half-done.
    user says otherwise for M3.
 1. **Read first:** this file → `roadmap.md` § M3 → `backlog.md` § M3 (K-060…K-073) → `architecture.md` § 6 and
    § 8 → `plans/M2-php-http.md` (decisions and outcome).
-2. **K-060 first:** the metrics approach (Q-E) is an ADR decision for the user: `prometheus/client_golang`
-   (a dependency), OpenTelemetry metrics (heavier), or a minimal hand-written exposition. Research, draft the
-   ADR, ask.
-3. **Write `plans/M3-operability.md`.** Candidates for a first vertical slice: `access_log` + `request_id`
+2. **Write `plans/M3-operability.md`.** Metrics follow ADR-0007 (a hand-written core in `internal/metrics`). Candidates for a first vertical slice: `access_log` + `request_id`
    filters (K-064, the first HTTP filters; Q-A filter model) and `/clusters` in the admin API (K-062), then
    rolling reset (K-063), which needs a pool API for replacing workers one by one; K-072 (replace workers on
    file changes) builds on it.
-4. Get the user's approval of the plan before writing code.
-5. **End of M3:** the docs review (`review.md`) before `gh pr create`, and again before the merge if the branch
+3. Get the user's approval of the plan before writing code.
+4. **End of M3:** the docs review (`review.md`) before `gh pr create`, and again before the merge if the branch
    changed.
 
 ## Open questions (need a decision from the user)
@@ -38,6 +36,8 @@ None.
 
 ## Resolved decisions
 
+- 2026-10-25 — Metrics (Q-E, was Q8): ADR-0007 accepted, a hand-written core in `internal/metrics` with the
+  Prometheus text format; `github.com/prometheus/common` (`expfmt`) approved as a test-only dependency.
 - 2026-10-25 — The user merged the M2 PR; decisions D1–D8 (`plans/M2-php-http.md`) went in as proposed (was Q7).
 - 2026-10-25 — Before every milestone PR and merge, the docs review runs (`review.md`, `docs-reviewer` agent).
 - 2026-10-24 — Every artifact (code, docs, commits, PRs) in English; communication in Russian.
@@ -79,6 +79,10 @@ None.
 
 ## Session log (newest first, keep ~15)
 
+- **2026-10-25** — K-060: built the same metrics program on `client_golang`, VictoriaMetrics/metrics,
+  OpenTelemetry and a 187-line hand-written core; compared binary size, linked modules and update cost; checked
+  the prototype's output with Prometheus's own parser; checked that Prometheus 3 scrapes text 0.0.4 by default.
+  Drafted ADR-0007; the user accepted it and the test-only `expfmt`.
 - **2026-10-25** — M3 started on `feat/m3-operability`. The user's Symfony 8.1 app in `playground/` didn't start:
   `symfony/runtime` reads `APP_RUNTIME` before `.env`, so the app ran as a plain script and printed HTML to
   stdout, and kest's error showed 12 bytes of it. K-071: `worker.StdoutError` with the output (the rejected

@@ -27,7 +27,8 @@ upgrade and licensing liability. The user develops with Go 1.27 locally.
 | `golang.org/x/sync` | `errgroup` | Approved if needed |
 | `go.uber.org/goleak` v1.3.0 (MIT) | Goroutine leak checks, tests only, via `internal/leaktest` | Approved by the user 2026-10-24 |
 | `github.com/tetratelabs/wazero` | WASM runtime (M5) | See ADR-0006 |
-| Metrics library | M3 | To be decided (Q-E) |
+| `github.com/prometheus/common` (Apache-2.0) | `expfmt`, Prometheus's parser, checks kest's metrics output; tests only | Approved by the user 2026-10-25 (ADR-0007) |
+| Metrics library | — | None: a hand-written core in `internal/metrics` (ADR-0007) |
 
 ### YAML library choice (K-005, 2026-10-24)
 

@@ -71,7 +71,9 @@ Milestone definitions: `roadmap.md`.
 
 ## M3 — Operability
 
-- [ ] K-060 Choose the metrics approach (Q-E) → ADR.
+- [x] K-060 Choose the metrics approach (Q-E) → ADR. ADR-0007, accepted 2026-10-25: a hand-written core in
+  `internal/metrics` with the Prometheus text format, `expfmt` as a test-only oracle; measured against
+  `client_golang`, VictoriaMetrics/metrics and OpenTelemetry.
 - [ ] K-061 Metrics: requests, latency, status per listener/route/cluster; pool queue; worker states; restarts; memory.
 - [ ] K-062 Admin: `/config_dump` (with redaction), `/clusters`, `POST /clusters/{name}/reset`, `/metrics`.
   `/ready` must use `worker.Health() == Unhealthy` only: `Degraded` is normal for a moment whenever a worker is

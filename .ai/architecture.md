@@ -327,7 +327,9 @@ test/docs/                   🟢 docs drift checks against the code and the Mak
 - **Logs:** `log/slog`, text or JSON, level set in config. Worker stderr goes to logs line by line, tagged
   with `cluster` and `worker_pid` (🟢).
 - **Metrics (M3):** requests (count, latency, status) per listener, route and cluster; pool queue length
-  and wait time; workers by state; restarts by reason; worker memory. Library to be chosen (Q-E).
+  and wait time; workers by state; restarts by reason; worker memory. A hand-written core in
+  `internal/metrics` with lock-free updates and series resolved when the graph is built; `GET /metrics` serves
+  the Prometheus text format 0.0.4 (ADR-0007).
 - **Tracing:** OpenTelemetry later; the `request_id` filter arrives in M3.
 - **Admin API**, modeled on Envoy's admin interface:
 
@@ -361,6 +363,6 @@ at the start of M5.
 | Q-B | Request body: buffer it whole (RR-style, bounded by `max_request_body`) or stream it to the worker? | Buffered (M2). The RR protocol sends the body in the request frame, so streaming it would need a protocol extension |
 | Q-C | Streaming responses from PHP (SSE, large downloads) | Protocol known (K-040: `STREAM` frames, opt-in on the PHP side); implement after M2 |
 | Q-D | Cluster interface: `http.Handler`, or a kest request/response type shared by php, wasm and proxy? | `http.Handler` until a second cluster type exists |
-| Q-E | Metrics: `prometheus/client_golang`, OpenTelemetry metrics, or a minimal custom exposition? | Decide at the start of M3 |
+| Q-E | Metrics: `prometheus/client_golang`, OpenTelemetry metrics, or a minimal custom exposition? | ✅ ADR-0007 (2026-10-25): a hand-written core with the Prometheus text format |
 | Q-F | Per-route priority and queueing inside one pool, on top of pool isolation | After M3 |
 | Q-G | PHP → kest RPC (RoadRunner's `rpc` plugin equivalent): needed for which PHP libraries? | Not for HTTP: `roadrunner/http` and `roadrunner/worker` don't use it (K-040); libraries for RR's KV, jobs, metrics, lock plugins do |
