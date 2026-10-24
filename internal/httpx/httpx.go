@@ -37,7 +37,7 @@ func NewHandler(cfg *config.HTTP, clusters ClusterLookup, bc registry.BuildConte
 		return nil, err
 	}
 	m := newListenerMetrics(bc.MetricsRegistry(), bc.Name)
-	return m.countInFlight(Chain(newRouter(cfg.VirtualHosts, clusters, m), filters...)), nil
+	return m.entry(Chain(newRouter(cfg.VirtualHosts, clusters, m), filters...)), nil
 }
 
 // Chain wraps h with filters so that filters[0] sees the request first.

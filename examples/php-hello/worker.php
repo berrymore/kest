@@ -52,6 +52,7 @@ function handle(ServerRequestInterface $request, string $bootedAt): ResponseInte
     if ($path === '/info') {
         return new Response(200, ['Content-Type' => 'application/json'], json_encode([
             'worker_pid' => getmypid(),
+            'request_id' => $request->getHeaderLine('X-Request-Id'),
             'booted_at' => $bootedAt,
             'method' => $request->getMethod(),
             'uri' => (string) $request->getUri(),

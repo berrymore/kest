@@ -69,6 +69,20 @@ func TestServePHPHelloExample(t *testing.T) {
 		t.Errorf("GET /fail = %d, %v; want 500", code, err)
 	}
 
+	// request_id: PHP and the client see the same ID; access_log logs it.
+	resp, err := http.Get(base + "/info") //nolint:noctx // a plain test request
+	if err != nil {
+		t.Fatal(err)
+	}
+	var withID struct {
+		RequestID string `json:"request_id"`
+	}
+	err = json.NewDecoder(resp.Body).Decode(&withID)
+	resp.Body.Close()
+	if id := resp.Header.Get("X-Request-Id"); err != nil || len(id) != 32 || withID.RequestID != id {
+		t.Errorf("X-Request-Id %q, PHP saw %q (%v); want the same 32 hex digits", id, withID.RequestID, err)
+	}
+
 	code, body := post(t, base+"/info", url.Values{"a": {"1"}, "b[]": {"2", "3"}})
 	var info struct {
 		WorkerPid  int            `json:"worker_pid"`
@@ -114,7 +128,7 @@ func TestServePHPHelloExample(t *testing.T) {
 		t.Errorf("requests went to %d worker(s), want several", len(pids))
 	}
 
-	_, body, err := get(t, "http://"+adminAddr+"/clusters")
+	_, body, err = get(t, "http://"+adminAddr+"/clusters")
 	var clusters struct {
 		Clusters []struct {
 			Name    string `json:"name"`
@@ -142,16 +156,16 @@ func TestServePHPHelloExample(t *testing.T) {
 		}
 	}
 	if c.Name != "hello" || c.Type != "php_workers" || !c.Serving || c.Status.Health != "healthy" ||
-		len(c.Status.Workers) != 4 || jobs != 503 {
-		t.Errorf("/clusters = %+v, want 4 ready workers that ran 503 jobs", c)
+		len(c.Status.Workers) != 4 || jobs != 504 {
+		t.Errorf("/clusters = %+v, want 4 ready workers that ran 504 jobs", c)
 	}
 
 	_, metrics, err := get(t, "http://"+adminAddr+"/metrics")
 	for _, want := range []string{
-		`kest_http_requests_total{listener="main",virtual_host="default",cluster="hello",code="200"} 502`,
+		`kest_http_requests_total{listener="main",virtual_host="default",cluster="hello",code="200"} 503`,
 		`kest_http_requests_total{listener="main",virtual_host="default",cluster="hello",code="500"} 1`,
 		`kest_pool_workers{cluster="hello",state="ready"} 4`,
-		`kest_pool_wait_seconds_count{cluster="hello"} 503`,
+		`kest_pool_wait_seconds_count{cluster="hello"} 504`,
 		`kest_pool_queue_length{cluster="hello"} 0`,
 	} {
 		if err != nil || !strings.Contains(metrics, want) {
@@ -160,7 +174,9 @@ func TestServePHPHelloExample(t *testing.T) {
 	}
 
 	k.stop(t)
-	for _, want := range []string{"workers started", "kest is ready", `msg="request failed" cluster=hello method=GET path=/fail status=500`, "kest stopped"} {
+	for _, want := range []string{"workers started", "kest is ready", `msg="request failed" cluster=hello method=GET path=/fail status=500`,
+		`msg=request listener=main component=access method=GET path=/info proto=HTTP/1.1 status=200`,
+		"request_id=" + resp.Header.Get("X-Request-Id") + " virtual_host=default cluster=hello", "kest stopped"} {
 		if !strings.Contains(k.logs.String(), want) {
 			t.Errorf("logs do not contain %q:\n%s", want, k.logs.String())
 		}

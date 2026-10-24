@@ -142,8 +142,39 @@ Server limits are fixed for now: 10s to read request headers, 120s idle keep-ali
 
 | Field | Required | |
 |---|---|---|
-| `filters` | no | HTTP filters, run in order before the router. Each is `{type, config}`. No built-in filters exist yet. |
+| `filters` | no | HTTP filters, run in order before the router. Each is `{type, config}`; see [Filters](#filters). |
 | `virtual_hosts` | yes | At least one |
+
+### Filters
+
+Built-in types: `request_id`, `access_log`, `recovery`. Put `recovery` first so that it covers the other
+filters too:
+
+```yaml
+http:
+  filters:
+    - type: recovery
+    - type: request_id
+    - type: access_log
+```
+
+**`request_id`** gives every request an ID: in a request header that the cluster sees (PHP reads it as
+`$request->getHeaderLine('X-Request-Id')`), in the same header of the response, and in the access log. A new ID is
+32 random hex digits.
+
+| Field | Default | |
+|---|---|---|
+| `header` | `X-Request-Id` | The header that carries the ID. |
+| `trust_incoming` | `false` | Keep an ID that the client sent, if it is 1–128 visible ASCII characters. Turn it on only behind a proxy that sets the header itself: otherwise clients choose their IDs. |
+
+**`access_log`** writes one line per request to kest's log (stderr, in `log.format`), with `component=access`
+and the listener's name: `method`, `path` (without the query string, which may hold secrets), `proto`, `status`,
+`bytes` (of the body), `duration`, `remote` (the client's IP), `request_id`, `virtual_host`, `cluster` and
+`user_agent`. It takes no config.
+
+**`recovery`** turns a panic in kest below it into a `500` with the stack in the log, instead of a dropped
+connection. If the response had started, the connection is cut, so that the client doesn't mistake a partial
+response for a complete one. It takes no config.
 
 ### `virtual_hosts[]`
 

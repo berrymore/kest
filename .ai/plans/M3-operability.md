@@ -101,7 +101,7 @@ The first steps are the vertical slice: real metrics from a PHP app at `/metrics
 4. [x] **Rolling reset** (K-063) — `Pool.Reset`, `POST /clusters/{name}/reset`, SIGHUP. Acceptance: a PHP e2e test
    resets under load (all workers busy) with zero failed requests; a reset to a worker that fails to boot leaves
    the old ones serving; `kest_pool_worker_restarts_total{reason="reset"}` counts it.
-5. [ ] **Filters** (K-064) — `request_id`, `access_log`, `recovery` in `internal/filters/<name>/`, documented in
+5. [x] **Filters** (K-064) — `request_id`, `access_log`, `recovery` in `internal/filters/<name>/`, documented in
    `docs/config.md`. Acceptance: e2e sees the ID in PHP's `$_SERVER`, in the response and in the access log.
 6. [ ] **`/config_dump`** (K-075) — acceptance: env values never appear in the output.
 7. [ ] **Server limits** (K-065) and **drain delay** (K-068) — acceptance: e2e for a slow client (read header
@@ -124,6 +124,9 @@ The first steps are the vertical slice: real metrics from a PHP app at `/metrics
 
 ## Log
 
+- 2026-10-25 — Step 5 (K-064) done as in D5–D8. The router and the listener entry fill `httpx.RequestInfo`, so
+  `access_log` gets the virtual host and cluster in any filter order; a panic counts as a 500 in the HTTP metrics;
+  `access_log` logs the path without the query string. `request_id` changes a copy of the request.
 - 2026-10-25 — Step 4 (K-063) done, with the surge of D4. A slot takes a handed-over process only between jobs; a
   slot whose process started after the reset began (generation counter, not timestamps) drops it. Under load,
   `max_jobs` replacements make some reset handovers unnecessary, so the reset count can be below the worker count.

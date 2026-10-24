@@ -166,6 +166,9 @@ func Build[T any](c *Category[T], ext *config.Extension, bc BuildContext) (T, er
 // internal/httpx: filters are plain middleware for now (open question Q-A).
 type Filter func(next http.Handler) http.Handler
 var Filters = registry.NewCategory[Filter]("http filter")
+// Every request carries an *httpx.RequestInfo (RequestID, VirtualHost, Cluster), set by the listener entry,
+// the router and request_id; filters read it after the inner handler returns (access_log), whatever their
+// order. httpx.ResponseWriter records the status and body size. Built in: request_id, access_log, recovery.
 
 // internal/cluster: the name lives in config/BuildContext, not on the interface.
 type Cluster interface {
@@ -320,7 +323,7 @@ internal/admin/              🟢 admin HTTP API
 internal/logging/            🟢 slog setup
 internal/cluster/            🟢 Cluster interface and registry category
 internal/leaktest/           🟢 goroutine-leak check for test binaries (goleak)
-internal/filters/<name>/     ⚪ built-in HTTP filters, one package each
+internal/filters/            🟢 built-in HTTP filters, one package each: requestid/, accesslog/, recovery/
 internal/cluster/phpworkers/ 🟢 php_workers: config, worker environment, pool lifecycle, HTTP handler
 internal/rrhttp/             🟢 HTTP ↔ RoadRunner HTTP payload (request context JSON/protobuf, form trees, responses)
 internal/worker/             🟢 process, pool, supervisor (language-agnostic); workertest/ has fake workers

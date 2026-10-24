@@ -12,8 +12,8 @@ Done on the branch: **K-071** (a worker that prints to stdout gets an error that
 PHP hint), **K-073** (`make docs-check` and the milestone docs review in `review.md`), **K-060** (metrics:
 ADR-0007, a hand-written core with the Prometheus text format), **K-061** (`internal/metrics`; HTTP, pool, Go
 and process metrics), **K-062** (`GET /metrics`, `/ready` per cluster), **K-074** (`GET /clusters`) and **K-063**
-(rolling reset through the admin API and SIGHUP, zero failed requests under load: an M3 exit criterion). The plan
-is `plans/M3-operability.md` (Active).
+(rolling reset through the admin API and SIGHUP, zero failed requests under load: an M3 exit criterion) and
+**K-064** (filters `request_id`, `access_log`, `recovery`). The plan is `plans/M3-operability.md` (Active).
 
 ## In progress
 
@@ -82,6 +82,8 @@ None.
 
 ## Session log (newest first, keep ~15)
 
+- **2026-10-25** — K-064: `request_id`, `access_log`, `recovery` in `internal/filters/`; `httpx.RequestInfo` and
+  `httpx.ResponseWriter`; php-hello turns the filters on.
 - **2026-10-25** — K-063: `Pool.Reset` with a surge; `POST /clusters/{name}/reset`, SIGHUP. Under load in e2e:
   ~13 000 requests, none failed. Found in tests: a timestamp check broke under synctest's frozen clock; a reset
   generation counter replaced it.

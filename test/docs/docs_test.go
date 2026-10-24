@@ -23,6 +23,10 @@ import (
 	"github.com/berrymore/kest/internal/cluster"
 	_ "github.com/berrymore/kest/internal/cluster/phpworkers" // the extensions of cmd/kest/extensions.go
 	"github.com/berrymore/kest/internal/config"
+	_ "github.com/berrymore/kest/internal/filters/accesslog"
+	_ "github.com/berrymore/kest/internal/filters/recovery"
+	_ "github.com/berrymore/kest/internal/filters/requestid"
+	"github.com/berrymore/kest/internal/httpx"
 )
 
 var linkRE = regexp.MustCompile(`!?\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)`)
@@ -258,6 +262,11 @@ func TestConfigReference(t *testing.T) {
 	for _, typ := range cluster.Types.Types() {
 		f, _ := cluster.Types.Lookup(typ)
 		collectFields(reflect.TypeOf(f.NewConfig()), fields)
+	}
+	for _, typ := range httpx.Filters.Types() {
+		if f, _ := httpx.Filters.Lookup(typ); f.NewConfig != nil {
+			collectFields(reflect.TypeOf(f.NewConfig()), fields)
+		}
 	}
 
 	documented := map[string]bool{}

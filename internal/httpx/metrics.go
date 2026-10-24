@@ -50,12 +50,13 @@ func (m *listenerMetrics) target(virtualHost, cluster string) *targetMetrics {
 	return t
 }
 
-// countInFlight wraps a listener's whole handler.
-func (m *listenerMetrics) countInFlight(h http.Handler) http.Handler {
+// entry wraps a listener's whole handler: it counts the request in flight and
+// gives it a RequestInfo.
+func (m *listenerMetrics) entry(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		m.inFlight.Inc()
 		defer m.inFlight.Dec()
-		h.ServeHTTP(w, r)
+		h.ServeHTTP(w, WithRequestInfo(r))
 	})
 }
 
@@ -69,13 +70,27 @@ type targetMetrics struct {
 	codes    [1000]atomic.Pointer[metrics.Counter] // net/http allows status codes 100–999
 }
 
-// instrument counts and times the requests that h serves.
+// instrument counts and times the requests that h serves, and records the
+// target in the request's RequestInfo. A request whose handler panics counts
+// as a 500 unless it wrote another status.
 func (t *targetMetrics) instrument(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		info := Info(r)
+		info.VirtualHost, info.Cluster = t.labels[1], t.labels[2]
 		start := time.Now()
-		sw := &statusWriter{ResponseWriter: w}
-		h.ServeHTTP(sw, r)
-		t.observe(sw.status(), time.Since(start))
+		rw := NewResponseWriter(w)
+		defer func() {
+			if v := recover(); v != nil {
+				code := http.StatusInternalServerError
+				if rw.Written() {
+					code = rw.Status()
+				}
+				t.observe(code, time.Since(start))
+				panic(v)
+			}
+		}()
+		h.ServeHTTP(rw, r)
+		t.observe(rw.Status(), time.Since(start))
 	})
 }
 
@@ -91,47 +106,4 @@ func (t *targetMetrics) observe(code int, d time.Duration) {
 	}
 	c.Inc()
 	t.duration.Observe(d.Seconds())
-}
-
-// statusWriter records the status code of a response.
-type statusWriter struct {
-	http.ResponseWriter
-	code int
-}
-
-func (w *statusWriter) WriteHeader(code int) {
-	// 1xx responses other than 101 are informational: the final one follows.
-	if w.code == 0 && (code >= 200 || code == http.StatusSwitchingProtocols) {
-		w.code = code
-	}
-	w.ResponseWriter.WriteHeader(code)
-}
-
-func (w *statusWriter) Write(b []byte) (int, error) {
-	if w.code == 0 {
-		w.code = http.StatusOK
-	}
-	return w.ResponseWriter.Write(b)
-}
-
-// Flush passes through to the connection, for handlers that stream.
-func (w *statusWriter) Flush() {
-	if w.code == 0 {
-		w.code = http.StatusOK // flushing sends the header
-	}
-	_ = http.NewResponseController(w.ResponseWriter).Flush()
-}
-
-// Unwrap lets http.ResponseController reach the connection's writer.
-func (w *statusWriter) Unwrap() http.ResponseWriter {
-	return w.ResponseWriter
-}
-
-// status is the response's status code: 200 if the handler wrote nothing,
-// as net/http then sends.
-func (w *statusWriter) status() int {
-	if w.code == 0 {
-		return http.StatusOK
-	}
-	return w.code
 }

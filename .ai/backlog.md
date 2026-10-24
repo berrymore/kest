@@ -86,7 +86,9 @@ Milestone definitions: `roadmap.md`.
 - [x] K-063 Rolling reset without failed requests (admin and SIGHUP). `Pool.Reset` with a surge (D4); the e2e
   test serves ~13 000 requests from 16 clients during an admin reset and a SIGHUP reset of `php-hello` with none
   failed; a reset to code that doesn't boot stops and leaves the old workers serving.
-- [ ] K-064 Filters: `access_log`, `request_id`, `recovery`.
+- [x] K-064 Filters: `access_log`, `request_id`, `recovery`. In `internal/filters/`, on `httpx.RequestInfo` and
+  `httpx.ResponseWriter`; `examples/php-hello` turns them on, and its e2e test sees the ID in PHP, in the response
+  and in the access log.
 - [ ] K-065 Per-route timeouts; max header and body sizes; slow-client protection (server timeouts).
 - [ ] K-066 Benchmarks against RoadRunner; report in `docs/benchmarks.md`.
 - [ ] K-067 Operations guide.
