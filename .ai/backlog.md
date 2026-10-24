@@ -51,7 +51,8 @@ Milestone definitions: `roadmap.md`.
   RR http plugin v6.0.0 and `roadrunner/http` 4.2.1, plus an experiment → `research/roadrunner.md` (2026-10-25).
 - [ ] K-041 `php_workers` cluster type: config, defaults, validation, wiring to pool. Decide the worker
   environment policy (inherit kest's environment like RR, or explicit only) and `RR_MODE`/`RR_VERSION`.
-- [ ] K-042 Request encoding: method, URI, headers, cookies, query, body (bounded), remote address, TLS info.
+- [x] K-042 Request encoding: method, URI, headers, cookies, query, body (bounded), remote address, TLS info.
+  `internal/rrhttp`: JSON and protobuf contexts, PHP form trees (checked against RR's code by a differential fuzz).
 - [ ] K-043 Multipart uploads: temp files, size limits, cleanup.
 - [ ] K-044 Response decoding: status, multi-value headers, body; error mapping (worker error → 5xx).
 - [ ] K-045 `examples/php-hello`: composer.json + PSR-7 worker + kest.yaml.

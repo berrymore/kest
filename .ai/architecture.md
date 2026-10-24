@@ -206,11 +206,12 @@ Layering (dependencies point down only):
 ```
 cmd/kest ─▶ server ─▶ config, registry
                   ─▶ listener ─▶ httpx (filters, router)
-                  ─▶ cluster/* ─▶ worker ─▶ relay
+                  ─▶ cluster/* ─▶ rrhttp ─▶ worker ─▶ relay
                   ─▶ admin
 ```
 
-`worker` and `relay` know nothing about HTTP; `cluster/phpworkers` maps HTTP to payloads.
+`worker` and `relay` know nothing about HTTP; `rrhttp` maps HTTP requests and responses to payloads, and
+`cluster/phpworkers` glues it to a pool.
 
 ### Adding an extension (cluster type or HTTP filter)
 
@@ -303,7 +304,8 @@ internal/logging/            🟢 slog setup
 internal/cluster/            🟢 Cluster interface and registry category
 internal/leaktest/           🟢 goroutine-leak check for test binaries (goleak)
 internal/filters/<name>/     ⚪ built-in HTTP filters, one package each
-internal/cluster/phpworkers/ ⚪ php_workers: HTTP ↔ RoadRunner payload mapping
+internal/cluster/phpworkers/ ⚪ php_workers: config, pool lifecycle, HTTP handler
+internal/rrhttp/             🟡 HTTP ↔ RoadRunner HTTP payload (request context JSON/protobuf, form trees, responses)
 internal/worker/             🟢 process, pool, supervisor (language-agnostic); workertest/ has fake workers
 internal/relay/              🟢 goridge-compatible frame codec and Conn (pipes; sockets later, K-029)
 internal/metrics/            ⚪ (M3) metrics

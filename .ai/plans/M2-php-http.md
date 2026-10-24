@@ -125,7 +125,7 @@ plugin v6.0.0 and `roadrunner/http` 4.2.1, and by experiment). Layering: `cluste
 
 1. [x] **Research** (K-040) — `research/roadrunner.md` § "HTTP over the worker protocol" ✅ with pinned links and
    an experiment (both codecs against a real `PSR7Worker`, timings).
-2. [ ] **Request encoding** (K-042) — `rrhttp`: context (JSON + protobuf), cookies, URI, remote address, body kinds,
+2. [x] **Request encoding** (K-042) — `rrhttp`: context (JSON + protobuf), cookies, URI, remote address, body kinds,
    form tree for urlencoded and multipart values. Acceptance: table tests, golden bytes, differential fuzz vs RR's
    tree clean, fuzz targets clean.
 3. [ ] **Response decoding and errors** (K-044) — `rrhttp`: both codecs, header hygiene, trailers, body framing,
