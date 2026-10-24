@@ -1,6 +1,6 @@
 GOLANGCI_LINT_VERSION := 2.15.0
 GO_IMAGE              := golang:1.27
-PHP_PROJECTS          := internal/worker/testdata/php internal/cluster/phpworkers/testdata/php
+PHP_PROJECTS          := internal/worker/testdata/php internal/cluster/phpworkers/testdata/php examples/php-hello
 
 PKG     := github.com/berrymore/kest
 BIN     := bin/kest
@@ -26,8 +26,9 @@ test: ## Run unit tests with the race detector
 	go test -race ./...
 
 .PHONY: test-integration
-test-integration: php-deps ## Run unit and integration tests (needs php and composer in PATH)
+test-integration: php-deps ## Run unit, integration and PHP end-to-end tests (needs php and composer in PATH)
 	go test -race -tags integration ./...
+	go test -count=1 -tags e2e,integration ./test/e2e/...
 
 .PHONY: php-deps
 php-deps: ## Install the composer packages of the PHP test projects and examples

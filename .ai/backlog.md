@@ -58,7 +58,8 @@ Milestone definitions: `roadmap.md`.
 - [ ] K-043 Multipart uploads: temp files, size limits, cleanup.
 - [x] K-044 Response decoding: status, multi-value headers, body; error mapping (worker error → 5xx).
   `rrhttp.DecodeResponse` (JSON and protobuf), `WriteResponse` (framing, header hygiene, trailers), `ErrorStatus`.
-- [ ] K-045 `examples/php-hello`: composer.json + PSR-7 worker + kest.yaml.
+- [x] K-045 `examples/php-hello`: composer.json + PSR-7 worker + kest.yaml. E2e test with the real binary
+  (`-tags e2e,integration`, run by `make test-integration`).
 - [ ] K-046 Framework smoke test (Symfony RoadRunner runtime or Laravel Octane RR worker).
 - [ ] K-047 Docker e2e environment with a PHP version matrix (8.3 / 8.4 / 8.5), runnable locally
   (`make e2e-matrix`); reused by CI later.

@@ -132,7 +132,7 @@ plugin v6.0.0 and `roadrunner/http` 4.2.1, and by experiment). Layering: `cluste
    error → status. Acceptance: tests for each rule in D5 and D7; decoder fuzz clean.
 4. [x] **`php_workers` cluster** (K-041) — config, defaults, validation, env, `BuildContext` config dir,
    `ServeHTTP`, registration. Acceptance: config and handler tests; PHP integration tests green on both codecs.
-5. [ ] **`examples/php-hello`** (K-045) — composer project, PSR-7 worker, `kest.yaml`, README; e2e test with the
+5. [x] **`examples/php-hello`** (K-045) — composer project, PSR-7 worker, `kest.yaml`, README; e2e test with the
    real binary. Acceptance: `curl` works; e2e green. **The vertical slice is done here.**
 6. [ ] **Uploads** (K-043) — temp files, `uploads.dir`/`forbid`/`allow`, error codes, cleanup (also on timeouts and
    errors). Acceptance: PHP integration test uploads files and reads them back; no temp file is left.
@@ -158,3 +158,7 @@ open the PR without asking (2026-10-25).
 
 - 2026-10-25 — K-040 done: RR v3 sends protobuf; the PHP library accepts JSON and protobuf and answers in kind;
   protobuf costs 5× more on the PHP side without `ext-protobuf`. Plan written; decisions D1–D8 taken by the agent.
+- 2026-10-25 — Steps 2–5 done: `rrhttp` (request + response, both codecs), the `php_workers` cluster and
+  `examples/php-hello`. The vertical slice works: `curl` → kest → unmodified `PSR7Worker` → back, covered by
+  `TestServePHPHelloExample`. Found on the way: the e2e binary (built with `-race`) slept 1 s on every exit;
+  e2e runs now set `GORACE=atexit_sleep_ms=0`.
