@@ -23,6 +23,9 @@ import (
 
 var kestBin string
 
+// raceEnv stops the race-enabled binary from sleeping 1s before it exits.
+const raceEnv = "GORACE=atexit_sleep_ms=0"
+
 func TestMain(m *testing.M) {
 	os.Exit(runTests(m))
 }
@@ -85,6 +88,7 @@ func kest(t *testing.T, args ...string) (stdout, stderr string, code int) {
 	t.Helper()
 	var out, errOut bytes.Buffer
 	cmd := exec.CommandContext(t.Context(), kestBin, args...)
+	cmd.Env = append(os.Environ(), raceEnv)
 	cmd.Stdout, cmd.Stderr = &out, &errOut
 	err := cmd.Run()
 	var exitErr *exec.ExitError
@@ -113,6 +117,59 @@ func get(t *testing.T, url string) (int, string, error) {
 	return resp.StatusCode, string(body), err
 }
 
+// running is a `kest serve` process.
+type running struct {
+	cmd    *exec.Cmd
+	logs   *syncBuffer
+	exited chan error
+}
+
+// serve starts `kest serve -c configPath` with extra environment variables
+// and waits until its admin server reports ready.
+func serve(t *testing.T, configPath, adminAddr string, env ...string) *running {
+	t.Helper()
+	k := &running{logs: &syncBuffer{}, exited: make(chan error, 1)}
+	k.cmd = exec.CommandContext(t.Context(), kestBin, "serve", "-c", configPath)
+	k.cmd.Env = append(append(os.Environ(), raceEnv), env...)
+	k.cmd.Stdout, k.cmd.Stderr = k.logs, k.logs
+	if err := k.cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	go func() { k.exited <- k.cmd.Wait() }()
+
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		if code, _, err := get(t, "http://"+adminAddr+"/ready"); err == nil && code == http.StatusOK {
+			return k
+		}
+		select {
+		case err := <-k.exited:
+			t.Fatalf("kest exited early: %v\n%s", err, k.logs.String())
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("kest not ready after 30s\n%s", k.logs.String())
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// stop sends SIGTERM and expects a clean exit within 10s.
+func (k *running) stop(t *testing.T) {
+	t.Helper()
+	if err := k.cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-k.exited:
+		if err != nil {
+			t.Errorf("kest exited with %v after SIGTERM\n%s", err, k.logs.String())
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatalf("kest did not exit within 10s after SIGTERM\n%s", k.logs.String())
+	}
+}
+
 func TestServeHelloExample(t *testing.T) {
 	listenAddr, adminAddr := freeAddr(t), freeAddr(t)
 
@@ -126,31 +183,7 @@ func TestServeHelloExample(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var logs syncBuffer
-	cmd := exec.CommandContext(t.Context(), kestBin, "serve", "-c", configPath)
-	cmd.Env = append(os.Environ(), "KEST_ADDRESS="+listenAddr)
-	cmd.Stdout, cmd.Stderr = &logs, &logs
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	exited := make(chan error, 1)
-	go func() { exited <- cmd.Wait() }()
-
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		if code, _, err := get(t, "http://"+adminAddr+"/ready"); err == nil && code == http.StatusOK {
-			break
-		}
-		select {
-		case err := <-exited:
-			t.Fatalf("kest exited early: %v\n%s", err, logs.String())
-		default:
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("kest not ready after 10s\n%s", logs.String())
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	k := serve(t, configPath, adminAddr, "KEST_ADDRESS="+listenAddr)
 
 	for _, tc := range []struct{ path, want string }{
 		{"/", "hello from kest\n"},
@@ -167,36 +200,28 @@ func TestServeHelloExample(t *testing.T) {
 		t.Errorf("server_info = %q, %v", body, err)
 	}
 
-	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case err := <-exited:
-		if err != nil {
-			t.Errorf("kest exited with %v after SIGTERM\n%s", err, logs.String())
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatalf("kest did not exit within 10s after SIGTERM\n%s", logs.String())
-	}
+	k.stop(t)
 
 	for _, want := range []string{"kest is ready", "shutting down", "kest stopped"} {
-		if !strings.Contains(logs.String(), want) {
-			t.Errorf("logs do not contain %q:\n%s", want, logs.String())
+		if !strings.Contains(k.logs.String(), want) {
+			t.Errorf("logs do not contain %q:\n%s", want, k.logs.String())
 		}
 	}
 }
 
 func TestValidateCommand(t *testing.T) {
-	stdout, stderr, code := kest(t, "validate", "-c", "../../examples/hello/kest.yaml")
-	if code != 0 || !strings.Contains(stdout, "configuration is valid") {
-		t.Errorf("validate example: code %d, stdout %q, stderr %q", code, stdout, stderr)
+	for _, example := range []string{"hello", "php-hello"} {
+		stdout, stderr, code := kest(t, "validate", "-c", "../../examples/"+example+"/kest.yaml")
+		if code != 0 || !strings.Contains(stdout, "configuration is valid") {
+			t.Errorf("validate %s: code %d, stdout %q, stderr %q", example, code, stdout, stderr)
+		}
 	}
 
 	bad := filepath.Join(t.TempDir(), "bad.yaml")
 	if err := os.WriteFile(bad, []byte("version: v1\nlisteners:\n  - name: main\n    listen_on: x\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, stderr, code = kest(t, "validate", "-c", bad)
+	_, stderr, code := kest(t, "validate", "-c", bad)
 	if code != 1 || !strings.Contains(stderr, "bad.yaml:4:5: listeners[0].listen_on: unknown field") {
 		t.Errorf("validate bad config: code %d, stderr %q", code, stderr)
 	}

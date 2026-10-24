@@ -1,0 +1,45 @@
+# A PHP application behind kest: a pool of PSR-7 workers (worker.php) on
+# roadrunner/http. Install the PHP packages first, then start kest:
+#
+#   composer install --working-dir=examples/php-hello
+#   kest serve -c examples/php-hello/kest.yaml
+#   curl localhost:8080/
+#   curl 'localhost:8080/?name=kest'
+#   curl -d 'a=1&b[]=2' localhost:8080/info
+#
+# Set KEST_ADDRESS and KEST_ADMIN_ADDRESS to listen elsewhere.
+version: v1
+
+log:
+  level: info
+
+admin:
+  address: ${KEST_ADMIN_ADDRESS:-127.0.0.1:9901}
+
+listeners:
+  - name: main
+    address: ${KEST_ADDRESS:-127.0.0.1:8080}
+    http:
+      virtual_hosts:
+        - name: default
+          domains: ["*"]
+          routes:
+            - match: { path: /healthz }
+              direct_response: { status: 200, body: "ok\n" }
+            - match: { prefix: / }
+              route: { cluster: hello, timeout: 30s }
+
+clusters:
+  - name: hello
+    type: php_workers
+    config:
+      # Runs in this file's directory. php is looked up in PATH.
+      command: [php, worker.php]
+      env:
+        APP_ENV: dev
+      pool:
+        workers: 4
+        max_jobs: 1000      # replace a worker after ~1000 requests
+      supervisor:
+        exec_ttl: 30s       # kill a worker stuck on one request
+        max_worker_memory: 128MB

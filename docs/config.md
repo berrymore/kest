@@ -1,7 +1,7 @@
 # Configuration reference
 
 kest reads one YAML file (`kest serve -c kest.yaml`). This page describes every option that exists
-today. Check a file without starting anything with `kest validate -c kest.yaml`; add `-dump` to print
+today; [Getting started](getting-started.md) walks through a first PHP app. Check a file without starting anything with `kest validate -c kest.yaml`; add `-dump` to print
 the effective configuration with all defaults filled in. The dump shows values after environment
 expansion, so it can include secrets.
 
@@ -34,8 +34,9 @@ listeners:
 
 clusters:
   - name: app
-    type: <cluster type>
-    config: {}
+    type: php_workers
+    config:
+      command: [php, worker.php]
 ```
 
 ## General rules
@@ -197,5 +198,115 @@ implementation's options and is validated just as strictly.
 | `type` | yes | Implementation; see below |
 | `config` | depends on the type | Type-specific options |
 
-No cluster types are built in yet. `php_workers` arrives in milestone M2. Until then, any `type` is
-rejected with the list of known types.
+Built-in types: [`php_workers`](#php_workers). An unknown `type` is rejected with the list of known types.
+
+### `php_workers`
+
+A pool of long-lived PHP worker processes that speak the RoadRunner protocol: an unmodified
+`roadrunner/http` (formerly `spiral/roadrunner-http`) `PSR7Worker` or `HttpWorker` loop serves requests
+behind kest as it does behind RoadRunner.
+
+```yaml
+clusters:
+  - name: app
+    type: php_workers
+    config:
+      command: [php, public/worker.php]
+      env: {APP_ENV: prod}
+      pool:
+        workers: 8
+        max_jobs: 1000
+      supervisor:
+        exec_ttl: 30s
+        max_worker_memory: 256MB
+```
+
+| Field | Default | |
+|---|---|---|
+| `command` | — | Required. The worker executable and its arguments; `php` is looked up in `PATH`. |
+| `dir` | the config file's directory | Working directory of the workers. A relative path is relative to the config file. |
+| `env` | none | Variables added to the workers' environment (`{NAME: value}`). |
+| `inherit_env` | `true` | Pass kest's own environment to the workers, as RoadRunner does. With `false`, workers get only `env` and the variables below. |
+| `codec` | `json` | How the request head is encoded: `json` or `proto`. See below. |
+| `max_request_body` | `16MB` | Larger request bodies get `413`. A body is read into memory (files of multipart uploads go to temp files) before the request waits for a worker, so up to `pool.workers + pool.max_queue_size` bodies can be held at once. RoadRunner's default is 1000 MB. |
+| `max_response_size` | `64MB` | A worker that sends a larger response (headers and body) is replaced, and the request gets `502`. At most `4GB`. |
+| `raw_body` | `false` | Send `application/x-www-form-urlencoded` and `multipart/form-data` bodies as they are instead of parsing them (RoadRunner's `http.raw_body`). |
+
+Every worker also gets `RR_MODE=http` and `RR_RELAY=pipes`; they override the same names from `env` or
+the inherited environment.
+
+**`uploads`**
+
+Files of `multipart/form-data` requests are written to temp files, which PHP sees as PSR-7 uploaded
+files (`$request->getUploadedFiles()`), and removed after the response.
+
+| Field | Default | |
+|---|---|---|
+| `dir` | the OS temp directory | Where the temp files go; relative to the config file. |
+| `forbid` | none | Extensions whose files are not stored, like `[.php, .exe]`. Case doesn't matter. |
+| `allow` | none (all) | If set, only files with these extensions are stored. |
+
+A file that isn't stored reaches PHP with an error code instead of content: `UPLOAD_ERR_EXTENSION` for
+`forbid`/`allow`, `UPLOAD_ERR_NO_TMP_DIR` or `UPLOAD_ERR_CANT_WRITE` when kest can't write it (logged).
+Uploads count towards `max_request_body`.
+
+**`pool`**
+
+| Field | Default | |
+|---|---|---|
+| `workers` | number of CPUs | Worker processes, 1–1024. |
+| `max_jobs` | `0` (unlimited) | Requests per worker before it is replaced; each worker's limit gets up to 14 % extra, so workers don't restart together. |
+| `max_queue_size` | `1000` | Requests that may wait for a free worker; more get `503` at once. |
+| `allocate_timeout` | `60s` | How long a request waits for a free worker before it gets `503`. |
+| `start_timeout` | `60s` | How long a new worker may take to start, including the application's boot. |
+| `destroy_timeout` | `10s` | How long a worker may take to exit after it is asked to stop; then it is killed. |
+
+**`supervisor`**
+
+| Field | Default | |
+|---|---|---|
+| `ttl` | `0s` (off) | A worker's maximum lifetime; it is replaced after its current request. |
+| `idle_ttl` | `0s` (off) | A worker idle this long is replaced. |
+| `exec_ttl` | `60s` | A request's maximum time in a worker; the worker is killed after it and the request gets `504`. `0s` disables it. |
+| `max_worker_memory` | `0` (off) | A worker whose RSS grows past this size is replaced after its current request. Linux and macOS only. |
+| `watch_tick` | `5s` | How often worker memory is checked. |
+
+The route `timeout` still bounds each request: when it expires the client gets `504`, and the worker
+finishes the request (within `exec_ttl`) with nobody waiting for it.
+
+**Startup and shutdown.** kest starts every worker before it opens the listeners, and fails to start
+if one of them can't boot (the error shows the worker's exit status and the end of its stderr).
+Workers that crash later are replaced, with a growing delay (up to 30s) if they keep failing. On
+shutdown, running requests finish first. Worker stderr is logged line by line with `cluster` and
+`worker_pid`. Anything a worker prints to stdout before `Worker::create()` (for example a PHP warning
+during boot, since PHP's CLI prints errors to stdout) breaks the protocol: kest reports it as a
+failed start.
+
+**Codec.** The request head (method, URI, headers, cookies, …) travels as JSON or protobuf. PHP's
+`roadrunner/http` reads either and answers in the same format. `json` (the default) works with every
+version of `spiral/roadrunner-http` / `roadrunner/http` from 2.0 on and costs PHP less: about 30 µs
+per request against about 140 µs for `proto` without the `protobuf` PHP extension. `proto` is what
+RoadRunner v3 sends, and needs `spiral/roadrunner-http` 3.5 or later.
+
+**Requests.** Workers see requests as under RoadRunner: `REQUEST_URI` and the PSR-7 URI are absolute
+(`http://host/path?query`), `REMOTE_ADDR` is the client IP, cookies are URL-decoded. Form bodies
+(`application/x-www-form-urlencoded`, `multipart/form-data`) are parsed into the PSR-7 parsed body
+with PHP's bracket syntax (`tags[]=a&tags[]=b`, `user[email]=…`); other bodies arrive raw. Unlike
+RoadRunner, kest also parses form bodies of DELETE and other methods, keeps field order, and limits
+forms to 10000 fields and 1000 multipart parts.
+
+**Responses.** kest sets `Content-Length` itself and ignores the worker's `Content-Length` and
+`Transfer-Encoding` (a HEAD response keeps the worker's `Content-Length`); headers named in a
+`Trailer` header are sent as trailers. Streamed responses (`PSR7Worker::$chunkSize`, generator bodies)
+are not supported yet: a worker that streams is replaced and the request gets `502`.
+
+**Errors.** The client gets the status and its standard text; the details go to the log.
+
+| Situation | Status |
+|---|---|
+| Request body over `max_request_body` | `413` |
+| Malformed form body | `400` |
+| No free worker within `allocate_timeout`, queue full, or kest shutting down | `503` |
+| `exec_ttl` or the route `timeout` expired | `504` |
+| The worker reported an error (`$worker->error()`) | `500` |
+| The worker crashed, broke the protocol, or sent an invalid or too large response | `502` |

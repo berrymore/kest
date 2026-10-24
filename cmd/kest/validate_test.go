@@ -33,7 +33,9 @@ listeners:
 func TestValidate(t *testing.T) {
 	valid := writeConfig(t, minimalConfig)
 	invalid := writeConfig(t, strings.Replace(minimalConfig, "address: 127.0.0.1:8080", "address: nowhere", 1))
-	badExtension := writeConfig(t, minimalConfig+"clusters:\n  - {name: app, type: php_workers}\n")
+	badExtension := writeConfig(t, minimalConfig+"clusters:\n  - {name: app, type: nope}\n")
+	noCommand := writeConfig(t, minimalConfig+"clusters:\n  - {name: app, type: php_workers}\n")
+	phpWorkers := writeConfig(t, minimalConfig+"clusters:\n  - {name: app, type: php_workers, config: {command: [php, worker.php]}}\n")
 
 	tests := []struct {
 		name       string
@@ -64,7 +66,19 @@ func TestValidate(t *testing.T) {
 			name:       "unknown extension type",
 			args:       []string{"validate", "-c", badExtension},
 			wantCode:   exitError,
-			wantStderr: `clusters[0].type: unknown cluster type "php_workers"`,
+			wantStderr: `clusters[0].type: unknown cluster type "nope" (known types: php_workers)`,
+		},
+		{
+			name:       "php_workers without a command",
+			args:       []string{"validate", "-c", noCommand},
+			wantCode:   exitError,
+			wantStderr: `kest.yaml:13:5: clusters[0].config.command: must not be empty`,
+		},
+		{
+			name:       "php_workers defaults in the dump",
+			args:       []string{"validate", "-c", phpWorkers, "-dump"},
+			wantCode:   exitOK,
+			wantStdout: "  config:\n    command:\n    - php\n    - worker.php\n    inherit_env: true\n    codec: json\n",
 		},
 		{
 			name:       "missing file",

@@ -46,18 +46,28 @@ Milestone definitions: `roadmap.md`.
 
 ## M2 — PHP HTTP (MVP)
 
-- [ ] K-040 Research: RR HTTP payload (JSON vs protobuf request context, uploads, cookies, attributes,
-  response format, streaming/chunked responses), RR `rpc` plugin usage by PHP libraries (Q-G).
-- [ ] K-041 `php_workers` cluster type: config, defaults, validation, wiring to pool. Decide the worker
+- [x] K-040 Research: RR HTTP payload (JSON vs protobuf request context, uploads, cookies, attributes,
+  response format, streaming/chunked responses), RR `rpc` plugin usage by PHP libraries (Q-G). Verified against
+  RR http plugin v6.0.0 and `roadrunner/http` 4.2.1, plus an experiment → `research/roadrunner.md` (2026-10-25).
+- [x] K-041 `php_workers` cluster type: config, defaults, validation, wiring to pool. Decide the worker
   environment policy (inherit kest's environment like RR, or explicit only) and `RR_MODE`/`RR_VERSION`.
-- [ ] K-042 Request encoding: method, URI, headers, cookies, query, body (bounded), remote address, TLS info.
-- [ ] K-043 Multipart uploads: temp files, size limits, cleanup.
-- [ ] K-044 Response decoding: status, multi-value headers, body; error mapping (worker error → 5xx).
-- [ ] K-045 `examples/php-hello`: composer.json + PSR-7 worker + kest.yaml.
-- [ ] K-046 Framework smoke test (Symfony RoadRunner runtime or Laravel Octane RR worker).
-- [ ] K-047 Docker e2e environment with a PHP version matrix (8.3 / 8.4 / 8.5), runnable locally
-  (`make e2e-matrix`); reused by CI later.
-- [ ] K-048 Getting-started guide in `docs/`.
+  Inherit by default (`inherit_env`), `RR_MODE=http`, no `RR_VERSION`; paths relative to the config file
+  (plan D2–D4).
+- [x] K-042 Request encoding: method, URI, headers, cookies, query, body (bounded), remote address, TLS info.
+  `internal/rrhttp`: JSON and protobuf contexts, PHP form trees (checked against RR's code by a differential fuzz).
+- [x] K-043 Multipart uploads: temp files, size limits, cleanup. `uploads: {dir, forbid, allow}`; files stream to
+  disk (one copy), PHP's `UPLOAD_ERR_*` codes as in RR; temp files removed after the response and on every error.
+- [x] K-044 Response decoding: status, multi-value headers, body; error mapping (worker error → 5xx).
+  `rrhttp.DecodeResponse` (JSON and protobuf), `WriteResponse` (framing, header hygiene, trailers), `ErrorStatus`.
+- [x] K-045 `examples/php-hello`: composer.json + PSR-7 worker + kest.yaml. E2e test with the real binary
+  (`-tags e2e,integration`, run by `make test-integration`).
+- [x] K-046 Framework smoke test (Symfony RoadRunner runtime or Laravel Octane RR worker). Symfony 7.4 on
+  `runtime/roadrunner-symfony-nyholm` 1.0.0 (`spiral/roadrunner-http` 3.6), both codecs: `test/e2e/symfony_test.go`.
+- [x] K-047 Docker e2e environment with a PHP version matrix (8.3 / 8.4 / 8.5), runnable locally
+  (`make e2e-matrix`); reused by CI later. `make test-matrix`: `test/docker` image (php:<v>-cli + sockets, Go,
+  Composer) runs `make test-integration` on a copy of the tree; green on 8.3.36, 8.4.27, 8.5.12 (linux/arm64).
+- [x] K-048 Getting-started guide in `docs/`. `docs/getting-started.md` (checked by running it verbatim),
+  README, AGENTS.md.
 
 ## M3 — Operability
 
@@ -75,6 +85,10 @@ Milestone definitions: `roadmap.md`.
   shows it matters, write the frame in segments instead (`relay.Writer` with several payload parts).
 - [ ] K-068 Drain delay: after SIGTERM, keep serving with `/ready` = 503 for a configurable delay so load
   balancers deregister the instance before listeners close.
+- [ ] K-070 Bound the memory held by buffered request bodies: `php_workers` reads a body (up to
+  `max_request_body`) before it queues for a worker, so up to `(workers + max_queue_size) × max_request_body`
+  can be in memory (16 GB with the defaults and 1000 waiting uploads). Admit before reading the body, or cap
+  the buffered bytes per cluster. (Found in M2; RR reads up to 1000 MB per request the same way.)
 
 ## M4 — HTTP edge features
 
@@ -86,6 +100,10 @@ Milestone definitions: `roadmap.md`.
 - [ ] K-085 `http_proxy` cluster: endpoints, load balancing, health checks, retries.
 - [ ] K-086 Path normalization before routing (dot segments, duplicate slashes; Envoy `normalize_path` /
   `merge_slashes`), so prefix routes can't be bypassed with `/a/../b`.
+- [ ] K-087 Trusted proxies: client IP from `X-Forwarded-For` / `Forwarded` for trusted peers, passed to PHP as
+  the `ipAddress` attribute that `roadrunner/http` reads (RR's `proxy_ip_parser` middleware).
+- [ ] K-088 Streaming responses from PHP workers (`STREAM` frames, `PSR7Worker::$chunkSize`, generator bodies)
+  and 1xx informational responses (103 Early Hints); stop a stream when the client goes away (Q-C).
 
 ## M5 — WASM sandbox
 

@@ -47,14 +47,16 @@ Keep this table in sync with the Makefile (`make help` lists every target).
 | Build | `make build` → `bin/kest` |
 | Unit tests | `make test` (`go test -race ./...`) |
 | End-to-end tests | `make test-e2e` (builds the binary with `-race`, runs it against configs) |
-| Integration tests (need `php`, `composer`) | `make test-integration` (composer install, then PHP worker tests in `internal/worker`) |
+| Integration tests (need `php`, `composer`) | `make test-integration` (`make php-deps`, then the `integration`-tagged tests and the PHP e2e tests) |
+| PHP packages of test projects and examples | `make php-deps` (composer install in every directory of `PHP_PROJECTS`) |
 | Unit tests on Linux (needs Docker) | `make test-linux` (Linux-only code paths; run when touching them) |
+| PHP version matrix on Linux (needs Docker) | `make test-matrix` (`make test-integration` on PHP 8.3, 8.4, 8.5; image in `test/docker`) |
 | Lint | `make lint` (golangci-lint 2.15.0 pinned; config in `.golangci.yml`) |
 | Format | `make fmt` |
 | Run | `./bin/kest serve -c examples/hello/kest.yaml` |
 | Validate a config | `./bin/kest validate -c FILE [-dump]` |
 
-Build tags: `integration` (needs PHP), `e2e` (real binary). Lint and vet run with both.
+Build tags: `integration` (needs PHP), `e2e` (real binary); PHP e2e tests need both. Lint and vet run with both.
 
 ## Repository layout
 
@@ -71,16 +73,18 @@ internal/registry/   compiled-in extension categories and factories
 internal/server/     builds the component graph; start/stop order; drain
 internal/httpx/      HTTP filter chain and router
 internal/listener/   HTTP listeners
-internal/cluster/    cluster interface and registry category
+internal/cluster/    cluster interface and registry category; phpworkers/ is the php_workers type
+internal/rrhttp/     HTTP ↔ RoadRunner HTTP payload (request context JSON/protobuf, forms, uploads, responses)
 internal/relay/      goridge frame codec and connection (RoadRunner worker protocol)
 internal/worker/     worker processes, pool, supervisor; workertest/ fakes, testdata/php/ for integration
 internal/admin/      admin API
 internal/logging/    slog setup
 internal/buildinfo/  version information
 internal/leaktest/   goroutine-leak check for tests (TestMain)
-examples/            runnable configs
-docs/                user documentation (config reference)
-test/e2e/            end-to-end tests against the real binary
+examples/            runnable configs: hello (no PHP), php-hello (PSR-7 worker)
+docs/                user documentation: getting started, config reference
+test/e2e/            end-to-end tests against the real binary; testdata/symfony is the framework smoke test
+test/docker/         image for the PHP version matrix
 ```
 
 ## Rules in brief
@@ -109,12 +113,15 @@ Full list: `.ai/rules.md`. The ones that matter most:
 
 ## Git
 
+Full workflow: `.ai/rules.md` § 9.
+
 - Remote: `origin` → `git@github.com:berrymore/kest.git` (public). Default branch: `main`.
-- **Never commit without asking.** When a commit seems due, stop and ask; the user allows it or says to
-  finish first. Commits are coarse: 1–3 per large task, no micro-commits. Never push unless asked.
+- **One branch per milestone** from `main`: `feat/m<N>-<slug>`. Nothing is committed to `main` directly.
+- **One commit per backlog item** (`K-NNN` in the subject), plus separate `docs:` commits for plans and status.
+- **Ask before every commit**, unless the user said otherwise for the current milestone. `make check` first.
+- **Merge via PR:** at the end of the milestone, ask, push the branch, `gh pr create`; after the user's review
+  and go-ahead, `gh pr merge --squash --delete-branch`.
 - Conventional Commits (`feat(config): …`, `fix(worker): …`, `docs: …`).
-- Milestone work happens on a branch from `main` (M1: `feat/m1-worker-pool`); branches are merged into `main`
-  with **squash merge** only.
 - No CI yet: the user develops alone and locally. Run the checks from the Commands table yourself
   before declaring work done.
 

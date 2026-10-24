@@ -1,0 +1,30 @@
+# A Symfony app on the RoadRunner runtime (runtime/roadrunner-symfony-nyholm),
+# served by kest: the framework smoke test (test/e2e/symfony_test.go).
+version: v1
+
+admin:
+  address: ${KEST_ADMIN_ADDRESS:-127.0.0.1:9901}
+
+listeners:
+  - name: main
+    address: ${KEST_ADDRESS:-127.0.0.1:8080}
+    http:
+      virtual_hosts:
+        - name: default
+          domains: ["*"]
+          routes:
+            - match: { prefix: / }
+              route: { cluster: symfony }
+
+clusters:
+  - name: symfony
+    type: php_workers
+    config:
+      command: [php, public/index.php]
+      codec: ${KEST_CODEC:-json}
+      env:
+        APP_ENV: prod
+        APP_DEBUG: "0"
+        APP_RUNTIME: Runtime\RoadRunnerSymfonyNyholm\Runtime
+      pool:
+        workers: 2

@@ -1,0 +1,14 @@
+{
+    "name": "kest/php-hello",
+    "description": "A PSR-7 hello world served by kest",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.2",
+        "nyholm/psr7": "^1.8",
+        "roadrunner/http": "^4.2"
+    },
+    "config": {
+        "sort-packages": true
+    }
+}

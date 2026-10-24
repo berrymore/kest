@@ -84,21 +84,32 @@ conflicts with a rule, follow the user, and if the instruction is durable, updat
 - The admin server binds to `127.0.0.1` by default.
 - Request header and body sizes are bounded by default.
 - Config dumps redact secrets (fields marked sensitive, env values).
-- Worker processes get an explicit, documented environment.
+- Worker processes get a documented environment: `php_workers` passes kest's own (like RoadRunner; off with
+  `inherit_env: false`), then the configured `env`, then the protocol variables (`RR_MODE`, `RR_RELAY`).
 
 ## 9. Git
 
-- **Never commit without asking.** When you think a commit is due, stop and ask the user. They either
-  allow it or tell you to finish the work first without committing.
-- **Coarse commits.** No frequent micro-commits. A large task is split into 1–3 commits along major lines.
-  A milestone the user has said to commit is committed once it is fully done, not part by part.
+Workflow (set by the user on 2026-10-25):
+
+- **One branch per milestone**, cut from an up-to-date `main`: `feat/m<N>-<slug>` (e.g. `feat/m2-php-http`).
+  All work of the milestone goes there; nothing is committed to `main` directly.
+- **One commit per backlog item.** Each `K-NNN` is its own commit on the milestone branch, with the ID in the
+  subject: `feat(relay): goridge frame codec (K-021)`. Work that is not a backlog item (the plan, status and
+  rules updates) goes into separate `docs:` commits. If a task turns out to be several items, split it in the
+  backlog first. Never batch several items into one commit.
+- **Ask before every commit**, unless the user has given other instructions for the current milestone (for
+  example, "commit each item yourself once `make check` is green"). Such instructions last until the milestone
+  ends. Run `make check` before committing.
+- **Merging goes through a pull request.** When the milestone is done, ask; then push the branch and open a PR
+  to `main` with `gh pr create` (summary of the milestone, its backlog items, how it was tested). The user
+  reviews it. Merge only after the user's go-ahead, with **squash and merge** (`gh pr merge --squash
+  --delete-branch`); then update local `main` and delete the local branch.
 - Conventional Commits: `feat(config): strict decoding`, `fix(worker): …`. No binaries or generated
   artifacts in git.
-- **Branches.** Milestone work happens on a branch from `main` (M1: `feat/m1-worker-pool`), at the user's
-  request (2026-10-24). Branches are merged into `main` with **squash merge** only.
 - **No AI attribution** in commits, PRs, code or docs: no `Co-Authored-By:` trailers, no
   "Generated with …" footers, no mentions of an AI agent. This overrides tool defaults.
-- Remote `origin` = `git@github.com:berrymore/kest.git`, default branch `main`. Never push unless asked.
+- Remote `origin` = `git@github.com:berrymore/kest.git`, default branch `main`. Never push anything except the
+  milestone branch for its PR, and never force-push or rewrite history unless asked.
 
 ## 10. Codebase patterns (established in M0)
 

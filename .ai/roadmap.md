@@ -7,8 +7,8 @@ Work items live in `backlog.md` (IDs in brackets). Reprioritization is the user'
 |---|---|---|
 | M0 | Foundation | ✅ done 2026-10-24 |
 | M1 | Worker pool and relay | ✅ done 2026-10-25 |
-| M2 | PHP HTTP — **MVP** | ⚪ next |
-| M3 | Operability | ⚪ |
+| M2 | PHP HTTP — **MVP** | ✅ done 2026-10-25 |
+| M3 | Operability | ⚪ next |
 | M4 | HTTP edge features | ⚪ |
 | M5 | WASM sandbox | ⚪ |
 | M6 | Dynamic configuration | ⚪ |
@@ -63,7 +63,7 @@ Scope [K-040…K-049]:
 - `php_workers` cluster type; HTTP request → payload, payload → HTTP response.
 - `max_request_body`, multipart uploads, multi-value headers, remote address, TLS info.
 - `examples/php-hello` (PSR-7 via `spiral/roadrunner-http`).
-- Smoke test with a real framework (Symfony via a RoadRunner runtime, or Laravel Octane's RR worker; feasibility ❓).
+- Smoke test with a real framework (Symfony via a RoadRunner runtime ✅; Laravel Octane not tried).
 - Getting-started docs; Docker-based e2e setup with a PHP 8.3 / 8.4 / 8.5 matrix, runnable locally.
 
 Exit criteria:
@@ -77,7 +77,7 @@ Out of scope: streaming responses, metrics (M3).
 
 **Goal:** you can run it in production and know what it is doing.
 
-Scope [K-060…K-069]:
+Scope [K-060…K-070]:
 - Metrics (Q-E), admin `/config_dump`, `/clusters`, `/clusters/{name}/reset`, `/metrics`.
 - Rolling worker reset (admin and SIGHUP) without failed requests.
 - Filters: `access_log`, `request_id`, `recovery`; per-route timeouts; header and body limits.

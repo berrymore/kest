@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -66,10 +67,15 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 
 	var errs config.Errors
 
+	configDir, err := configDir(cfg.File())
+	if err != nil {
+		return nil, err
+	}
+
 	handlers := make(map[string]http.Handler, len(cfg.Clusters))
 	for i := range cfg.Clusters {
 		c := &cfg.Clusters[i]
-		bc := registry.BuildContext{Name: c.Name, Logger: logger.With("cluster", c.Name)}
+		bc := registry.BuildContext{Name: c.Name, Logger: logger.With("cluster", c.Name), ConfigDir: configDir}
 		cl, err := registry.Build(cluster.Types, &c.Extension, bc)
 		if err != nil {
 			errs.Append(err)
@@ -86,7 +92,7 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	for i := range cfg.Listeners {
 		l := &cfg.Listeners[i]
 		log := logger.With("listener", l.Name)
-		h, err := httpx.NewHandler(l.HTTP, lookup, registry.BuildContext{Name: l.Name, Logger: log})
+		h, err := httpx.NewHandler(l.HTTP, lookup, registry.BuildContext{Name: l.Name, Logger: log, ConfigDir: configDir})
 		if err != nil {
 			errs.Append(err)
 			continue
@@ -100,6 +106,18 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+// configDir returns the absolute directory of the config file, or "" without one.
+func configDir(file string) (string, error) {
+	if file == "" {
+		return "", nil
+	}
+	dir, err := filepath.Abs(filepath.Dir(file))
+	if err != nil {
+		return "", fmt.Errorf("config directory: %w", err)
+	}
+	return dir, nil
 }
 
 // Run starts clusters, the admin server and listeners, in that order, and

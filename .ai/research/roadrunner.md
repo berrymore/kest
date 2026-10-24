@@ -1,7 +1,7 @@
 # RoadRunner — prior art notes
 
 Legend: ✅ verified (with a source link) · ❓ unverified (from memory; verify before relying on it).
-K-020 verified the frame format and the worker protocol (2026-10-24). K-040 will verify the HTTP payload.
+K-020 verified the frame format and the worker protocol (2026-10-24); K-040 verified the HTTP payload (2026-10-25).
 
 ## Versions ✅ (checked 2026-10-24)
 
@@ -24,7 +24,8 @@ names are still published from the same repositories with the same versions:
 |---|---|---|---|---|
 | `roadrunner/worker` | `spiral/roadrunner-worker` | v3.8.2 (2026-10-19) | [roadrunner-php/worker `35fcf09`](https://github.com/roadrunner-php/worker/tree/35fcf09b55de68954e03dc727b710b963db9517d) | PHP ≥ 8.2, ext-json, ext-sockets, psr/log |
 | `roadrunner/goridge` | `spiral/goridge` (replaced) | 4.6.0 (2026-10-19) | [roadrunner-php/goridge `887bd3a`](https://github.com/roadrunner-php/goridge/tree/887bd3a6f89a0b95252db608856d33d7a1284406) | `replace: spiral/goridge` |
-| `roadrunner/http` | `spiral/roadrunner-http` | v4.2.1 (2026-10-19) | roadrunner-php/http | M2 (K-040) |
+| `roadrunner/http` | `spiral/roadrunner-http` | v4.2.1 (2026-10-19) | [roadrunner-php/http `8aef719`](https://github.com/roadrunner-php/http/tree/8aef71907057d076f132484b32fe6178c370a73d) | `HttpWorker`, `PSR7Worker`; needs `roadrunner/api-dto` (protobuf DTOs) |
+| `roadrunner/api-dto` | `roadrunner-php/roadrunner-api-dto` | v2.1.0 | [roadrunner-php/roadrunner-api-dto `90e5b93`](https://github.com/roadrunner-php/roadrunner-api-dto/tree/90e5b93788820a08184ed9c0b821df8272cc24e5) | generated PHP classes; pulls in `google/protobuf` (pure PHP) |
 | `roadrunner/roadrunner` | — | v3.0.1 | roadrunner-server/roadrunner | **metapackage**, no code: marks the server major (`^3.0`); `Version::current()` reads it |
 
 Source: `https://repo.packagist.org/p2/<vendor>/<package>.json` and `composer require` into a scratch directory.
@@ -146,15 +147,94 @@ gopsutil v3.21.11 `process/process_{linux,darwin}.go`.
 - **Error classes:** soft error → worker back to the pool; network/CRC/decode error → kill; exec_ttl → kill;
   worker stop request → replace and retry the request.
 
-## HTTP over the worker protocol ❓ (K-040)
+## HTTP over the worker protocol ✅ (K-040, checked 2026-10-25)
 
-- Request context: method, URI, protocol, headers, cookies, remote address, uploads, attributes, raw query;
-  the body is sent separately. Older versions used JSON; `roadrunner/http` requires `roadrunner/api-dto`, so
-  newer ones likely use protobuf (`http.v1`?).
-- Response: the context carries status and headers; the body is the response body.
-- Streaming responses (the `STREAM` bit above) and `103 Early Hints` may exist in newer versions.
-- Uploads: RR writes uploaded files to temp files and passes an upload tree; the PHP library maps it to PSR-7.
-- The http plugin sets `RR_MODE=http` ✅ (http plugin `RrMode`); frameworks may branch on it ❓.
+Sources: Go `github.com/roadrunner-server/http/v6` v6.0.0 ([`e4670d9`](https://github.com/roadrunner-server/http/tree/e4670d9e1ee0e7258d5abe8c70ad2254586c6329)):
+[`handler/handler.go`](https://github.com/roadrunner-server/http/blob/e4670d9e1ee0e7258d5abe8c70ad2254586c6329/handler/handler.go),
+[`handler/request.go`](https://github.com/roadrunner-server/http/blob/e4670d9e1ee0e7258d5abe8c70ad2254586c6329/handler/request.go),
+[`handler/response.go`](https://github.com/roadrunner-server/http/blob/e4670d9e1ee0e7258d5abe8c70ad2254586c6329/handler/response.go),
+[`handler/parse.go`](https://github.com/roadrunner-server/http/blob/e4670d9e1ee0e7258d5abe8c70ad2254586c6329/handler/parse.go),
+[`handler/uploads.go`](https://github.com/roadrunner-server/http/blob/e4670d9e1ee0e7258d5abe8c70ad2254586c6329/handler/uploads.go),
+[`config/config.go`](https://github.com/roadrunner-server/http/blob/e4670d9e1ee0e7258d5abe8c70ad2254586c6329/config/config.go);
+messages in `github.com/roadrunner-server/api-go/v6` v6.0.0 ([`32b5879`](https://github.com/roadrunner-server/api-go/tree/32b5879680bf26d199c9f3b9faf58e6374a36897)) `http/v1/http.pb.go`;
+PHP [`src/HttpWorker.php`](https://github.com/roadrunner-php/http/blob/8aef71907057d076f132484b32fe6178c370a73d/src/HttpWorker.php),
+[`src/PSR7Worker.php`](https://github.com/roadrunner-php/http/blob/8aef71907057d076f132484b32fe6178c370a73d/src/PSR7Worker.php),
+[`src/GlobalState.php`](https://github.com/roadrunner-php/http/blob/8aef71907057d076f132484b32fe6178c370a73d/src/GlobalState.php).
+**Checked by experiment** on 2026-10-25: a scratch Go client sent both codecs to an unmodified `PSR7Worker`
+(`roadrunner/http` 4.2.1, `nyholm/psr7`, PHP 8.5.12) and decoded the answers.
+
+**Codec.** RR v3 sends the request context as protobuf (`CODEC_PROTO`) and rejects JSON responses ("JSON codec is
+not supported"). The PHP side detects the codec once per process, on the first request:
+`json_validate($payload->header) ? CODEC_JSON : CODEC_PROTO`, and answers in the same codec (frame flag
+`CODEC_JSON` or `CODEC_PROTO`). So the current PHP library accepts both. Protobuf support arrived in
+`spiral/roadrunner-http` **3.5.0** (2024-04-01, with `roadrunner-api-dto`); 2.x–3.4 speak JSON only. Measured
+PHP-side cost per request (10 headers, `PSR7Worker` + `nyholm/psr7`, no `ext-protobuf`, pure-PHP `google/protobuf`
+5.36.2): **141 µs with protobuf, 28.5 µs with JSON**. `roadrunner/worker` documents the codec argument of
+`respond()` as "will be removed in v4.0 and `CODEC_PROTO` will be used by default".
+
+**Request context, protobuf** (`http.v1.Request`; proto3, empty fields omitted):
+
+| # | Field | Type | RR value |
+|---|---|---|---|
+| 1 | `remote_addr` | string | IP of `r.RemoteAddr` without the port |
+| 2 | `protocol` | string | `r.Proto`: `HTTP/1.1`, `HTTP/2.0` |
+| 3 | `method` | string | |
+| 4 | `uri` | string | `r.URL.String()` with CR/LF removed; if it has no host: `http://` or `https://` (TLS) + `r.Host` + it |
+| 5 | `header` | map<string, HeaderValue> | `r.Header` as is (canonical keys, no `Host`: Go keeps it in `r.Host`) |
+| 6 | `cookies` | map<string, HeaderValue> | one value per name, `url.QueryUnescape`d; a later cookie with the same name wins; undecodable ones are dropped |
+| 7 | `raw_query` | string | `r.URL.RawQuery` with CR/LF removed |
+| 8 | `parsed` | bool | the body is a JSON form tree (below) |
+| 9 | `uploads` | bytes | JSON upload tree, only for parsed multipart requests |
+| 10 | `attributes` | map<string, HeaderValue> | values set by RR middleware (e.g. `ipAddress` from `proxy_ip_parser`) |
+
+`HeaderValue` is `{1: repeated bytes value}`. `http.v1.Response` is `{1: int64 status, 2: map<string, HeaderValue>
+headers}`. PHP reads `cookies` as `implode(',', values)` and `attributes` as their first value.
+
+**Request context, JSON** (the format before 3.5, still accepted): `{"remoteAddr", "protocol", "method", "uri",
+"headers": {name: [values]}, "cookies": {name: value}, "rawQuery", "parsed", "uploads": tree|null, "attributes":
+{}}`. The response context is `{"status": int, "headers": {name: [values]}}` (`{}` when there are none). In JSON mode
+PHP's `getParsedBody()` runs `json_decode($body, …, JSON_THROW_ON_ERROR)`, so a parsed request must carry a non-empty
+body (`{}`); in protobuf mode PHP substitutes `{}` for an empty parsed body itself.
+
+**Body** (`request()` in `request.go`):
+- `HEAD` and `OPTIONS`: not read.
+- `Content-Type` contains `application/x-www-form-urlencoded`: `r.ParseForm()` (Go reads the body only for POST, PUT
+  and PATCH, so a DELETE form body is lost), the `PostForm` values become a JSON tree, `parsed=true`.
+- contains `multipart/form-data`: `r.ParseMultipartForm(32 MiB)`; values become the JSON tree, files the upload
+  tree, `parsed=true`.
+- anything else: the raw body, `parsed=false`. Option `http.raw_body: true` sends form and multipart bodies raw too.
+- Errors forming the request: 413 for `http.MaxBytesError`, else 400.
+- `http.max_request_size` is in **MB**, default 1000 (`MaxBytesReader`).
+
+**Form tree** (`parse.go`): keys use PHP bracket syntax, `a[b][]` → `["a", "b", ""]` (spaces dropped); depth over 127
+is ignored; a scalar key takes the **last** value, `a[]` takes all values; an empty value never overwrites a branch;
+a non-empty scalar and a branch under the same key is an error (`invalid multiple values to key`, → 400). RR walks
+Go maps, so the order of conflicting keys is random; JSON objects come out with sorted keys.
+
+**Uploads** (`uploads.go`): each file is copied to `os.CreateTemp(uploads.dir, "upload")` (default `os.TempDir()`);
+the tree mirrors the form keys and its leaves are `{"name", "mime", "size", "error", "tmpName"}` with PHP's
+`UPLOAD_ERR_*` codes: 0 ok, 4 no file (open failed), 6 no temp dir, 7 can't write, 8 extension forbidden
+(`uploads.forbid` / `uploads.allow`, lower-cased `path.Ext`, no default list). RR deletes the temp files and the
+multipart form's own temp files after the response. `PSR7Worker` turns each leaf into an `UploadedFile` streamed from
+`tmpName`.
+
+**Response** (`response.go`): status must be 100–599 (else 500); headers are added value by value; `Trailer` names
+are moved to `Trailer:<name>` (Go's trailer prefix); `Http2-Push` triggers server push; 1xx except 101 is written
+as an informational response (stream mode only makes sense); 101 is ignored. Every pool error answers
+`http.internal_error_code` (500), with a `No-Workers: true` header when no worker was free. An empty response
+context means "body only".
+
+**Streaming** (`STREAM` bit): `HttpWorker::respond()` streams when the body is a `Generator`; `PSR7Worker` does so
+only when `$chunkSize > 0` (default 0, off). Every chunk repeats status and headers; RR writes them once.
+
+**PHP side** (`PSR7Worker`, `GlobalState`): `$_SERVER` gets `REQUEST_URI` = the full `uri` (scheme and host
+included), `REMOTE_ADDR` (`attributes.ipAddress` if set), `REQUEST_METHOD`, `HTTP_HOST` from the URI, `HTTP_*` and
+`CONTENT_TYPE`/`CONTENT_LENGTH` from the headers. PSR-7 `Host` comes from the URI. The protocol version is the part
+after `HTTP/` (`2.0` → `2`). A request with an empty context and an empty body is read as "stop".
+
+**Environment:** the http plugin adds `RR_MODE=http` ✅. PHP reads `RR_VERSION` only through
+`Environment::getVersion()`; nothing in `roadrunner/http` or `roadrunner/worker` uses it ✅. Frameworks branch on
+`RR_MODE` (e.g. Spiral's dispatchers) ❓.
 
 ## Other RR notes ❓
 
@@ -171,11 +251,13 @@ K-020 (answered above, 2026-10-24):
 3. ✅ Stop sequence, kill mid-request → "Worker protocol", "Pool and supervisor".
 4. ✅ Soft error vs crash → "Worker protocol", "Pool and supervisor".
 
-K-040:
-5. HTTP request context codec in current `roadrunner/http`; is JSON still accepted?
-6. Upload tree format; who cleans up temp files.
-7. Streaming response protocol; early hints.
-8. Which PHP libraries require the RPC plugin (metrics, KV, jobs, `rr reset` from PHP…)?
+K-040 (answered above, 2026-10-25):
+5. ✅ Protobuf in RR v3; the PHP library still accepts JSON and answers in the codec it received.
+6. ✅ JSON tree in the `uploads` field; RR deletes the temp files after the response.
+7. ✅ `STREAM` frames, opt-in on the PHP side (`$chunkSize`, generators); 1xx (early hints) only in stream mode.
+8. ✅ for HTTP: `roadrunner/http` and `roadrunner/worker` never call RPC (only `WorkerPool`, which manages pools
+   over RPC, does). Libraries for RR plugins (KV, jobs, metrics, lock) need RPC by design ❓ (not checked one by
+   one); `PSR7Worker` apps work without it.
 
 ## What to learn from RR / what we do differently
 

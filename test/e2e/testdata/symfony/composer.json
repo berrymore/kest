@@ -1,0 +1,20 @@
+{
+    "name": "kest/symfony-smoke-test",
+    "description": "A minimal Symfony app on the RoadRunner runtime, for kest's framework smoke test",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.3",
+        "runtime/roadrunner-symfony-nyholm": "^1.0",
+        "symfony/framework-bundle": "^7.4",
+        "symfony/runtime": "^7.4"
+    },
+    "autoload": {
+        "psr-4": {"App\\": "src/"}
+    },
+    "config": {
+        "allow-plugins": {"symfony/runtime": true},
+        "platform": {"php": "8.3.0"},
+        "sort-packages": true
+    }
+}
