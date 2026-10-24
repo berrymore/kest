@@ -58,7 +58,7 @@ Out of scope: HTTP mapping.
 
 **Goal:** real PHP applications run behind kest.
 
-Scope [K-040…K-049]:
+Scope [K-040…K-048]:
 - Verified notes on the RR HTTP payload format (request context, uploads, cookies, attributes, response).
 - `php_workers` cluster type; HTTP request → payload, payload → HTTP response.
 - `max_request_body`, multipart uploads, multi-value headers, remote address, TLS info.

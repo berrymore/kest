@@ -63,8 +63,8 @@ Milestone definitions: `roadmap.md`.
   (`-tags e2e,integration`, run by `make test-integration`).
 - [x] K-046 Framework smoke test (Symfony RoadRunner runtime or Laravel Octane RR worker). Symfony 7.4 on
   `runtime/roadrunner-symfony-nyholm` 1.0.0 (`spiral/roadrunner-http` 3.6), both codecs: `test/e2e/symfony_test.go`.
-- [x] K-047 Docker e2e environment with a PHP version matrix (8.3 / 8.4 / 8.5), runnable locally
-  (`make e2e-matrix`); reused by CI later. `make test-matrix`: `test/docker` image (php:<v>-cli + sockets, Go,
+- [x] K-047 Docker e2e environment with a PHP version matrix (8.3 / 8.4 / 8.5), runnable locally;
+  reused by CI later. `make test-matrix`: `test/docker` image (php:<v>-cli + sockets, Go,
   Composer) runs `make test-integration` on a copy of the tree; green on 8.3.36, 8.4.27, 8.5.12 (linux/arm64).
 - [x] K-048 Getting-started guide in `docs/`. `docs/getting-started.md` (checked by running it verbatim),
   README, AGENTS.md.
@@ -94,6 +94,10 @@ Milestone definitions: `roadmap.md`.
   and exited) and, from `php_workers`, a hint: no RoadRunner loop, `display_errors=stderr`, Symfony's
   `APP_RUNTIME` in `env` or `extra.runtime.class` rather than `.env` (`research/roadrunner.md`, Framework
   runtimes). Found on 2026-10-25 with a Symfony app in `playground/`.
+- [x] K-073 Docs drift checks and the milestone docs review: `test/docs` (`make docs-check`, part of
+  `make test`) checks links, make targets, IDs, the ADR index, the layout, the config reference, tool versions,
+  status dates; `.ai/review.md` and the `docs-reviewer` agent run before every milestone PR and merge. Asked for
+  on 2026-10-25 after `status.md` still said "waiting for review" with M2 merged.
 
 ## M4 — HTTP edge features
 

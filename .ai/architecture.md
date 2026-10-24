@@ -316,8 +316,10 @@ internal/relay/              🟢 goridge-compatible frame codec and Conn (pipes
 internal/metrics/            ⚪ (M3) metrics
 internal/wasm/               ⚪ (M5) wazero runtime, module cache, instance pools
 examples/                    🟢 runnable configs (PHP apps from M2)
-docs/                        🟢 user documentation (config reference)
+docs/                        🟢 user documentation (getting started, config reference)
 test/e2e/                    🟢 end-to-end tests: build the binary with -race, run it against configs
+test/docker/                 🟢 the image of the PHP version matrix (make test-matrix)
+test/docs/                   🟢 docs drift checks against the code and the Makefile (make docs-check)
 ```
 
 ## 8. Observability and admin 🟡

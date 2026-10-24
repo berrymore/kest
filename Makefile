@@ -60,6 +60,10 @@ vet: ## Run go vet
 test-e2e: ## Run end-to-end tests against the real binary (built with -race)
 	go test -count=1 -tags e2e ./test/e2e/...
 
+.PHONY: docs-check
+docs-check: ## Check that the docs agree with the code (links, targets, IDs, layout, config reference)
+	go test -count=1 ./test/docs/
+
 .PHONY: lint
 lint: lint-version ## Run golangci-lint
 	golangci-lint run --build-tags integration,e2e ./...

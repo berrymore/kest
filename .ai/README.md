@@ -16,6 +16,7 @@ It is written for AI agents first, but every file should make sense to a human.
 | `plans/` | Detailed, step-by-step plans for the active milestone or a large feature | While implementing | As steps complete |
 | `decisions/` | ADRs: context, decision, consequences; index in `decisions/README.md` | Before changing anything an ADR covers | When a significant decision is made |
 | `research/` | Notes on prior art (RoadRunner, Envoy, protocols, runtimes) | Before implementing compatibility | When something is learned or verified |
+| `review.md` | The milestone docs review: when, how, checklist | Before a milestone PR and before its merge | When a kind of drift slips through |
 
 ## Conventions
 
@@ -52,6 +53,8 @@ It is written for AI agents first, but every file should make sense to a human.
 1. `status.md`: update Current phase / In progress / Next up / Open questions; add one session-log line.
 2. Tick items in `backlog.md` and the active plan.
 3. Make sure `architecture.md` still matches the code.
+4. End of a milestone: the docs review (`review.md`) before the PR, and again before the merge if the branch
+   changed.
 
 ## Templates
 
