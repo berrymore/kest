@@ -19,6 +19,7 @@ import (
 	"github.com/berrymore/kest/internal/config"
 	"github.com/berrymore/kest/internal/httpx"
 	"github.com/berrymore/kest/internal/listener"
+	"github.com/berrymore/kest/internal/metrics"
 	"github.com/berrymore/kest/internal/registry"
 )
 
@@ -42,6 +43,7 @@ type Server struct {
 	cfg       *config.Config
 	logger    *slog.Logger
 	startedAt time.Time
+	metrics   *metrics.Registry
 
 	clusters  []component
 	listeners []*listener.HTTP
@@ -60,10 +62,12 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		cfg:       cfg,
 		logger:    logger,
 		startedAt: time.Now(),
+		metrics:   metrics.NewRegistry(),
 		ready:     make(chan struct{}),
 		failed:    make(chan error, 1),
 	}
 	s.state.Store(admin.StateStarting)
+	metrics.RegisterRuntime(s.metrics)
 
 	var errs config.Errors
 
@@ -75,7 +79,8 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	handlers := make(map[string]http.Handler, len(cfg.Clusters))
 	for i := range cfg.Clusters {
 		c := &cfg.Clusters[i]
-		bc := registry.BuildContext{Name: c.Name, Logger: logger.With("cluster", c.Name), ConfigDir: configDir}
+		bc := registry.BuildContext{Name: c.Name, Logger: logger.With("cluster", c.Name), ConfigDir: configDir,
+			Metrics: s.metrics}
 		cl, err := registry.Build(cluster.Types, &c.Extension, bc)
 		if err != nil {
 			errs.Append(err)
@@ -92,7 +97,8 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	for i := range cfg.Listeners {
 		l := &cfg.Listeners[i]
 		log := logger.With("listener", l.Name)
-		h, err := httpx.NewHandler(l.HTTP, lookup, registry.BuildContext{Name: l.Name, Logger: log, ConfigDir: configDir})
+		bc := registry.BuildContext{Name: l.Name, Logger: log, ConfigDir: configDir, Metrics: s.metrics}
+		h, err := httpx.NewHandler(l.HTTP, lookup, bc)
 		if err != nil {
 			errs.Append(err)
 			continue
@@ -170,6 +176,11 @@ func (s *Server) StartedAt() time.Time {
 // ConfigFile implements admin.Source.
 func (s *Server) ConfigFile() string {
 	return s.cfg.File()
+}
+
+// Metrics returns the server's metrics registry.
+func (s *Server) Metrics() *metrics.Registry {
+	return s.metrics
 }
 
 // ListenerAddr returns the bound address of a listener, or nil if it is not running.

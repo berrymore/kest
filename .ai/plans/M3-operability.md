@@ -36,7 +36,7 @@ optional route `name` field: not in M3 unless the user wants it.
 | `kest_pool_queue_length` | gauge | `cluster` |
 | `kest_pool_wait_seconds` | histogram | `cluster` |
 | `kest_pool_rejected_total` | counter | `cluster`, `reason` (`queue_full`, `no_worker`) |
-| `kest_pool_worker_restarts_total` | counter | `cluster`, `reason` (`max_jobs`, `ttl`, `idle_ttl`, `memory`, `exec_ttl`, `crash`, `stop_requested`, `reset`) |
+| `kest_pool_worker_restarts_total` | counter | `cluster`, `reason` (`max_jobs`, `ttl`, `idle_ttl`, `memory`, `exec_ttl`, `crash`, `stop_requested`, `start_failed`; `reset` with K-063) |
 | `kest_pool_worker_memory_bytes` | gauge | `cluster`, `slot` |
 | `go_*`, `process_*` | as in `client_golang` | a curated subset (ADR-0007) |
 
@@ -92,7 +92,7 @@ body is read, and gets `503` when the budget is full. This bounds the memory reg
 
 The first steps are the vertical slice: real metrics from a PHP app at `/metrics`, then state and resets.
 
-1. [ ] **Metrics core and instrumentation** (K-061) — `internal/metrics`, output checked with `expfmt` (test-only,
+1. [x] **Metrics core and instrumentation** (K-061) — `internal/metrics`, output checked with `expfmt` (test-only,
    ADR-0007); HTTP metrics in the router, pool metrics from the pool, Go and process metrics. Acceptance: a fuzzed
    set of series round-trips through `expfmt`; unit tests see the HTTP and pool series move.
 2. [ ] **`/metrics` and `/ready`** (K-062) — `GET /metrics` on the admin server, `/ready` per D3. Acceptance: e2e
@@ -124,6 +124,10 @@ The first steps are the vertical slice: real metrics from a PHP app at `/metrics
 
 ## Log
 
+- 2026-10-25 — Step 1 (K-061) done. Deviations: restarts also count `start_failed`; `kest_pool_rejected_total`
+  and `kest_pool_wait_seconds` as planned; `process_resident_memory_bytes` exists on Linux only (macOS needs cgo);
+  pool log lines now say `reason=memory` / `reason=stop_requested`, the metric label values. The fuzz test found
+  that Prometheus's parser drops blanks before a help text: kest's help texts have none.
 - 2026-10-25 — Approved by the user ("in general I approve; you know better how to do it"). Steps 1 and 2
   regrouped so that each is one backlog item.
 - 2026-10-25 — Draft. K-062 split: `/clusters` is K-074, `/config_dump` is K-075; `POST /clusters/{name}/reset`

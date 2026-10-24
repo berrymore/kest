@@ -21,6 +21,9 @@ import (
 
 	"github.com/berrymore/kest/internal/config"
 	"github.com/berrymore/kest/internal/logging"
+	"github.com/berrymore/kest/internal/metrics"
+	"github.com/berrymore/kest/internal/metrics/metricstest"
+	"github.com/berrymore/kest/internal/registry"
 )
 
 // Integration tests against an unmodified roadrunner/http PSR7Worker
@@ -30,6 +33,12 @@ var codecs = []string{CodecJSON, CodecProto}
 
 // phpServer starts a php_workers cluster on testdata/php behind an HTTP server.
 func phpServer(t *testing.T, codec string, mutate func(*Config)) *httptest.Server {
+	t.Helper()
+	return phpServerMetrics(t, codec, mutate, metrics.NewRegistry())
+}
+
+// phpServerMetrics is phpServer with the cluster's metrics in reg.
+func phpServerMetrics(t *testing.T, codec string, mutate func(*Config), reg *metrics.Registry) *httptest.Server {
 	t.Helper()
 	php, err := exec.LookPath("php")
 	if err != nil {
@@ -54,7 +63,8 @@ func phpServer(t *testing.T, codec string, mutate func(*Config)) *httptest.Serve
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	c, err := New(&cfg, dir, append(os.Environ(), "KEST_TEST=inherited"), logging.Discard())
+	c, err := New(&cfg, registry.BuildContext{Name: "app", Logger: logging.Discard(), ConfigDir: dir, Metrics: reg},
+		append(os.Environ(), "KEST_TEST=inherited"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,7 +318,7 @@ func TestPHPNotAWorker(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	c, err := New(&cfg, t.TempDir(), os.Environ(), logging.Discard())
+	c, err := New(&cfg, registry.BuildContext{Logger: logging.Discard(), ConfigDir: t.TempDir()}, os.Environ())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,6 +331,34 @@ func TestPHPNotAWorker(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("Start = %v\nwant it to contain %s", err, want)
 		}
+	}
+}
+
+func TestPHPMetrics(t *testing.T) {
+	reg := metrics.NewRegistry()
+	srv := phpServerMetrics(t, CodecJSON, func(c *Config) { c.Pool.MaxJobs = 2 }, reg)
+	for range 5 {
+		if r := send(t, http.MethodGet, srv.URL+"/status/200", "", http.NoBody, nil); r.status != 200 {
+			t.Fatalf("status %d", r.status)
+		}
+	}
+	if got := metricstest.Value(t, reg, "kest_pool_wait_seconds", "cluster", "app"); got != 5 {
+		t.Errorf("waits = %v, want 5", got)
+	}
+	// Each process serves 2 jobs (no jitter at 2), and the live ones at most 1
+	// each, so 5 jobs always make 2 replacements. A worker answers before it
+	// is replaced: wait for the last replacement to finish.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		restarts := metricstest.Value(t, reg, "kest_pool_worker_restarts_total", "cluster", "app", "reason", "max_jobs")
+		ready := metricstest.Value(t, reg, "kest_pool_workers", "cluster", "app", "state", "ready")
+		if restarts == 2 && ready == 2 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("max_jobs restarts = %v and ready workers = %v, want 2 and 2", restarts, ready)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

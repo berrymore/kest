@@ -158,7 +158,8 @@ type Factory[T any] struct {
 type BuildContext struct {
 	Name      string // component name (clusters)
 	Logger    *slog.Logger
-	ConfigDir string // absolute directory of the config file: relative paths resolve against it
+	ConfigDir string            // absolute directory of the config file: relative paths resolve against it
+	Metrics   *metrics.Registry // the server's; MetricsRegistry() returns a throwaway one when nil (tests)
 }
 func Build[T any](c *Category[T], ext *config.Extension, bc BuildContext) (T, error)
 
@@ -191,6 +192,8 @@ func (p *Pool) Stop(ctx context.Context) error    // jobs finish, stop frames, k
 func (p *Pool) Exec(ctx context.Context, req Payload) (Payload, error)
 func (p *Pool) Workers() []Info                   // per slot: state, pid, jobs, started, memory
 func (p *Pool) Health() Health                    // healthy / degraded / unhealthy
+func (p *Pool) Waiting() int                      // callers waiting for a free worker
+// Config.Observer (optional) hears Waited(d), Rejected(reason) and Replaced(reason); reasons are metric labels.
 // Errors: ErrQueueFull, ErrNoWorker, ErrStopped, ErrStopRequested, *JobError (soft, worker kept),
 // *ProcessError (worker gone; wraps ErrExecTimeout or ErrStartTimeout on timeouts, *StdoutError
 // with the start of the output when the worker printed to stdout outside the protocol).
@@ -313,7 +316,7 @@ internal/cluster/phpworkers/ 🟢 php_workers: config, worker environment, pool 
 internal/rrhttp/             🟢 HTTP ↔ RoadRunner HTTP payload (request context JSON/protobuf, form trees, responses)
 internal/worker/             🟢 process, pool, supervisor (language-agnostic); workertest/ has fake workers
 internal/relay/              🟢 goridge-compatible frame codec and Conn (pipes; sockets later, K-029)
-internal/metrics/            ⚪ (M3) metrics
+internal/metrics/            🟢 metrics core and text exposition (ADR-0007), Go and process metrics; metricstest/ for tests
 internal/wasm/               ⚪ (M5) wazero runtime, module cache, instance pools
 examples/                    🟢 runnable configs (PHP apps from M2)
 docs/                        🟢 user documentation (getting started, config reference)
@@ -329,7 +332,10 @@ test/docs/                   🟢 docs drift checks against the code and the Mak
 - **Metrics (M3):** requests (count, latency, status) per listener, route and cluster; pool queue length
   and wait time; workers by state; restarts by reason; worker memory. A hand-written core in
   `internal/metrics` with lock-free updates and series resolved when the graph is built; `GET /metrics` serves
-  the Prometheus text format 0.0.4 (ADR-0007).
+  the Prometheus text format 0.0.4 (ADR-0007). `server.New` creates the registry (with Go and process metrics)
+  and hands it to components in `BuildContext`. `httpx` wraps each route (labels: listener, virtual host,
+  cluster, status code from a per-target array) and counts in-flight requests per listener; `php_workers`
+  observes its pool (`worker.Observer`) and reads states, queue and memory at scrape time.
 - **Tracing:** OpenTelemetry later; the `request_id` filter arrives in M3.
 - **Admin API**, modeled on Envoy's admin interface:
 

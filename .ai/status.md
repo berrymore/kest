@@ -9,8 +9,9 @@ _Last updated: 2026-10-25 (M3)_
 user's Symfony app in `playground/` (git-ignored, the user's sandbox) turned up, and added the docs review.
 
 Done on the branch: **K-071** (a worker that prints to stdout gets an error that shows what it printed, plus a
-PHP hint), **K-073** (`make docs-check` and the milestone docs review in `review.md`) and **K-060** (metrics:
-ADR-0007, a hand-written core with the Prometheus text format). The plan is `plans/M3-operability.md` (Active).
+PHP hint), **K-073** (`make docs-check` and the milestone docs review in `review.md`), **K-060** (metrics:
+ADR-0007, a hand-written core with the Prometheus text format) and **K-061** (`internal/metrics`; HTTP, pool, Go
+and process metrics, not exposed yet). The plan is `plans/M3-operability.md` (Active).
 
 ## In progress
 
@@ -79,6 +80,9 @@ None.
 
 ## Session log (newest first, keep ~15)
 
+- **2026-10-25** — K-061: `internal/metrics` (fuzzed against Prometheus's parser), HTTP metrics in the router,
+  `worker.Observer` and scrape-time collectors for pools, Go and process metrics; `BuildContext.Metrics`. The
+  binary grew by 0.1 MB; `expfmt` stays out of it.
 - **2026-10-25** — K-060: built the same metrics program on `client_golang`, VictoriaMetrics/metrics,
   OpenTelemetry and a 187-line hand-written core; compared binary size, linked modules and update cost; checked
   the prototype's output with Prometheus's own parser; checked that Prometheus 3 scrapes text 0.0.4 by default.

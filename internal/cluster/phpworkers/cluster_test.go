@@ -15,6 +15,9 @@ import (
 
 	"github.com/berrymore/kest/internal/leaktest"
 	"github.com/berrymore/kest/internal/logging"
+	"github.com/berrymore/kest/internal/metrics"
+	"github.com/berrymore/kest/internal/metrics/metricstest"
+	"github.com/berrymore/kest/internal/registry"
 	"github.com/berrymore/kest/internal/relay"
 	"github.com/berrymore/kest/internal/worker"
 )
@@ -226,8 +229,52 @@ func TestStartErrors(t *testing.T) {
 
 func TestNewRejectsInvalidConfig(t *testing.T) {
 	cfg := DefaultConfig()
-	_, err := New(&cfg, "", nil, logging.Discard())
+	_, err := New(&cfg, registry.BuildContext{Logger: logging.Discard()}, nil)
 	if fe, ok := errors.AsType[*worker.FieldError](err); !ok || fe.Field != "Command" {
 		t.Errorf("err = %v, want a worker.FieldError for Command", err)
+	}
+}
+
+func TestPoolMetrics(t *testing.T) {
+	reg := metrics.NewRegistry()
+	cfg := DefaultConfig()
+	cfg.Command = []string{"php", "worker.php"}
+	cfg.Pool.Workers = 3
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(&cfg, registry.BuildContext{Name: "app", Logger: logging.Discard(), Metrics: reg}, nil); err != nil {
+		t.Fatal(err)
+	}
+	// Before Start, every slot is stopped; every reason has a series at 0.
+	if got := metricstest.Value(t, reg, "kest_pool_workers", "cluster", "app", "state", "stopped"); got != 3 {
+		t.Errorf("stopped workers = %v, want 3", got)
+	}
+	if got := metricstest.Value(t, reg, "kest_pool_queue_length", "cluster", "app"); got != 0 {
+		t.Errorf("queue length = %v, want 0", got)
+	}
+	fams := metricstest.Scrape(t, reg)
+	if n := len(fams["kest_pool_worker_restarts_total"].Metric); n != len(worker.ReplaceReasons) {
+		t.Errorf("%d restart reasons exposed, want %d", n, len(worker.ReplaceReasons))
+	}
+
+	m := newPoolMetrics(reg, "app") // the same series as the cluster's
+	m.Waited(20 * time.Millisecond)
+	m.Rejected(worker.ReasonQueueFull)
+	m.Replaced(worker.ReasonMaxJobs)
+	m.Replaced(worker.ReasonMaxJobs)
+	for _, tt := range []struct {
+		name   string
+		labels []string
+		want   float64
+	}{
+		{"kest_pool_wait_seconds", []string{"cluster", "app"}, 1},
+		{"kest_pool_rejected_total", []string{"cluster", "app", "reason", "queue_full"}, 1},
+		{"kest_pool_rejected_total", []string{"cluster", "app", "reason", "no_worker"}, 0},
+		{"kest_pool_worker_restarts_total", []string{"cluster", "app", "reason", "max_jobs"}, 2},
+	} {
+		if got := metricstest.Value(t, reg, tt.name, tt.labels...); got != tt.want {
+			t.Errorf("%s%v = %v, want %v", tt.name, tt.labels, got, tt.want)
+		}
 	}
 }

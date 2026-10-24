@@ -85,6 +85,7 @@ internal/rrhttp/     HTTP ↔ RoadRunner HTTP payload (request context JSON/prot
 internal/relay/      goridge frame codec and connection (RoadRunner worker protocol)
 internal/worker/     worker processes, pool, supervisor; workertest/ fakes, testdata/php/ for integration
 internal/admin/      admin API
+internal/metrics/    metrics core and Prometheus text exposition (ADR-0007); metricstest/ reads it back in tests
 internal/logging/    slog setup
 internal/buildinfo/  version information
 internal/leaktest/   goroutine-leak check for tests (TestMain)

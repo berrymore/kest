@@ -16,6 +16,7 @@ import (
 	"sync"
 
 	"github.com/berrymore/kest/internal/config"
+	"github.com/berrymore/kest/internal/metrics"
 )
 
 // Factory creates components of one extension type.
@@ -41,6 +42,17 @@ type BuildContext struct {
 	// ConfigDir is the absolute directory of the config file. Extensions
 	// resolve relative paths against it. Empty when there is no file.
 	ConfigDir string
+	// Metrics is the server's metrics registry; use MetricsRegistry.
+	Metrics *metrics.Registry
+}
+
+// MetricsRegistry returns the registry components register their metrics
+// in: bc.Metrics, or a new one nobody reads when it is nil (in tests).
+func (bc BuildContext) MetricsRegistry() *metrics.Registry {
+	if bc.Metrics != nil {
+		return bc.Metrics
+	}
+	return metrics.NewRegistry()
 }
 
 // Category is the set of factories for one extension point.

@@ -74,7 +74,10 @@ Milestone definitions: `roadmap.md`.
 - [x] K-060 Choose the metrics approach (Q-E) → ADR. ADR-0007, accepted 2026-10-25: a hand-written core in
   `internal/metrics` with the Prometheus text format, `expfmt` as a test-only oracle; measured against
   `client_golang`, VictoriaMetrics/metrics and OpenTelemetry.
-- [ ] K-061 Metrics: requests, latency, status per listener/route/cluster; pool queue; worker states; restarts; memory.
+- [x] K-061 Metrics: requests, latency, status per listener/route/cluster; pool queue; worker states; restarts; memory.
+  `internal/metrics` (fuzzed against `expfmt`, 7 ns per counter + histogram update), `kest_http_*` per listener,
+  virtual host, cluster and code, `kest_pool_*` through `worker.Observer` and scrape-time collectors, a subset of
+  `go_*`/`process_*` (RSS on Linux only); not exposed yet (K-062).
 - [ ] K-062 Admin: `/metrics` (split on 2026-10-25: `/clusters` is K-074, `/config_dump` K-075,
   `POST /clusters/{name}/reset` belongs to K-063). `/ready` must use `worker.Health() == Unhealthy` only: `Degraded` is normal for a moment whenever a worker is
   recycled (max_jobs, ttl).

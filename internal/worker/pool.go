@@ -21,6 +21,7 @@ import (
 // callers are served in order.
 type Pool struct {
 	cfg    Config
+	obs    Observer
 	logger *slog.Logger
 	spawn  spawnFunc
 	sample memorySampler       // replaced in tests
@@ -77,11 +78,15 @@ func New(cfg Config, logger *slog.Logger) (*Pool, error) {
 func newPool(cfg Config, logger *slog.Logger, spawn spawnFunc) *Pool {
 	p := &Pool{
 		cfg:    cfg,
+		obs:    cfg.Observer,
 		logger: logger,
 		spawn:  spawn,
 		sample: sampleRSS,
 		jitter: maxJobsJitter,
 		jobs:   make(chan *job),
+	}
+	if p.obs == nil {
+		p.obs = nopObserver{}
 	}
 	for i := range cfg.Workers {
 		p.slots = append(p.slots, &slot{
@@ -191,16 +196,20 @@ func (p *Pool) exec(ctx context.Context, req Payload) (Payload, error) {
 	}
 	if p.waiting.Add(1) > int64(p.cfg.MaxQueueSize) {
 		p.waiting.Add(-1)
+		p.obs.Rejected(ReasonQueueFull)
 		return Payload{}, ErrQueueFull
 	}
 
 	j := &job{payload: req, result: make(chan jobResult, 1)}
+	queued := time.Now()
 	timer := time.NewTimer(p.cfg.AllocateTimeout)
 	var err error
 	select {
 	case p.jobs <- j:
+		p.obs.Waited(time.Since(queued))
 	case <-timer.C:
 		err = ErrNoWorker
+		p.obs.Rejected(ReasonNoWorker)
 	case <-ctx.Done():
 		err = ctx.Err()
 	case <-p.run.Done():
@@ -218,6 +227,11 @@ func (p *Pool) exec(ctx context.Context, req Payload) (Payload, error) {
 	case <-ctx.Done():
 		return Payload{}, ctx.Err()
 	}
+}
+
+// Waiting returns the number of callers waiting for a free worker.
+func (p *Pool) Waiting() int {
+	return int(p.waiting.Load())
 }
 
 // Workers describes every worker slot.
@@ -366,6 +380,7 @@ func (s *slot) run(ctx context.Context, first chan<- error) {
 			if ctx.Err() != nil {
 				return
 			}
+			p.obs.Replaced(ReasonStartFailed)
 			failures++
 			p.logger.Error("worker failed to start", "slot", s.id, "err", err)
 		}
@@ -437,30 +452,36 @@ func (s *slot) serve(ctx context.Context, proc process) (failedEarly bool) {
 			if _, ok := errors.AsType[*ProcessError](err); ok {
 				logger.Warn("worker failed", "err", err)
 				s.release(proc)
+				reason := ReasonCrash
+				if errors.Is(err, ErrExecTimeout) {
+					reason = ReasonExecTTL
+				}
+				p.obs.Replaced(reason)
 				return succeeded == 0 && time.Since(started) < backoffReset
 			}
 			if errors.Is(err, ErrStopRequested) {
-				s.retire(proc, logger, "worker asked to be replaced")
+				s.replace(proc, logger, ReasonStopRequested)
 				return false
 			}
 			succeeded++
 			if reason := s.limitReached(jobs, limit, started); reason != "" {
-				s.retire(proc, logger, reason)
+				s.replace(proc, logger, reason)
 				return false
 			}
 			idle.reset(p.cfg.IdleTTL)
 		case <-idle.c():
-			s.retire(proc, logger, "idle_ttl")
+			s.replace(proc, logger, ReasonIdleTTL)
 			return false
 		case <-ttl.c():
-			s.retire(proc, logger, "ttl")
+			s.replace(proc, logger, ReasonTTL)
 			return false
 		case <-s.memory:
-			s.retire(proc, logger, "max_worker_memory")
+			s.replace(proc, logger, ReasonMemory)
 			return false
 		case <-proc.Done():
 			logger.Warn("worker exited", "err", proc.Err(), "stderr", proc.Stderr())
 			s.release(proc)
+			p.obs.Replaced(ReasonCrash)
 			return succeeded == 0 && time.Since(started) < backoffReset
 		case <-ctx.Done():
 			s.retire(proc, logger, "pool stopped")
@@ -470,17 +491,17 @@ func (s *slot) serve(ctx context.Context, proc process) (failedEarly bool) {
 }
 
 // limitReached checks the limits after a job and returns the one reached.
-func (s *slot) limitReached(jobs, limit uint64, started time.Time) string {
+func (s *slot) limitReached(jobs, limit uint64, started time.Time) Reason {
 	cfg := s.pool.cfg
 	switch {
 	case limit > 0 && jobs >= limit:
-		return "max_jobs"
+		return ReasonMaxJobs
 	case cfg.TTL > 0 && time.Since(started) >= cfg.TTL:
-		return "ttl"
+		return ReasonTTL
 	}
 	select {
 	case <-s.memory:
-		return "max_worker_memory"
+		return ReasonMemory
 	default:
 		return ""
 	}
@@ -507,13 +528,19 @@ func (s *slot) recordMemory(rss map[int]int64, limit int64, logger *slog.Logger)
 	}
 }
 
+// replace retires proc for reason and tells the observer.
+func (s *slot) replace(proc process, logger *slog.Logger, reason Reason) {
+	s.retire(proc, logger, string(reason))
+	s.pool.obs.Replaced(reason)
+}
+
 // retire stops proc gracefully, within DestroyTimeout.
 func (s *slot) retire(proc process, logger *slog.Logger, reason string) {
 	s.update(func(i *Info) { i.State = StateStopping })
 	switch {
 	case !stopProcess(proc, s.pool.cfg.DestroyTimeout):
 		logger.Warn("worker did not exit in time, killed", "reason", reason, "timeout", s.pool.cfg.DestroyTimeout)
-	case reason == "max_worker_memory" || reason == "worker asked to be replaced":
+	case reason == string(ReasonMemory) || reason == string(ReasonStopRequested):
 		logger.Info("worker stopped", "reason", reason)
 	default:
 		logger.Debug("worker stopped", "reason", reason)

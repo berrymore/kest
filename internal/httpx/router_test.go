@@ -11,6 +11,8 @@ import (
 	"github.com/berrymore/kest/internal/config"
 	"github.com/berrymore/kest/internal/httpx"
 	"github.com/berrymore/kest/internal/logging"
+	"github.com/berrymore/kest/internal/metrics"
+	"github.com/berrymore/kest/internal/metrics/metricstest"
 	"github.com/berrymore/kest/internal/registry"
 )
 
@@ -261,5 +263,78 @@ func TestNewHandlerErrors(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), w) {
 			t.Errorf("error =\n%v\nwant it to contain %q", err, w)
 		}
+	}
+}
+
+func TestMetrics(t *testing.T) {
+	reg := metrics.NewRegistry()
+	var inFlight float64
+	clusters := func(name string) (http.Handler, bool) {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			inFlight = metricstest.Value(t, reg, "kest_http_requests_in_flight", "listener", "main")
+			if r.URL.Path == "/api/fail" {
+				w.WriteHeader(http.StatusEarlyHints) // informational: the final status follows
+				http.Error(w, "boom", http.StatusBadGateway)
+				return
+			}
+			echoCluster(w, r)
+		}), name == "app"
+	}
+	h, err := httpx.NewHandler(loadHTTP(t, `
+  - name: main
+    address: 127.0.0.1:0
+    http:
+      virtual_hosts:
+        - name: site
+          domains: ["localhost"]
+          routes:
+            - match: {path: /ping}
+              direct_response: {status: 202}
+            - match: {prefix: /api/}
+              route: {cluster: app}
+            - match: {prefix: /gone}
+              route: {cluster: gone}
+`), clusters, registry.BuildContext{Name: "main", Logger: logging.Discard(), Metrics: reg})
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+	for _, req := range []struct{ host, path string }{
+		{"localhost", "/ping"},
+		{"localhost", "/api/a"},
+		{"localhost", "/api/b"},
+		{"localhost", "/api/fail"},
+		{"localhost", "/gone"},
+		{"localhost", "/nothing"},
+		{"other.org", "/"},
+	} {
+		get(t, h, req.host, req.path)
+	}
+	if inFlight != 1 {
+		t.Errorf("requests in flight inside a request = %v, want 1", inFlight)
+	}
+
+	for _, tt := range []struct {
+		vhost, cluster, code string
+		want                 float64
+	}{
+		{"site", "", "202", 1},     // direct_response
+		{"site", "app", "200", 2},  // two requests to /api/
+		{"site", "app", "502", 1},  // after a 103
+		{"site", "gone", "503", 1}, // unknown cluster
+		{"site", "", "404", 1},     // no route in the virtual host
+		{"", "", "404", 1},         // no virtual host
+	} {
+		got := metricstest.Value(t, reg, "kest_http_requests_total",
+			"listener", "main", "virtual_host", tt.vhost, "cluster", tt.cluster, "code", tt.code)
+		if got != tt.want {
+			t.Errorf("requests{%s, %s, %s} = %v, want %v", tt.vhost, tt.cluster, tt.code, got, tt.want)
+		}
+	}
+	if got := metricstest.Value(t, reg, "kest_http_request_duration_seconds",
+		"listener", "main", "virtual_host", "site", "cluster", "app"); got != 3 {
+		t.Errorf("duration observations = %v, want 3", got)
+	}
+	if got := metricstest.Value(t, reg, "kest_http_requests_in_flight", "listener", "main"); got != 0 {
+		t.Errorf("requests in flight after the requests = %v, want 0", got)
 	}
 }

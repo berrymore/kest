@@ -31,7 +31,7 @@ func init() {
 			if !ok {
 				return nil, errors.New("php_workers: unexpected config type")
 			}
-			return New(c, bc.ConfigDir, os.Environ(), bc.Logger)
+			return New(c, bc, os.Environ())
 		},
 	})
 }
@@ -51,14 +51,19 @@ type Cluster struct {
 	logger  *slog.Logger
 }
 
-// New builds a cluster from a validated config. configDir resolves relative
-// paths; environ is kest's environment. Nothing starts before Start.
-func New(cfg *Config, configDir string, environ []string, logger *slog.Logger) (*Cluster, error) {
-	p, err := worker.New(cfg.worker(configDir, environ), logger)
+// New builds a cluster from a validated config. bc.ConfigDir resolves
+// relative paths, and bc.Name labels the pool's metrics; environ is kest's
+// environment. Nothing starts before Start.
+func New(cfg *Config, bc registry.BuildContext, environ []string) (*Cluster, error) {
+	reg := bc.MetricsRegistry()
+	wc := cfg.worker(bc.ConfigDir, environ)
+	wc.Observer = newPoolMetrics(reg, bc.Name)
+	p, err := worker.New(wc, bc.Logger)
 	if err != nil {
 		return nil, err
 	}
-	return newCluster(cfg, configDir, p, logger), nil
+	collectPool(reg, bc.Name, p)
+	return newCluster(cfg, bc.ConfigDir, p, bc.Logger), nil
 }
 
 func newCluster(cfg *Config, configDir string, p pool, logger *slog.Logger) *Cluster {

@@ -15,6 +15,7 @@ import (
 	"github.com/berrymore/kest/internal/config"
 	"github.com/berrymore/kest/internal/leaktest"
 	"github.com/berrymore/kest/internal/logging"
+	"github.com/berrymore/kest/internal/metrics/metricstest"
 	"github.com/berrymore/kest/internal/registry"
 	"github.com/berrymore/kest/internal/server"
 )
@@ -288,5 +289,27 @@ func waitFor(t *testing.T, cond func() bool) {
 			t.Fatal("condition not met within 5s")
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// The listeners and the runtime report to the server's registry.
+func TestMetrics(t *testing.T) {
+	s := newServer(t, "")
+	cancel, done := run(t, s)
+	defer func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Errorf("Run: %v", err)
+		}
+	}()
+	if code, _ := get(t, "http://"+s.ListenerAddr("main").String()+"/ping"); code != http.StatusOK {
+		t.Fatalf("GET /ping: %d", code)
+	}
+	if got := metricstest.Value(t, s.Metrics(), "kest_http_requests_total",
+		"listener", "main", "virtual_host", "default", "cluster", "", "code", "200"); got != 1 {
+		t.Errorf("requests = %v, want 1", got)
+	}
+	if got := metricstest.Value(t, s.Metrics(), "go_goroutines"); got <= 0 {
+		t.Errorf("go_goroutines = %v", got)
 	}
 }
