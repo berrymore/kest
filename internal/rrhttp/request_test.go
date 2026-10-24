@@ -46,17 +46,18 @@ func TestNewRequestHead(t *testing.T) {
 	r.Header.Set("Cookie", "a=1; b=x%20y+z; bad=%zz; a=2")
 
 	req := mustRequest(t, r, jsonOpts)
-	want := &Request{
-		RemoteAddr: "192.0.2.10",
-		Protocol:   "HTTP/1.1",
-		Method:     http.MethodGet,
-		URI:        "http://example.com:8080/a%20b/c?x=1&y[]=2",
-		Header:     r.Header,
-		Cookies:    map[string]string{"a": "2", "b": "x y z"},
-		RawQuery:   "x=1&y[]=2",
+	if req.RemoteAddr != "192.0.2.10" || req.Protocol != "HTTP/1.1" || req.Method != http.MethodGet ||
+		req.URI != "http://example.com:8080/a%20b/c?x=1&y[]=2" || req.RawQuery != "x=1&y[]=2" {
+		t.Errorf("request head: %+v", req)
 	}
-	if !reflect.DeepEqual(req, want) {
-		t.Errorf("request:\n got %+v\nwant %+v", req, want)
+	if !reflect.DeepEqual(req.Header, r.Header) || req.Attributes != nil {
+		t.Errorf("header %v attributes %v", req.Header, req.Attributes)
+	}
+	if want := map[string]string{"a": "2", "b": "x y z"}; !reflect.DeepEqual(req.Cookies, want) {
+		t.Errorf("cookies %v, want %v", req.Cookies, want)
+	}
+	if req.Parsed || req.Body != nil || req.Uploads != nil {
+		t.Errorf("parsed=%v body=%q uploads=%q", req.Parsed, req.Body, req.Uploads)
 	}
 }
 
@@ -168,7 +169,8 @@ func TestNewRequestMultipartValues(t *testing.T) {
 		fw, _ := w.CreateFormFile("doc", "a.txt")
 		_, _ = fw.Write([]byte("file content"))
 	})
-	req := mustRequest(t, newHTTPRequest(t, http.MethodPost, "/", ct, body), jsonOpts)
+	req := mustRequest(t, newHTTPRequest(t, http.MethodPost, "/", ct, body), Options{Codec: relay.CodecJSON, Uploads: Uploads{Dir: t.TempDir()}})
+	defer func() { _ = req.Close() }()
 	want := `{"name":"kest","tags":["a","b"],"user":{"email":"x@example.com"}}`
 	if !req.Parsed || string(req.Body) != want {
 		t.Errorf("parsed=%v body=%s, want %s", req.Parsed, req.Body, want)

@@ -13,6 +13,7 @@ import (
 	"github.com/berrymore/kest/internal/logging"
 	"github.com/berrymore/kest/internal/registry"
 	"github.com/berrymore/kest/internal/relay"
+	"github.com/berrymore/kest/internal/rrhttp"
 	"github.com/berrymore/kest/internal/worker"
 )
 
@@ -73,8 +74,8 @@ func TestConfigDefaults(t *testing.T) {
 	if got.Workers != runtime.NumCPU() {
 		t.Errorf("workers = %d, want NumCPU", got.Workers)
 	}
-	opts := c.requestOptions()
-	if opts.Codec != relay.CodecJSON || opts.RawBody || c.MaxRequestBody != 16<<20 {
+	opts := c.requestOptions("/srv/app")
+	if opts.Codec != relay.CodecJSON || opts.RawBody || c.MaxRequestBody != 16<<20 || !reflect.DeepEqual(opts.Uploads, rrhttp.Uploads{}) {
 		t.Errorf("request options %+v, max_request_body %v", opts, c.MaxRequestBody)
 	}
 }
@@ -88,6 +89,10 @@ func TestConfigFull(t *testing.T) {
       max_request_body: 100MB
       max_response_size: 8MB
       raw_body: true
+      uploads:
+        dir: tmp/uploads
+        forbid: [.PHP, .exe]
+        allow: [.jpg]
       pool:
         workers: 3
         max_jobs: 500
@@ -123,8 +128,13 @@ func TestConfigFull(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("worker config:\n got %+v\nwant %+v", got, want)
 	}
-	if opts := c.requestOptions(); opts.Codec != relay.CodecProto || !opts.RawBody {
+	opts := c.requestOptions("/srv")
+	if opts.Codec != relay.CodecProto || !opts.RawBody {
 		t.Errorf("request options %+v", opts)
+	}
+	wantUploads := rrhttp.Uploads{Dir: "/srv/tmp/uploads", Forbid: []string{".php", ".exe"}, Allow: []string{".jpg"}}
+	if !reflect.DeepEqual(opts.Uploads, wantUploads) {
+		t.Errorf("uploads %+v, want %+v", opts.Uploads, wantUploads)
 	}
 	if c.MaxRequestBody != 100<<20 {
 		t.Errorf("max_request_body = %v", c.MaxRequestBody)
@@ -137,6 +147,7 @@ func TestConfigErrors(t *testing.T) {
       codec: msgpack
       max_request_body: 0
       max_response_size: 5GB
+      uploads: {forbid: [php, ".tar.gz"], allow: ["."]}
       pool:
         workers: 0
         max_queue_size: 0
@@ -160,15 +171,18 @@ func TestConfigErrors(t *testing.T) {
 		`kest.yaml:16:14: clusters[0].config.codec: unknown codec "msgpack"; use json or proto`,
 		`kest.yaml:17:25: clusters[0].config.max_request_body: must be positive, got 0B`,
 		`kest.yaml:18:26: clusters[0].config.max_response_size: must be between 1 byte and 4 GiB`,
-		`kest.yaml:20:18: clusters[0].config.pool.workers: must be between 1 and 1024, got 0`,
-		`kest.yaml:21:25: clusters[0].config.pool.max_queue_size: must be at least 1, got 0`,
-		`kest.yaml:22:27: clusters[0].config.pool.allocate_timeout: must be positive, got 0s`,
-		`kest.yaml:23:24: clusters[0].config.pool.start_timeout: must be positive, got 0s`,
-		`kest.yaml:24:26: clusters[0].config.pool.destroy_timeout: must be positive, got -1s`,
-		`kest.yaml:26:14: clusters[0].config.supervisor.ttl: must not be negative, got -1s`,
-		`kest.yaml:27:19: clusters[0].config.supervisor.idle_ttl: must not be negative, got -1s`,
-		`kest.yaml:28:19: clusters[0].config.supervisor.exec_ttl: must not be negative, got -1s`,
-		`kest.yaml:30:21: clusters[0].config.supervisor.watch_tick: must be positive when MaxWorkerMemory is set, got 0s`,
+		`kest.yaml:19:26: clusters[0].config.uploads.forbid[0]: invalid extension "php": want a dot and a name, like .php`,
+		`kest.yaml:19:31: clusters[0].config.uploads.forbid[1]: invalid extension ".tar.gz"`,
+		`kest.yaml:19:51: clusters[0].config.uploads.allow[0]: invalid extension "."`,
+		`kest.yaml:21:18: clusters[0].config.pool.workers: must be between 1 and 1024, got 0`,
+		`kest.yaml:22:25: clusters[0].config.pool.max_queue_size: must be at least 1, got 0`,
+		`kest.yaml:23:27: clusters[0].config.pool.allocate_timeout: must be positive, got 0s`,
+		`kest.yaml:24:24: clusters[0].config.pool.start_timeout: must be positive, got 0s`,
+		`kest.yaml:25:26: clusters[0].config.pool.destroy_timeout: must be positive, got -1s`,
+		`kest.yaml:27:14: clusters[0].config.supervisor.ttl: must not be negative, got -1s`,
+		`kest.yaml:28:19: clusters[0].config.supervisor.idle_ttl: must not be negative, got -1s`,
+		`kest.yaml:29:19: clusters[0].config.supervisor.exec_ttl: must not be negative, got -1s`,
+		`kest.yaml:31:21: clusters[0].config.supervisor.watch_tick: must be positive when MaxWorkerMemory is set, got 0s`,
 	}
 	for _, w := range want {
 		if !strings.Contains(err.Error(), w) {

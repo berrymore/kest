@@ -44,8 +44,21 @@ type Config struct {
 	// RawBody sends form and multipart bodies raw instead of parsed.
 	RawBody bool `yaml:"raw_body"`
 
+	Uploads    Uploads    `yaml:"uploads"`
 	Pool       Pool       `yaml:"pool"`
 	Supervisor Supervisor `yaml:"supervisor"`
+}
+
+// Uploads controls the temp files of uploaded files.
+type Uploads struct {
+	// Dir holds the temp files, relative to the config file; empty means the
+	// OS temp dir.
+	Dir string `yaml:"dir,omitempty"`
+	// Forbid lists extensions (".php") whose files are not stored; PHP sees
+	// UPLOAD_ERR_EXTENSION.
+	Forbid []string `yaml:"forbid,omitempty"`
+	// Allow, if set, lists the only extensions that are stored.
+	Allow []string `yaml:"allow,omitempty"`
 }
 
 // Pool sizes the pool and bounds waiting for workers.
@@ -136,6 +149,13 @@ func (c *Config) Validate() error {
 	if c.MaxRequestBody < 1 {
 		add("max_request_body", "must be positive, got %s", c.MaxRequestBody)
 	}
+	for field, list := range map[string][]string{"uploads.forbid": c.Uploads.Forbid, "uploads.allow": c.Uploads.Allow} {
+		for i, ext := range list {
+			if len(ext) < 2 || ext[0] != '.' || strings.ContainsAny(ext[1:], "./\\\x00") {
+				add(fmt.Sprintf("%s[%d]", field, i), "invalid extension %q: want a dot and a name, like .php", ext)
+			}
+		}
+	}
 
 	wc := c.worker("", nil)
 	if err := wc.Validate(); err != nil {
@@ -168,10 +188,30 @@ func codecFlag(codec string) (relay.Flags, error) {
 	}
 }
 
-// requestOptions returns how requests are encoded. Call it on a valid config.
-func (c *Config) requestOptions() rrhttp.Options {
+// requestOptions returns how requests are encoded. Call it on a valid
+// config; configDir resolves a relative uploads.dir.
+func (c *Config) requestOptions(configDir string) rrhttp.Options {
 	codec, _ := codecFlag(c.Codec)
-	return rrhttp.Options{Codec: codec, RawBody: c.RawBody}
+	dir := ""
+	if c.Uploads.Dir != "" {
+		dir = resolve(configDir, c.Uploads.Dir)
+	}
+	return rrhttp.Options{
+		Codec:   codec,
+		RawBody: c.RawBody,
+		Uploads: rrhttp.Uploads{Dir: dir, Forbid: lower(c.Uploads.Forbid), Allow: lower(c.Uploads.Allow)},
+	}
+}
+
+func lower(list []string) []string {
+	if len(list) == 0 {
+		return nil
+	}
+	out := make([]string, len(list))
+	for i, s := range list {
+		out[i] = strings.ToLower(s)
+	}
+	return out
 }
 
 // worker returns the pool configuration. configDir resolves a relative

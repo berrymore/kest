@@ -58,7 +58,7 @@ func newTestCluster(t *testing.T, mutate func(*Config), p *fakePool) *Cluster {
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	return newCluster(&cfg, p, logging.Discard())
+	return newCluster(&cfg, "", p, logging.Discard())
 }
 
 func serve(c *Cluster, r *http.Request) *httptest.ResponseRecorder {

@@ -57,13 +57,13 @@ func New(cfg *Config, configDir string, environ []string, logger *slog.Logger) (
 	if err != nil {
 		return nil, err
 	}
-	return newCluster(cfg, p, logger), nil
+	return newCluster(cfg, configDir, p, logger), nil
 }
 
-func newCluster(cfg *Config, p pool, logger *slog.Logger) *Cluster {
+func newCluster(cfg *Config, configDir string, p pool, logger *slog.Logger) *Cluster {
 	return &Cluster{
 		pool:    p,
-		opts:    cfg.requestOptions(),
+		opts:    cfg.requestOptions(configDir),
 		maxBody: int64(cfg.MaxRequestBody),
 		logger:  logger,
 	}
@@ -87,6 +87,10 @@ func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		c.fail(w, r, err)
 		return
 	}
+	defer c.cleanup(req)
+	for _, err := range req.UploadErrors() {
+		c.logger.Warn("upload not stored", "method", r.Method, "path", r.URL.Path, "err", err)
+	}
 	payload, err := req.Payload(c.opts.Codec)
 	if err != nil {
 		c.fail(w, r, err)
@@ -109,6 +113,15 @@ func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		c.logger.Debug("write response", "method", r.Method, "path", r.URL.Path, "err", err)
+	}
+}
+
+// cleanup removes the request's upload temp files. If the caller gave up
+// while the worker still runs the job, they go away under it; its answer is
+// dropped anyway.
+func (c *Cluster) cleanup(req *rrhttp.Request) {
+	if err := req.Close(); err != nil {
+		c.logger.Warn("remove upload temp files", "err", err)
 	}
 }
 

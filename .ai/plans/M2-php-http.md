@@ -134,7 +134,7 @@ plugin v6.0.0 and `roadrunner/http` 4.2.1, and by experiment). Layering: `cluste
    `ServeHTTP`, registration. Acceptance: config and handler tests; PHP integration tests green on both codecs.
 5. [x] **`examples/php-hello`** (K-045) — composer project, PSR-7 worker, `kest.yaml`, README; e2e test with the
    real binary. Acceptance: `curl` works; e2e green. **The vertical slice is done here.**
-6. [ ] **Uploads** (K-043) — temp files, `uploads.dir`/`forbid`/`allow`, error codes, cleanup (also on timeouts and
+6. [x] **Uploads** (K-043) — temp files, `uploads.dir`/`forbid`/`allow`, error codes, cleanup (also on timeouts and
    errors). Acceptance: PHP integration test uploads files and reads them back; no temp file is left.
 7. [ ] **Framework smoke test** (K-046) — Symfony skeleton with `runtime/roadrunner-symfony-nyholm`, e2e test.
 8. [ ] **Docker PHP matrix** (K-047) — `make test-matrix`: PHP 8.3 / 8.4 / 8.5 images with composer, running the

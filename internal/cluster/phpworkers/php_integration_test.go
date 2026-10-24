@@ -320,3 +320,62 @@ func TestPHPConcurrent(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+func TestPHPUploads(t *testing.T) {
+	for _, codec := range codecs {
+		t.Run(codec, func(t *testing.T) {
+			dir := t.TempDir()
+			srv := phpServer(t, codec, func(c *Config) {
+				c.Uploads.Dir = dir
+				c.Uploads.Forbid = []string{".php"}
+			})
+
+			var b bytes.Buffer
+			w := multipart.NewWriter(&b)
+			_ = w.WriteField("title", "files")
+			for _, f := range []struct{ field, name, content string }{
+				{"doc", "a.txt", "first file"},
+				{"photos[]", "1.jpg", "jpeg one"},
+				{"photos[]", "2.jpg", "jpeg two"},
+				{"shell", "x.php", "<?php evil();"},
+			} {
+				fw, err := w.CreateFormFile(f.field, f.name)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, _ = fw.Write([]byte(f.content))
+			}
+			_ = w.Close()
+
+			e := sendEcho(t, http.MethodPost, srv.URL+"/echo", w.FormDataContentType(), &b, nil)
+			if !reflect.DeepEqual(e.Parsed, map[string]any{"title": "files"}) {
+				t.Errorf("parsed %v", e.Parsed)
+			}
+			for field, want := range map[string]string{"doc": "first file", "photos[0]": "jpeg one", "photos[1]": "jpeg two"} {
+				f := e.Files[field]
+				if f.Error != 0 || f.Content == nil || *f.Content != want || f.Size != len(want) || f.Type != "application/octet-stream" {
+					t.Errorf("%s: %+v, want %q", field, f, want)
+				}
+			}
+			if f := e.Files["shell"]; f.Error != 8 || f.Content != nil || f.Name != "x.php" {
+				t.Errorf("forbidden file: %+v", f)
+			}
+
+			// The temp files are removed once the response is written.
+			deadline := time.Now().Add(5 * time.Second)
+			for {
+				entries, err := os.ReadDir(dir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(entries) == 0 {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("temp files left: %v", entries)
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+		})
+	}
+}

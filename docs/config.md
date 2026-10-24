@@ -235,6 +235,21 @@ clusters:
 Every worker also gets `RR_MODE=http` and `RR_RELAY=pipes`; they override the same names from `env` or
 the inherited environment.
 
+**`uploads`**
+
+Files of `multipart/form-data` requests are written to temp files, which PHP sees as PSR-7 uploaded
+files (`$request->getUploadedFiles()`), and removed after the response.
+
+| Field | Default | |
+|---|---|---|
+| `dir` | the OS temp directory | Where the temp files go; relative to the config file. |
+| `forbid` | none | Extensions whose files are not stored, like `[.php, .exe]`. Case doesn't matter. |
+| `allow` | none (all) | If set, only files with these extensions are stored. |
+
+A file that isn't stored reaches PHP with an error code instead of content: `UPLOAD_ERR_EXTENSION` for
+`forbid`/`allow`, `UPLOAD_ERR_NO_TMP_DIR` or `UPLOAD_ERR_CANT_WRITE` when kest can't write it (logged).
+Uploads count towards `max_request_body`.
+
 **`pool`**
 
 | Field | Default | |

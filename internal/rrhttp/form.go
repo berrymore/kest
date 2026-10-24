@@ -79,16 +79,17 @@ func parseURLEncoded(body string) (*form, error) {
 func (f *form) tree() (tree, error) {
 	t := make(tree, len(f.keys))
 	for _, k := range f.keys {
-		if err := mount(t, splitKey(k), f.values[k]); err != nil {
+		if err := mount(t, splitKey(k), f.values[k], lastValue); err != nil {
 			return nil, err
 		}
 	}
 	return t, nil
 }
 
-// A tree node is a tree (a branch), a string (a field's last value) or a
-// []string (all values of a "name[]" field). It marshals to the JSON that
-// PHP's json_decode turns into $_POST-like arrays.
+// A tree node is a tree (a branch) or a leaf: a field's value (string) or
+// all values of a "name[]" field ([]string); in an upload tree, a file
+// (*upload) or a list of them. It marshals to the JSON that PHP's
+// json_decode turns into $_POST- and $_FILES-like arrays.
 type tree map[string]any
 
 // splitKey splits a PHP-style field name into its segments, exactly as
@@ -128,10 +129,11 @@ func splitKey(s string) []string {
 }
 
 // mount stores values at keys in t, creating branches on the way. It follows
-// RoadRunner's rules (http/v6 handler/parse.go): a scalar key takes the last
-// value, "name[]" takes all of them, an empty value never replaces data, and
-// data under a key that already holds other data is an error.
-func mount(t tree, keys, values []string) error {
+// RoadRunner's rules (http/v6 handler/parse.go): a scalar key takes the value
+// that leaf picks (a field's last value, a file's first), "name[]" takes all
+// of them, an empty value never replaces data, and data under a key that
+// already holds other data is an error.
+func mount[V any](t tree, keys []string, values []V, leaf func([]V) any) error {
 	if len(keys) > maxTreeDepth {
 		return nil
 	}
@@ -146,7 +148,7 @@ func mount(t tree, keys, values []string) error {
 			return nil
 		case len(keys) == 1:
 			if len(values) > 0 {
-				t[keys[0]] = values[len(values)-1]
+				t[keys[0]] = leaf(values)
 			} else {
 				t[keys[0]] = values
 			}
@@ -162,9 +164,12 @@ func mount(t tree, keys, values []string) error {
 	return nil
 }
 
+func lastValue(v []string) any  { return v[len(v)-1] }
+func firstFile(v []*upload) any { return v[0] }
+
 // prepareNode resolves what is already stored at keys[0] before values go
 // there or below. done means values are dropped, without an error.
-func prepareNode(t tree, keys, values []string) (done bool, err error) {
+func prepareNode[V any](t tree, keys []string, values []V) (done bool, err error) {
 	existing, exists := t[keys[0]]
 	if !exists {
 		t[keys[0]] = make(tree)
@@ -198,6 +203,8 @@ func isEmpty(v any) bool {
 		return v == ""
 	case []string:
 		return len(v) == 0 || (len(v) == 1 && v[0] == "")
+	case []*upload:
+		return len(v) == 0 || (len(v) == 1 && v[0] == nil)
 	default:
 		return v == nil
 	}

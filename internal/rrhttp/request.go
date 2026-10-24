@@ -29,6 +29,8 @@ type Options struct {
 	Codec relay.Flags
 	// RawBody sends form and multipart bodies as they are instead of parsing them.
 	RawBody bool
+	// Uploads controls where the files of multipart requests are stored.
+	Uploads Uploads
 }
 
 // Validate reports an unsupported codec.
@@ -52,6 +54,29 @@ type Request struct {
 	// Parsed means Body is a JSON tree of form fields, not the raw body.
 	Parsed bool
 	Body   []byte
+	// Uploads is the JSON tree of uploaded files, for parsed multipart
+	// requests; Close removes the files.
+	Uploads []byte
+
+	files *files
+}
+
+// Close removes the temp files of uploads. Call it once the worker has
+// answered.
+func (req *Request) Close() error {
+	if req.files == nil {
+		return nil
+	}
+	return req.files.remove()
+}
+
+// UploadErrors returns the problems storing uploads; the files concerned
+// reach PHP with an upload error code.
+func (req *Request) UploadErrors() []error {
+	if req.files == nil {
+		return nil
+	}
+	return req.files.errs
 }
 
 // RequestError means a request can't be passed to a worker: its body
@@ -116,7 +141,7 @@ func NewRequest(r *http.Request, opts Options) (*Request, error) {
 	case kind == bodyURLEncoded:
 		err = req.readURLEncoded(r.Body)
 	case kind == bodyMultipart:
-		err = req.readMultipart(r)
+		err = req.readMultipart(r, &opts.Uploads)
 	}
 	if err != nil {
 		return nil, &RequestError{Err: err}
@@ -145,16 +170,36 @@ func (req *Request) readURLEncoded(body io.Reader) error {
 	return req.setForm(f)
 }
 
-func (req *Request) readMultipart(r *http.Request) error {
+func (req *Request) readMultipart(r *http.Request, opts *Uploads) error {
 	_, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil {
 		return fmt.Errorf("parse multipart form: %w", err)
 	}
-	f, err := readMultipart(r.Body, params["boundary"])
+	f, fs, err := readMultipart(r.Body, params["boundary"], opts)
 	if err != nil {
 		return fmt.Errorf("parse multipart form: %w", err)
 	}
-	return req.setForm(f)
+	req.files = fs
+	err = req.setForm(f)
+	if err == nil {
+		err = req.setUploads(fs)
+	}
+	if err != nil {
+		_ = fs.remove()
+		req.files = nil
+	}
+	return err
+}
+
+// setUploads records the upload tree; RoadRunner sends one, maybe empty, for
+// every parsed multipart request.
+func (req *Request) setUploads(fs *files) error {
+	t, err := fs.tree()
+	if err != nil {
+		return err
+	}
+	req.Uploads, err = json.Marshal(t)
+	return err
 }
 
 // setForm makes the body the form's JSON tree. A form without fields is
@@ -218,9 +263,16 @@ func (req *Request) marshalJSON() ([]byte, error) {
 		Cookies:    nonNil(req.Cookies),
 		RawQuery:   req.RawQuery,
 		Parsed:     req.Parsed,
-		Uploads:    json.RawMessage("null"),
+		Uploads:    uploadsJSON(req.Uploads),
 		Attributes: nonNil(req.Attributes),
 	})
+}
+
+func uploadsJSON(tree []byte) json.RawMessage {
+	if len(tree) == 0 {
+		return json.RawMessage("null")
+	}
+	return tree
 }
 
 // nonNil makes JSON say {} rather than null.

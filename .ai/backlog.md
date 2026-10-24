@@ -55,7 +55,8 @@ Milestone definitions: `roadmap.md`.
   (plan D2–D4).
 - [x] K-042 Request encoding: method, URI, headers, cookies, query, body (bounded), remote address, TLS info.
   `internal/rrhttp`: JSON and protobuf contexts, PHP form trees (checked against RR's code by a differential fuzz).
-- [ ] K-043 Multipart uploads: temp files, size limits, cleanup.
+- [x] K-043 Multipart uploads: temp files, size limits, cleanup. `uploads: {dir, forbid, allow}`; files stream to
+  disk (one copy), PHP's `UPLOAD_ERR_*` codes as in RR; temp files removed after the response and on every error.
 - [x] K-044 Response decoding: status, multi-value headers, body; error mapping (worker error → 5xx).
   `rrhttp.DecodeResponse` (JSON and protobuf), `WriteResponse` (framing, header hygiene, trailers), `ErrorStatus`.
 - [x] K-045 `examples/php-hello`: composer.json + PSR-7 worker + kest.yaml. E2e test with the real binary

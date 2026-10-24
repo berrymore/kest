@@ -44,6 +44,7 @@ const (
 	reqCookies    = 6
 	reqRawQuery   = 7
 	reqParsed     = 8
+	reqUploads    = 9
 	reqAttributes = 10
 )
 
@@ -71,6 +72,7 @@ func appendRequestProto(b []byte, req *Request) []byte {
 		b = binary.AppendUvarint(b, reqParsed<<3|wireVarint)
 		b = append(b, 1)
 	}
+	b = appendBytes(b, reqUploads, req.Uploads, false)
 	b = appendValuesMap(b, reqAttributes, req.Attributes)
 	return b
 }
