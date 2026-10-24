@@ -260,6 +260,11 @@ func (s *Server) Clusters() []admin.ClusterInfo {
 	return out
 }
 
+// ConfigDump implements admin.Source.
+func (s *Server) ConfigDump() ([]byte, error) {
+	return s.cfg.DumpRedacted()
+}
+
 // Metrics implements admin.Source: the server's metrics registry.
 func (s *Server) Metrics() *metrics.Registry {
 	return s.metrics

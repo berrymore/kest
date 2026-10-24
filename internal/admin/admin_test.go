@@ -23,11 +23,12 @@ type fakeSource struct {
 	metrics    *metrics.Registry
 }
 
-func (f *fakeSource) State() State            { return f.state }
-func (f *fakeSource) StartedAt() time.Time    { return time.Now().Add(-90 * time.Second) }
-func (f *fakeSource) ConfigFile() string      { return "/etc/kest/kest.yaml" }
-func (f *fakeSource) NotServing() []string    { return f.notServing }
-func (f *fakeSource) Clusters() []ClusterInfo { return f.clusters }
+func (f *fakeSource) State() State                { return f.state }
+func (f *fakeSource) StartedAt() time.Time        { return time.Now().Add(-90 * time.Second) }
+func (f *fakeSource) ConfigFile() string          { return "/etc/kest/kest.yaml" }
+func (f *fakeSource) NotServing() []string        { return f.notServing }
+func (f *fakeSource) Clusters() []ClusterInfo     { return f.clusters }
+func (f *fakeSource) ConfigDump() ([]byte, error) { return []byte("version: v1\n"), nil }
 
 func (f *fakeSource) ResetCluster(ctx context.Context, name string) error {
 	if ctx.Done() != nil {
@@ -134,6 +135,13 @@ func TestResetCluster(t *testing.T) {
 	}
 	if rec := serve(t, NewHandler(&fakeSource{}), http.MethodGet, "/clusters/app/reset"); rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("GET .../reset = %d, want 405", rec.Code)
+	}
+}
+
+func TestConfigDump(t *testing.T) {
+	rec := serve(t, NewHandler(&fakeSource{}), http.MethodGet, "/config_dump")
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "application/yaml" || rec.Body.String() != "version: v1\n" {
+		t.Errorf("GET /config_dump = %d %q %q", rec.Code, rec.Header().Get("Content-Type"), rec.Body.String())
 	}
 }
 

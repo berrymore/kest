@@ -266,3 +266,12 @@ func TestDump(t *testing.T) {
 		}
 	}
 }
+
+func TestRedacted(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Env = map[string]string{"DB_PASSWORD": "hunter2"}
+	r, ok := cfg.Redacted().(*Config)
+	if !ok || r.Env["DB_PASSWORD"] != config.Redacted || cfg.Env["DB_PASSWORD"] != "hunter2" {
+		t.Errorf("Redacted = %+v, config %+v", r, cfg.Env)
+	}
+}

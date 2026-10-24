@@ -115,7 +115,8 @@ Milestone definitions: `roadmap.md`.
 - [x] K-074 Admin `/clusters`: each cluster's type and health, and its workers (slot, state, pid, jobs, age,
   memory), from an optional interface that clusters implement. `cluster.Reporter`; the php-hello e2e test checks
   the pids against the workers that served requests.
-- [ ] K-075 Admin `/config_dump`: the effective config as YAML, with the `env` values of clusters redacted.
+- [x] K-075 Admin `/config_dump`: the effective config as YAML, with the `env` values of clusters redacted.
+  `config.Redactor` and `Config.DumpRedacted`; an undecoded block is hidden whole.
 
 ## M4 — HTTP edge features
 

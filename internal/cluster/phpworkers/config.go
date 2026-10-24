@@ -123,6 +123,18 @@ var yamlFields = map[string]string{
 	"WatchTick":       "supervisor.watch_tick",
 }
 
+// Redacted implements config.Redactor: values in env may be secrets.
+func (c *Config) Redacted() any {
+	out := *c
+	if len(c.Env) > 0 {
+		out.Env = make(map[string]string, len(c.Env))
+		for k := range c.Env {
+			out.Env[k] = config.Redacted
+		}
+	}
+	return &out
+}
+
 // Validate reports every invalid field as a *config.FieldError.
 func (c *Config) Validate() error {
 	var errs []error

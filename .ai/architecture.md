@@ -355,7 +355,7 @@ test/docs/                   🟢 docs drift checks against the code and the Mak
 |---|---|---|
 | `GET /ready` | 200 when serving; 503 while starting, draining, or a cluster can't serve (`cluster.Prober`) | 🟢 M0, M3 |
 | `GET /server_info` | version, uptime, config path | 🟢 M0 |
-| `GET /config_dump` | effective config, defaults applied, secrets redacted | M3 |
+| `GET /config_dump` | effective config, defaults applied; extension configs that implement `config.Redactor` (php_workers: `env` values) redacted | 🟢 M3 |
 | `GET /clusters` | clusters, pools, workers (pid, state, jobs, memory, age), from `cluster.Reporter` | 🟢 M3 |
 | `POST /clusters/{name}/reset` | rolling restart of a pool; returns when done | 🟢 M3 |
 | `GET /metrics` | Prometheus text format (`docs/metrics.md`) | 🟢 M3 |

@@ -425,3 +425,31 @@ func containsInOrder(text string, parts []string) bool {
 	}
 	return true
 }
+
+type secretConfig struct {
+	Password string `yaml:"password"`
+}
+
+func (c *secretConfig) Redacted() any { return &secretConfig{Password: Redacted} }
+
+func TestDumpRedacted(t *testing.T) {
+	cfg, err := parse(t, validConfig, map[string]string{"PORT": "8080", "STATUS": "200"})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	// Not decoded: the block's content is unknown, so it is hidden.
+	out, err := cfg.DumpRedacted()
+	if err != nil || strings.Contains(string(out), "workers: 4") || !strings.Contains(string(out), "config: '[redacted]'") {
+		t.Errorf("DumpRedacted before decoding (%v):\n%s", err, out)
+	}
+
+	cfg.Clusters[0].SetDecoded(&secretConfig{Password: "hunter2"})
+	out, err = cfg.DumpRedacted()
+	if err != nil || strings.Contains(string(out), "hunter2") || !strings.Contains(string(out), "password: '[redacted]'") {
+		t.Errorf("DumpRedacted (%v):\n%s", err, out)
+	}
+	// The config itself is unchanged.
+	if plain, _ := cfg.Dump(); !strings.Contains(string(plain), "password: hunter2") {
+		t.Errorf("Dump after DumpRedacted:\n%s", plain)
+	}
+}

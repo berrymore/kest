@@ -160,6 +160,12 @@ func TestServePHPHelloExample(t *testing.T) {
 		t.Errorf("/clusters = %+v, want 4 ready workers that ran 504 jobs", c)
 	}
 
+	_, dump, err := get(t, "http://"+adminAddr+"/config_dump")
+	if err != nil || strings.Contains(dump, "APP_ENV: dev") || !strings.Contains(dump, "APP_ENV: '[redacted]'") ||
+		!strings.Contains(dump, "max_queue_size: 1000") || !strings.Contains(dump, "type: request_id") {
+		t.Errorf("config_dump (%v), want defaults and env values redacted:\n%s", err, dump)
+	}
+
 	_, metrics, err := get(t, "http://"+adminAddr+"/metrics")
 	for _, want := range []string{
 		`kest_http_requests_total{listener="main",virtual_host="default",cluster="hello",code="200"} 503`,

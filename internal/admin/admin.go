@@ -1,6 +1,6 @@
 // Package admin implements the admin HTTP API, modeled on Envoy's admin
-// interface: readiness, server information, cluster state and resets,
-// metrics and, later, config dumps.
+// interface: readiness, server information, the effective config, cluster
+// state and resets, and metrics.
 package admin
 
 import (
@@ -41,6 +41,8 @@ type Source interface {
 	// done, ErrUnknownCluster, ErrCantReset, ErrNotReady,
 	// cluster.ErrResetRunning, or why the reset stopped.
 	ResetCluster(ctx context.Context, name string) error
+	// ConfigDump is the effective configuration as YAML, secrets redacted.
+	ConfigDump() ([]byte, error)
 	Metrics() *metrics.Registry
 }
 
@@ -64,6 +66,7 @@ var endpoints = []struct {
 }{
 	{"GET /ready", "200 when serving traffic; 503 while starting, draining, or a cluster has no live worker"},
 	{"GET /server_info", "version, state, uptime and config file (JSON)"},
+	{"GET /config_dump", "the effective configuration with defaults, env values redacted (YAML)"},
 	{"GET /clusters", "every cluster with its state and workers (JSON)"},
 	{"POST /clusters/{name}/reset", "replace a cluster's workers one by one; returns when done"},
 	{"GET /metrics", "metrics in the Prometheus text format"},
@@ -93,6 +96,15 @@ func NewHandler(src Source) http.Handler {
 			return
 		}
 		fmt.Fprintln(w, state)
+	})
+	mux.HandleFunc("GET /config_dump", func(w http.ResponseWriter, _ *http.Request) {
+		out, err := src.ConfigDump()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/yaml")
+		_, _ = w.Write(out)
 	})
 	mux.HandleFunc("GET /clusters", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, struct {

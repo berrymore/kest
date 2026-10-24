@@ -10,6 +10,7 @@
 package config
 
 import (
+	"slices"
 	"time"
 
 	"go.yaml.in/yaml/v4"
@@ -53,6 +54,39 @@ func (c *Config) File() string {
 // built from this Config, and their raw blocks before that.
 func (c *Config) Dump() ([]byte, error) {
 	return yaml.Dump(c, yaml.WithIndent(2))
+}
+
+// Redactor is implemented by extension configs that may hold secrets, such
+// as environment variables: Redacted returns a copy to show instead.
+type Redactor interface {
+	Redacted() any
+}
+
+// Redacted is what DumpRedacted shows in place of a secret.
+const Redacted = "[redacted]"
+
+// DumpRedacted is Dump with every decoded extension config that implements
+// Redactor replaced by its Redacted copy, for the admin API. Call it after
+// the server graph is built: a config block that wasn't decoded is shown as
+// Redacted, since nothing knows what it holds.
+func (c *Config) DumpRedacted() ([]byte, error) {
+	out := *c
+	out.Clusters = slices.Clone(c.Clusters)
+	for i := range out.Clusters {
+		out.Clusters[i].Extension = out.Clusters[i].redacted()
+	}
+	out.Listeners = slices.Clone(c.Listeners)
+	for i := range out.Listeners {
+		if h := out.Listeners[i].HTTP; h != nil {
+			copied := *h
+			copied.Filters = slices.Clone(h.Filters)
+			for j := range copied.Filters {
+				copied.Filters[j] = copied.Filters[j].redacted()
+			}
+			out.Listeners[i].HTTP = &copied
+		}
+	}
+	return yaml.Dump(&out, yaml.WithIndent(2))
 }
 
 // Log configures the process logger.

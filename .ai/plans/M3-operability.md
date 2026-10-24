@@ -103,7 +103,7 @@ The first steps are the vertical slice: real metrics from a PHP app at `/metrics
    the old ones serving; `kest_pool_worker_restarts_total{reason="reset"}` counts it.
 5. [x] **Filters** (K-064) — `request_id`, `access_log`, `recovery` in `internal/filters/<name>/`, documented in
    `docs/config.md`. Acceptance: e2e sees the ID in PHP's `$_SERVER`, in the response and in the access log.
-6. [ ] **`/config_dump`** (K-075) — acceptance: env values never appear in the output.
+6. [x] **`/config_dump`** (K-075) — acceptance: env values never appear in the output.
 7. [ ] **Server limits** (K-065) and **drain delay** (K-068) — acceptance: e2e for a slow client (read header
    timeout) and for `/ready` turning 503 during the delay while requests still succeed.
 8. [ ] **Buffered body budget** (K-070) — acceptance: concurrent large uploads past the budget get `503`, and
@@ -124,6 +124,7 @@ The first steps are the vertical slice: real metrics from a PHP app at `/metrics
 
 ## Log
 
+- 2026-10-25 — Step 6 (K-075) done: extension configs opt in to redaction with `config.Redactor`.
 - 2026-10-25 — Step 5 (K-064) done as in D5–D8. The router and the listener entry fill `httpx.RequestInfo`, so
   `access_log` gets the virtual host and cluster in any filter order; a panic counts as a 500 in the HTTP metrics;
   `access_log` logs the path without the query string. `request_id` changes a copy of the request.
