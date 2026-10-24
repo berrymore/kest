@@ -2,7 +2,7 @@
 
 > A living document. It describes the **target** design and marks what is implemented.
 > Legend: 🟢 implemented · 🟡 in progress · ⚪ planned.
-> **Last reviewed: 2026-10-25 (M2 in progress).** Implemented: config loading and validation, extension
+> **Last reviewed: 2026-10-25 (M2 done).** Implemented: config loading and validation, extension
 > registry, server lifecycle, HTTP listeners, router with `direct_response`, admin `/ready` and
 > `/server_info`; the goridge relay and the worker pool (`internal/relay`, `internal/worker`); the RoadRunner
 > HTTP payload (`internal/rrhttp`) and the `php_workers` cluster type. No HTTP filters exist yet.

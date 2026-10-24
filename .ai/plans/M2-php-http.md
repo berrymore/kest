@@ -1,7 +1,7 @@
 # Plan: M2 — PHP HTTP (MVP)
 
-- **Status:** Active (2026-10-25). The user delegated M2 end to end ("research, plan, code, commit to the branch,
-  open the PR"), so the decisions below were taken by the agent; the user reviews them in the PR.
+- **Status:** Done (2026-10-25), in review. The user delegated M2 end to end ("research, plan, code, commit to the
+  branch, open the PR"), so the decisions below were taken by the agent; the user reviews them in the PR.
 - **Milestone:** M2
 - **Backlog:** K-040…K-048
 
@@ -137,15 +137,31 @@ plugin v6.0.0 and `roadrunner/http` 4.2.1, and by experiment). Layering: `cluste
 6. [x] **Uploads** (K-043) — temp files, `uploads.dir`/`forbid`/`allow`, error codes, cleanup (also on timeouts and
    errors). Acceptance: PHP integration test uploads files and reads them back; no temp file is left.
 7. [x] **Framework smoke test** (K-046) — Symfony skeleton with `runtime/roadrunner-symfony-nyholm`, e2e test.
-8. [ ] **Docker PHP matrix** (K-047) — `make test-matrix`: PHP 8.3 / 8.4 / 8.5 images with composer, running the
+8. [x] **Docker PHP matrix** (K-047) — `make test-matrix`: PHP 8.3 / 8.4 / 8.5 images with composer, running the
    integration and PHP e2e tests on Linux.
-9. [ ] **Docs** (K-048) — `docs/getting-started.md`; `docs/config.md` for `php_workers`; README; architecture,
+9. [x] **Docs** (K-048) — `docs/getting-started.md`; `docs/config.md` for `php_workers`; README; architecture,
    status, backlog, roadmap.
-10. [ ] **Load test and PR** — `oha`/`wrk` run without errors or leaks; `make check` + `make test-integration` +
+10. [x] **Load test and PR** — `oha`/`wrk` run without errors or leaks; `make check` + `make test-integration` +
     matrix green; push, `gh pr create`.
 
 Commits: one per backlog item on `feat/m2-php-http`, plus `docs:` commits; the user allowed the agent to commit and
 open the PR without asking (2026-10-25).
+
+## Outcome / deviations
+
+- Exit criteria met: an unmodified `roadrunner/http` 4.2.1 `PSR7Worker` serves requests through kest
+  (`examples/php-hello`, `TestServePHPHelloExample`); Symfony 7.4 on `runtime/roadrunner-symfony-nyholm` boots and
+  passes a smoke test on both codecs (`TestSymfonySmoke`); `ab -k -c 50` against `php-hello` with 4 workers:
+  150 000 requests, 0 failed, 25–31k req/s on the development laptop, workers recycled by `max_jobs` under load,
+  kest's RSS flat at ~24 MB and its file descriptors at 24 across three runs.
+- All PHP tests pass on PHP 8.3.36, 8.4.27 and 8.5.12 on Linux (`make test-matrix`) and on 8.5.12 on macOS.
+- Deviations from the plan: the backlog said `make e2e-matrix`, it is `make test-matrix`; the commit order was
+  K-042, K-044, K-041, K-045, K-043, K-046, K-047, K-048 (the cluster needs the codec first). The Symfony app lives
+  in `test/e2e/testdata/symfony`, not in `examples/`.
+- Found on the way: e2e binaries (built with `-race`) slept 1 s on every exit (`GORACE=atexit_sleep_ms=0` now);
+  buffered request bodies can add up to `(workers + max_queue_size) × max_request_body` (K-070); trusted proxies
+  (K-087) and streaming responses (K-088) are new backlog items. `worker.Config.Validate` now returns
+  `*worker.FieldError`; `registry.BuildContext` has `ConfigDir`.
 
 ## Risks / open questions
 
@@ -162,3 +178,4 @@ open the PR without asking (2026-10-25).
   `examples/php-hello`. The vertical slice works: `curl` → kest → unmodified `PSR7Worker` → back, covered by
   `TestServePHPHelloExample`. Found on the way: the e2e binary (built with `-race`) slept 1 s on every exit;
   e2e runs now set `GORACE=atexit_sleep_ms=0`.
+- 2026-10-25 — Steps 6–10 done: uploads, Symfony smoke test (both codecs), Docker matrix, docs, load test. Plan done.
