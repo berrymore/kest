@@ -2,10 +2,10 @@
 
 An Envoy-inspired application server for PHP (and, later, WebAssembly), written in Go.
 
-> **Status: experimental.** Milestone M0 (foundation) is done: kest loads a strictly validated config,
-> routes HTTP requests by host and path, and serves direct responses with graceful shutdown.
-> PHP workers arrive in M1–M2. The goal is production quality; the plan is in [`.ai/roadmap.md`](.ai/roadmap.md).
-> Most of this README describes where the project is going.
+> **Status: experimental.** Milestones M0–M2 are done: kest serves PHP applications through pools of
+> unmodified RoadRunner PSR-7 workers (`roadrunner/http`), behind strictly validated Envoy-style routing,
+> with graceful shutdown. A Symfony app runs on it unchanged. Operability (metrics, rolling restarts,
+> access logs) is next. The goal is production quality; the plan is in [`.ai/roadmap.md`](.ai/roadmap.md).
 
 ## Why
 
@@ -26,7 +26,7 @@ kest puts the two ideas together:
   filters, with hard memory and time limits.
 - **Built to be operated.** Admin API, metrics, structured logs, graceful shutdown and rolling restarts.
 
-## What it will look like
+## What it looks like
 
 `kest.yaml`:
 
@@ -40,9 +40,6 @@ listeners:
   - name: public
     address: 0.0.0.0:8080
     http:
-      filters:                    # run in order; the router always runs last
-        - type: request_id
-        - type: access_log
       virtual_hosts:
         - name: app
           domains: ["*"]
@@ -93,6 +90,8 @@ kest validate -c kest.yaml   # strict validation with precise error paths
 kest serve -c kest.yaml
 ```
 
+HTTP filters (`request_id`, `access_log`, …) will run before the router, in config order, from M3.
+
 ## Architecture at a glance
 
 ```
@@ -114,8 +113,8 @@ Details: [`.ai/architecture.md`](.ai/architecture.md).
 | Milestone | Goal |
 |---|---|
 | **M0** Foundation ✅ | CLI, strict config loader, extension registry, lifecycle, admin `/ready`, `direct_response` |
-| **M1** Worker pool | Language-agnostic process pool, supervisor, RoadRunner-compatible relay |
-| **M2** PHP HTTP — *MVP* | Serve PSR-7 apps through unmodified RoadRunner HTTP workers |
+| **M1** Worker pool ✅ | Language-agnostic process pool, supervisor, RoadRunner-compatible relay |
+| **M2** PHP HTTP — *MVP* ✅ | Serve PSR-7 apps through unmodified RoadRunner HTTP workers |
 | **M3** Operability | Metrics, admin API, rolling restarts, access logs, limits, benchmarks |
 | **M4** HTTP edge | TLS, HTTP/2, static files, compression, reverse-proxy clusters |
 | **M5** WASM sandbox | wazero runtime, `wasm` clusters and filters |
@@ -125,13 +124,18 @@ Details: [`.ai/architecture.md`](.ai/architecture.md).
 
 ```sh
 make build
-./bin/kest serve -c examples/hello/kest.yaml
-curl localhost:8080/          # hello from kest
-curl localhost:9901/ready     # admin API: ready
-./bin/kest validate -c examples/hello/kest.yaml -dump
+composer install --working-dir=examples/php-hello
+./bin/kest serve -c examples/php-hello/kest.yaml
+curl 'localhost:8080/?name=kest'   # Hello, kest! (PHP 8.5.12, worker 12345)
+curl localhost:9901/ready          # admin API: ready
+./bin/kest validate -c examples/php-hello/kest.yaml -dump
 ```
 
-Configuration reference: [`docs/config.md`](docs/config.md).
+[`examples/hello`](examples/hello) needs no PHP: it only has direct responses.
+
+- [Getting started](docs/getting-started.md): your first PHP app on kest, long-lived workers, Symfony,
+  coming from RoadRunner.
+- [Configuration reference](docs/config.md).
 
 ## Development
 
@@ -141,11 +145,13 @@ Requirements:
 - PHP CLI and Composer, for integration tests and examples (macOS: `brew install php composer`).
   kest itself doesn't restrict the PHP version; the RoadRunner PHP libraries currently need PHP 8.2+,
   and kest is tested against PHP 8.3+.
-- Docker, later on, for reproducible end-to-end tests across PHP versions
+- Docker, for Linux test runs and the PHP version matrix
 
 ```sh
-make check   # build, vet, lint, unit tests (-race), end-to-end tests
-make help    # all targets
+make check              # build, vet, lint, unit tests (-race), end-to-end tests
+make test-integration   # plus the PHP integration and end-to-end tests (needs php and composer)
+make test-matrix        # the PHP tests on Linux with PHP 8.3, 8.4 and 8.5 (needs Docker)
+make help               # all targets
 ```
 
 Contributors and AI agents: start with [`AGENTS.md`](AGENTS.md).
