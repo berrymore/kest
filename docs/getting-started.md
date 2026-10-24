@@ -115,8 +115,10 @@ the [configuration reference](config.md#php_workers).
   during boot (the PHP CLI prints errors to stdout by default; `display_errors=stderr` changes that),
   makes the worker fail to start, and kest shows what it printed: `stdout is reserved for the
   RoadRunner protocol, but the worker printed "…"`.
-- **Code changes need a restart.** A worker loads your code once. Restart kest to deploy; rolling
-  worker restarts without downtime are planned (M3).
+- **Code changes need a reset.** A worker loads your code once. To deploy, replace the workers one by one
+  with `curl -X POST localhost:9901/clusters/<cluster>/reset` (it returns when done) or `kill -HUP <kest pid>`
+  (every cluster): each new worker boots while the old one keeps serving, so no request fails, and if the new
+  code doesn't boot, the reset stops and the remaining old workers keep serving.
 - **Leaks are bounded by limits.** `pool.max_jobs` replaces a worker after that many requests,
   `supervisor.max_worker_memory` when it grows too large, `supervisor.ttl` after some time. A request
   that runs longer than `supervisor.exec_ttl` (default 60s) kills its worker and gets `504`.

@@ -4,6 +4,7 @@ package cluster
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/berrymore/kest/internal/registry"
@@ -37,6 +38,17 @@ type Reporter interface {
 	// Report returns the cluster's state; it is encoded as JSON.
 	Report() any
 }
+
+// Resetter is implemented by clusters that can replace their workers without
+// failing requests: admin POST /clusters/{name}/reset and SIGHUP.
+type Resetter interface {
+	// Reset replaces the workers and returns once done, or with the reason
+	// it stopped; ErrResetRunning while another reset runs.
+	Reset(ctx context.Context) error
+}
+
+// ErrResetRunning is returned by Reset while another reset runs.
+var ErrResetRunning = errors.New("a reset is already running")
 
 // Types is the registry of cluster implementations, keyed by config type.
 var Types = registry.NewCategory[Cluster]("cluster")

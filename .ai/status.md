@@ -11,8 +11,9 @@ user's Symfony app in `playground/` (git-ignored, the user's sandbox) turned up,
 Done on the branch: **K-071** (a worker that prints to stdout gets an error that shows what it printed, plus a
 PHP hint), **K-073** (`make docs-check` and the milestone docs review in `review.md`), **K-060** (metrics:
 ADR-0007, a hand-written core with the Prometheus text format), **K-061** (`internal/metrics`; HTTP, pool, Go
-and process metrics), **K-062** (`GET /metrics`, `/ready` per cluster) and **K-074** (`GET /clusters`). The plan is
-`plans/M3-operability.md` (Active).
+and process metrics), **K-062** (`GET /metrics`, `/ready` per cluster), **K-074** (`GET /clusters`) and **K-063**
+(rolling reset through the admin API and SIGHUP, zero failed requests under load: an M3 exit criterion). The plan
+is `plans/M3-operability.md` (Active).
 
 ## In progress
 
@@ -81,6 +82,9 @@ None.
 
 ## Session log (newest first, keep ~15)
 
+- **2026-10-25** — K-063: `Pool.Reset` with a surge; `POST /clusters/{name}/reset`, SIGHUP. Under load in e2e:
+  ~13 000 requests, none failed. Found in tests: a timestamp check broke under synctest's frozen clock; a reset
+  generation counter replaced it.
 - **2026-10-25** — K-074: `GET /clusters` through the optional `cluster.Reporter`.
 - **2026-10-25** — K-062: `GET /metrics`, `/ready` fails while a cluster has no live worker (`cluster.Prober`),
   `docs/metrics.md` with example queries.

@@ -13,6 +13,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/berrymore/kest/internal/cluster"
 	"github.com/berrymore/kest/internal/leaktest"
 	"github.com/berrymore/kest/internal/logging"
 	"github.com/berrymore/kest/internal/metrics"
@@ -31,6 +32,7 @@ type fakePool struct {
 	health   worker.Health
 	workers  []worker.Info
 	waiting  int
+	resetErr error
 	last     worker.Payload
 	calls    int
 	started  bool
@@ -42,6 +44,7 @@ func (p *fakePool) Stop(context.Context) error  { p.stopped = true; return nil }
 func (p *fakePool) Health() worker.Health       { return p.health }
 func (p *fakePool) Workers() []worker.Info      { return p.workers }
 func (p *fakePool) Waiting() int                { return p.waiting }
+func (p *fakePool) Reset(context.Context) error { return p.resetErr }
 
 func (p *fakePool) Exec(ctx context.Context, req worker.Payload) (worker.Payload, error) {
 	p.calls++
@@ -257,6 +260,27 @@ func TestReport(t *testing.T) {
 		`","age_seconds":90,"memory_bytes":31457280},{"slot":1,"state":"backoff","jobs":0}]}`
 	if string(b) != want {
 		t.Errorf("Report:\n%s\nwant:\n%s", b, want)
+	}
+}
+
+func TestReset(t *testing.T) {
+	printed := &worker.ProcessError{Op: "handshake", Err: &worker.StdoutError{Output: []byte("Warning")}}
+	for _, tt := range []struct {
+		err      error
+		want     error
+		wantHint bool
+	}{
+		{err: nil},
+		{err: worker.ErrResetRunning, want: cluster.ErrResetRunning},
+		{err: printed, want: printed, wantHint: true},
+	} {
+		err := newTestCluster(t, nil, &fakePool{resetErr: tt.err}).Reset(t.Context())
+		if !errors.Is(err, tt.want) || (err == nil) != (tt.want == nil) {
+			t.Errorf("Reset with %v = %v, want %v", tt.err, err, tt.want)
+		}
+		if hint := err != nil && strings.Contains(err.Error(), stdoutHint); hint != tt.wantHint {
+			t.Errorf("Reset with %v = %v: hint %v, want %v", tt.err, err, hint, tt.wantHint)
+		}
 	}
 }
 

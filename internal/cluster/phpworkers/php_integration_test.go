@@ -14,8 +14,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -34,11 +36,13 @@ var codecs = []string{CodecJSON, CodecProto}
 // phpServer starts a php_workers cluster on testdata/php behind an HTTP server.
 func phpServer(t *testing.T, codec string, mutate func(*Config)) *httptest.Server {
 	t.Helper()
-	return phpServerMetrics(t, codec, mutate, metrics.NewRegistry())
+	srv, _ := phpCluster(t, codec, mutate, metrics.NewRegistry())
+	return srv
 }
 
-// phpServerMetrics is phpServer with the cluster's metrics in reg.
-func phpServerMetrics(t *testing.T, codec string, mutate func(*Config), reg *metrics.Registry) *httptest.Server {
+// phpCluster is phpServer with the cluster's metrics in reg; it returns the
+// cluster too.
+func phpCluster(t *testing.T, codec string, mutate func(*Config), reg *metrics.Registry) (*httptest.Server, *Cluster) {
 	t.Helper()
 	php, err := exec.LookPath("php")
 	if err != nil {
@@ -76,7 +80,7 @@ func phpServerMetrics(t *testing.T, codec string, mutate func(*Config), reg *met
 		srv.Close()
 		_ = c.Stop(t.Context())
 	})
-	return srv
+	return srv, c
 }
 
 type reply struct {
@@ -336,7 +340,7 @@ func TestPHPNotAWorker(t *testing.T) {
 
 func TestPHPMetrics(t *testing.T) {
 	reg := metrics.NewRegistry()
-	srv := phpServerMetrics(t, CodecJSON, func(c *Config) { c.Pool.MaxJobs = 2 }, reg)
+	srv, _ := phpCluster(t, CodecJSON, func(c *Config) { c.Pool.MaxJobs = 2 }, reg)
 	for range 5 {
 		if r := send(t, http.MethodGet, srv.URL+"/status/200", "", http.NoBody, nil); r.status != 200 {
 			t.Fatalf("status %d", r.status)
@@ -360,6 +364,82 @@ func TestPHPMetrics(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+// A rolling reset under load fails no request; a reset to code that doesn't
+// boot stops, and the old workers keep serving.
+func TestPHPReset(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "broken")
+	reg := metrics.NewRegistry()
+	srv, c := phpCluster(t, CodecJSON, func(c *Config) {
+		c.Pool.Workers = 3
+		c.Env = map[string]string{"KEST_TEST_BOOT_MARKER": marker}
+	}, reg)
+	pids := func() []int {
+		var out []int
+		for _, w := range c.pool.Workers() {
+			out = append(out, w.Pid)
+		}
+		return out
+	}
+
+	var failed, served atomic.Int64
+	load := func() (stop func()) {
+		done := make(chan struct{})
+		var wg sync.WaitGroup
+		for range 8 {
+			wg.Go(func() {
+				for {
+					select {
+					case <-done:
+						return
+					default:
+					}
+					if r := send(t, http.MethodGet, srv.URL+"/sleep/20", "", http.NoBody, nil); r.status != 200 {
+						failed.Add(1)
+					}
+					served.Add(1)
+				}
+			})
+		}
+		return func() {
+			close(done)
+			wg.Wait()
+		}
+	}
+
+	before := pids()
+	stop := load()
+	if err := c.Reset(t.Context()); err != nil {
+		t.Fatalf("Reset: %v", err)
+	}
+	stop()
+	after := pids()
+	for i := range after {
+		if after[i] == before[i] || after[i] == 0 {
+			t.Errorf("slot %d: pid %d before, %d after the reset", i, before[i], after[i])
+		}
+	}
+	if got := metricstest.Value(t, reg, "kest_pool_worker_restarts_total", "cluster", "app", "reason", "reset"); got != 3 {
+		t.Errorf("reset restarts = %v, want 3", got)
+	}
+
+	if err := os.WriteFile(marker, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stop = load()
+	err := c.Reset(t.Context())
+	stop()
+	if err == nil || !strings.Contains(err.Error(), "0 of 3 workers replaced") || !strings.Contains(err.Error(), "boot refused") {
+		t.Errorf("Reset to code that doesn't boot = %v", err)
+	}
+	if got := pids(); !slices.Equal(got, after) {
+		t.Errorf("pids %v after the failed reset, want %v unchanged", got, after)
+	}
+	if failed.Load() != 0 {
+		t.Errorf("%d of %d requests failed during the resets", failed.Load(), served.Load())
+	}
+	t.Logf("%d requests served during the resets", served.Load())
 }
 
 func TestPHPConcurrent(t *testing.T) {

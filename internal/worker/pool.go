@@ -28,9 +28,11 @@ type Pool struct {
 	jitter func(uint64) uint64 // max_jobs jitter, replaced in tests
 	slots  []*slot
 
-	jobs    chan *job
-	waiting atomic.Int64
-	running atomic.Bool
+	jobs       chan *job
+	waiting    atomic.Int64
+	running    atomic.Bool
+	resetting  atomic.Bool
+	generation atomic.Uint64 // incremented when a reset begins; processes remember theirs
 
 	// The pool's own contexts, created in Start. run ends when Stop begins:
 	// no new jobs, idle workers stop, starts and backoffs are abandoned. procs
@@ -94,6 +96,7 @@ func newPool(cfg Config, logger *slog.Logger, spawn spawnFunc) *Pool {
 			id:     i,
 			info:   Info{Slot: i, State: StateStopped},
 			memory: make(chan struct{}, 1),
+			swap:   make(chan handoff),
 		})
 	}
 	return p
@@ -229,6 +232,83 @@ func (p *Pool) exec(ctx context.Context, req Payload) (Payload, error) {
 	}
 }
 
+// Reset replaces every live worker with a new process, one slot at a time: a
+// rolling restart, for deploys. Each replacement boots while the old worker
+// keeps serving and takes over between two jobs; the old one then stops in
+// the background. So the pool keeps its capacity and runs at most
+// Workers + 1 processes, plus old ones finishing their stop.
+//
+// If a replacement fails to boot, Reset stops there and returns the error:
+// the slots it didn't reach keep their old workers, so a deploy that doesn't
+// boot leaves the pool serving. Slots without a live worker are skipped,
+// since they start new processes anyway. Reset fails with ErrResetRunning
+// while another Reset runs and with ErrStopped once the pool stops.
+func (p *Pool) Reset(ctx context.Context) error {
+	if !p.running.Load() {
+		return ErrStopped
+	}
+	if !p.resetting.CompareAndSwap(false, true) {
+		return ErrResetRunning
+	}
+	defer p.resetting.Store(false)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	defer context.AfterFunc(p.run, cancel)() //nolint:contextcheck // Stop ends the reset too
+
+	gen := p.generation.Add(1)
+	replaced := 0
+	for _, s := range p.slots {
+		if st := s.snapshot().State; st != StateReady && st != StateWorking {
+			continue
+		}
+		h, err := p.boot(ctx)
+		if err == nil {
+			h.gen = gen
+			select {
+			case s.swap <- h:
+				replaced++
+				continue
+			case <-ctx.Done():
+				h.proc.Kill()
+				<-h.proc.Done()
+				h.proc.Close()
+				err = ctx.Err()
+			}
+		}
+		if p.run.Err() != nil {
+			err = ErrStopped
+		}
+		p.logger.Error("reset stopped", "replaced", replaced, "workers", len(p.slots), "err", err)
+		return fmt.Errorf("reset: %d of %d workers replaced, then: %w", replaced, len(p.slots), err)
+	}
+	p.logger.Info("workers reset", "replaced", replaced)
+	return nil
+}
+
+// handoff is a booted process that Reset gives to a slot.
+type handoff struct {
+	proc    process
+	spawned time.Time
+	gen     uint64 // the reset's generation: a process of this one or later is new already
+}
+
+// boot spawns a process and waits for its handshake, within StartTimeout.
+// On failure the process is gone.
+func (p *Pool) boot(ctx context.Context) (handoff, error) {
+	proc, err := p.spawn(p.procs) //nolint:contextcheck // processes live until Stop ends, longer than ctx
+	if err != nil {
+		return handoff{}, err
+	}
+	spawned := time.Now()
+	hctx, cancel := context.WithTimeout(ctx, p.cfg.StartTimeout)
+	defer cancel()
+	if _, err := handshake(hctx, proc, p.logger); err != nil {
+		proc.Close()
+		return handoff{}, err
+	}
+	return handoff{proc: proc, spawned: spawned}, nil
+}
+
 // Waiting returns the number of callers waiting for a free worker.
 func (p *Pool) Waiting() int {
 	return int(p.waiting.Load())
@@ -340,6 +420,9 @@ type slot struct {
 	id     int
 	memory chan struct{} // the supervisor's "over MaxWorkerMemory", capacity 1
 
+	swap chan handoff // processes booted by Reset, taken between jobs
+	gen  uint64       // the generation the current process started in; owned by run
+
 	mu   sync.Mutex
 	proc process // the current process, nil if none
 	info Info
@@ -359,7 +442,14 @@ func (s *slot) run(ctx context.Context, first chan<- error) {
 	}
 	failures := 0
 	for {
-		if s.serve(ctx, proc) {
+		next, failedEarly := s.serve(ctx, proc)
+		if next != nil {
+			// A reset handed over a booted process.
+			s.adopt(next)
+			proc, failures = next.proc, 0
+			continue
+		}
+		if failedEarly {
 			failures++
 		} else {
 			failures = 0
@@ -391,6 +481,7 @@ func (s *slot) run(ctx context.Context, first chan<- error) {
 func (s *slot) start(ctx context.Context) (process, error) {
 	p := s.pool
 	s.update(func(i *Info) { *i = Info{Slot: i.Slot, State: StateStarting} })
+	s.gen = p.generation.Load()
 	proc, err := p.spawn(p.procs) //nolint:contextcheck // processes live until Stop ends, longer than ctx
 	if err != nil {
 		return nil, err
@@ -417,8 +508,9 @@ func (s *slot) start(ctx context.Context) (process, error) {
 }
 
 // serve runs jobs on proc until the process is replaced or the pool stops.
-// It reports whether the process failed early, which calls for a backoff.
-func (s *slot) serve(ctx context.Context, proc process) (failedEarly bool) {
+// It returns a process that a reset handed over, if that is why it ended, or
+// whether the process failed early, which calls for a backoff.
+func (s *slot) serve(ctx context.Context, proc process) (next *handoff, failedEarly bool) {
 	p := s.pool
 	logger := p.logger.With("slot", s.id, "worker_pid", proc.Pid())
 	started := s.snapshot().Started
@@ -438,7 +530,7 @@ func (s *slot) serve(ctx context.Context, proc process) (failedEarly bool) {
 		s.update(func(i *Info) { i.State = StateReady })
 		if ctx.Err() != nil {
 			s.retire(proc, logger, "pool stopped")
-			return false
+			return nil, false
 		}
 		select {
 		case j := <-p.jobs:
@@ -457,35 +549,44 @@ func (s *slot) serve(ctx context.Context, proc process) (failedEarly bool) {
 					reason = ReasonExecTTL
 				}
 				p.obs.Replaced(reason)
-				return succeeded == 0 && time.Since(started) < backoffReset
+				return nil, succeeded == 0 && time.Since(started) < backoffReset
 			}
 			if errors.Is(err, ErrStopRequested) {
 				s.replace(proc, logger, ReasonStopRequested)
-				return false
+				return nil, false
 			}
 			succeeded++
 			if reason := s.limitReached(jobs, limit, started); reason != "" {
 				s.replace(proc, logger, reason)
-				return false
+				return nil, false
 			}
 			idle.reset(p.cfg.IdleTTL)
 		case <-idle.c():
 			s.replace(proc, logger, ReasonIdleTTL)
-			return false
+			return nil, false
 		case <-ttl.c():
 			s.replace(proc, logger, ReasonTTL)
-			return false
+			return nil, false
 		case <-s.memory:
 			s.replace(proc, logger, ReasonMemory)
-			return false
+			return nil, false
 		case <-proc.Done():
 			logger.Warn("worker exited", "err", proc.Err(), "stderr", proc.Stderr())
 			s.release(proc)
 			p.obs.Replaced(ReasonCrash)
-			return succeeded == 0 && time.Since(started) < backoffReset
+			return nil, succeeded == 0 && time.Since(started) < backoffReset
+		case h := <-s.swap:
+			if s.gen >= h.gen {
+				// This process started after the reset began: it is new already.
+				p.stopInBackground(h.proc, logger)
+				continue
+			}
+			p.stopInBackground(proc, logger)
+			p.obs.Replaced(ReasonReset)
+			return &h, false
 		case <-ctx.Done():
 			s.retire(proc, logger, "pool stopped")
-			return false
+			return nil, false
 		}
 	}
 }
@@ -526,6 +627,34 @@ func (s *slot) recordMemory(rss map[int]int64, limit int64, logger *slog.Logger)
 		logger.Info("worker over the memory limit", "slot", s.id, "worker_pid", s.info.Pid, "rss", n, "limit", limit)
 	default: // signaled already
 	}
+}
+
+// adopt makes a process that a reset booted the slot's current one.
+func (s *slot) adopt(h *handoff) {
+	s.gen = h.gen
+	s.mu.Lock()
+	s.proc = h.proc
+	s.info = Info{Slot: s.id, State: StateReady, Pid: h.proc.Pid(), Started: h.spawned}
+	s.mu.Unlock()
+	// A memory signal for the previous process doesn't apply to this one.
+	select {
+	case <-s.memory:
+	default:
+	}
+}
+
+// stopInBackground stops a process that no slot uses any more, gracefully
+// within DestroyTimeout, while the slot goes on with another one. Stop waits
+// for it.
+func (p *Pool) stopInBackground(proc process, logger *slog.Logger) {
+	p.wg.Go(func() {
+		if stopProcess(proc, p.cfg.DestroyTimeout) {
+			logger.Debug("worker stopped", "reason", ReasonReset)
+		} else {
+			logger.Warn("worker did not exit in time, killed", "reason", ReasonReset, "timeout", p.cfg.DestroyTimeout)
+		}
+		proc.Close()
+	})
 }
 
 // replace retires proc for reason and tells the observer.

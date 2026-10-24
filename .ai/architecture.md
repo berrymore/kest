@@ -176,6 +176,7 @@ type Cluster interface {
 var Types = registry.NewCategory[Cluster]("cluster")
 // Optional: Prober { Serving() bool }; /ready fails while a cluster can't serve (php_workers: no live worker).
 // Optional: Reporter { Report() any }; its JSON is the cluster's status in /clusters.
+// Optional: Resetter { Reset(ctx) error }; POST /clusters/{name}/reset and SIGHUP (ErrResetRunning).
 ```
 
 Worker pool and relay 🟢 (M1; used by the `php_workers` cluster from M2):
@@ -195,6 +196,7 @@ func (p *Pool) Exec(ctx context.Context, req Payload) (Payload, error)
 func (p *Pool) Workers() []Info                   // per slot: state, pid, jobs, started, memory
 func (p *Pool) Health() Health                    // healthy / degraded / unhealthy
 func (p *Pool) Waiting() int                      // callers waiting for a free worker
+func (p *Pool) Reset(ctx context.Context) error   // rolling replacement, one slot at a time; ErrResetRunning
 // Config.Observer (optional) hears Waited(d), Rejected(reason) and Replaced(reason); reasons are metric labels.
 // Errors: ErrQueueFull, ErrNoWorker, ErrStopped, ErrStopRequested, *JobError (soft, worker kept),
 // *ProcessError (worker gone; wraps ErrExecTimeout or ErrStartTimeout on timeouts, *StdoutError
@@ -258,6 +260,7 @@ Stopped ──▶ Starting ──▶ Ready ⇄ Working ──▶ Stopping ──
 | Working | crash, protocol error, `exec_ttl` exceeded | killed, then Backoff or Starting |
 | Stopping | process exited after the stop frame, or SIGKILL after `destroy_timeout` | Starting (or done if the pool stops) |
 | Backoff | 100 ms … 30 s elapsed (exponential, jitter) | Starting |
+| Ready | `Pool.Reset` hands over a booted process | Ready with the new process; the old one stops in the background |
 
 - A worker is never recycled mid-request, except on `exec_ttl` or a crash: that request fails.
 - A caller that gives up (client gone, route timeout) doesn't kill the worker: the job finishes within
@@ -296,7 +299,11 @@ Stopped ──▶ Starting ──▶ Ready ⇄ Working ──▶ Stopping ──
 
 **Reload**
 
-- M3: worker reset (rolling restart) via admin `POST /clusters/{name}/reset` or SIGHUP; config unchanged.
+- M3 🟢: worker reset (rolling restart) via admin `POST /clusters/{name}/reset` (`cluster.Resetter`) or SIGHUP
+  (`Server.ResetOn`; resets run until shutdown begins); config unchanged. `worker.Pool.Reset` boots each
+  replacement while the old worker serves, hands it to the slot between jobs (`slot.swap`), and stops the old one in
+  the background: capacity stays, at most `workers + 1` processes. A replacement that doesn't boot stops the reset;
+  a slot whose process started after the reset began (a newer generation) drops the offered one.
 - M6: full config reload: diff the old and new graphs and restart only the components that changed.
 
 ## 7. Package layout
@@ -347,7 +354,7 @@ test/docs/                   🟢 docs drift checks against the code and the Mak
 | `GET /server_info` | version, uptime, config path | 🟢 M0 |
 | `GET /config_dump` | effective config, defaults applied, secrets redacted | M3 |
 | `GET /clusters` | clusters, pools, workers (pid, state, jobs, memory, age), from `cluster.Reporter` | 🟢 M3 |
-| `POST /clusters/{name}/reset` | rolling restart of a pool | M3 |
+| `POST /clusters/{name}/reset` | rolling restart of a pool; returns when done | 🟢 M3 |
 | `GET /metrics` | Prometheus text format (`docs/metrics.md`) | 🟢 M3 |
 
 ## 9. WASM sandbox (M5) ⚪

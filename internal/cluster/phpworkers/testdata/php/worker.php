@@ -11,10 +11,19 @@
 //   /error          a soft error ($worker->error())
 //   /exit           the process exits mid-request
 //   /fatal          a PHP fatal error
+//
+// If the file named by KEST_TEST_BOOT_MARKER exists, the worker fails to boot,
+// like a deploy of code that doesn't start.
 
 declare(strict_types=1);
 
 require __DIR__ . '/vendor/autoload.php';
+
+$marker = getenv('KEST_TEST_BOOT_MARKER');
+if ($marker !== false && file_exists($marker)) {
+    fwrite(STDERR, "boot refused: $marker exists\n");
+    exit(1);
+}
 
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Nyholm\Psr7\Response;

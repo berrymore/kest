@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
+	"github.com/berrymore/kest/internal/admin"
 	"github.com/berrymore/kest/internal/cluster"
 	"github.com/berrymore/kest/internal/config"
 	"github.com/berrymore/kest/internal/leaktest"
@@ -27,7 +30,8 @@ type gateCluster struct {
 	entered  chan struct{}
 	started  atomic.Bool
 	stopped  atomic.Bool
-	down     atomic.Bool // Serving reports false
+	down     atomic.Bool  // Serving reports false
+	resets   atomic.Int32 // Reset calls
 	startErr error
 }
 
@@ -65,6 +69,11 @@ func (g *gateCluster) Stop(context.Context) error {
 }
 
 func (g *gateCluster) Serving() bool { return !g.down.Load() }
+
+func (g *gateCluster) Reset(context.Context) error {
+	g.resets.Add(1)
+	return nil
+}
 
 func (g *gateCluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	g.entered <- struct{}{}
@@ -348,4 +357,28 @@ func TestClusters(t *testing.T) {
 		!*got[0].Serving || got[0].Status != nil {
 		t.Errorf("Clusters() = %+v", got)
 	}
+}
+
+func TestResetCluster(t *testing.T) {
+	s := newServer(t, "")
+	if err := s.ResetCluster(t.Context(), "gate"); !errors.Is(err, admin.ErrNotReady) {
+		t.Errorf("ResetCluster before Run = %v, want %v", err, admin.ErrNotReady)
+	}
+	hup := make(chan os.Signal, 1)
+	s.ResetOn(hup)
+	cancel, done := run(t, s)
+	defer func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Errorf("Run: %v", err)
+		}
+	}()
+	if err := s.ResetCluster(t.Context(), "nope"); !errors.Is(err, admin.ErrUnknownCluster) {
+		t.Errorf("ResetCluster(nope) = %v, want %v", err, admin.ErrUnknownCluster)
+	}
+	if err := s.ResetCluster(t.Context(), "gate"); err != nil || gates["gate"].resets.Load() != 1 {
+		t.Errorf("ResetCluster(gate) = %v, %d resets", err, gates["gate"].resets.Load())
+	}
+	hup <- syscall.SIGHUP
+	waitFor(t, func() bool { return gates["gate"].resets.Load() == 2 })
 }

@@ -1,16 +1,19 @@
 // Package admin implements the admin HTTP API, modeled on Envoy's admin
-// interface: readiness, server information, cluster state, metrics and,
-// later, config dumps.
+// interface: readiness, server information, cluster state and resets,
+// metrics and, later, config dumps.
 package admin
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/berrymore/kest/internal/buildinfo"
+	"github.com/berrymore/kest/internal/cluster"
 	"github.com/berrymore/kest/internal/metrics"
 )
 
@@ -34,8 +37,19 @@ type Source interface {
 	NotServing() []string
 	// Clusters describes every cluster, in config order.
 	Clusters() []ClusterInfo
+	// ResetCluster replaces a cluster's workers (cluster.Resetter): nil once
+	// done, ErrUnknownCluster, ErrCantReset, ErrNotReady,
+	// cluster.ErrResetRunning, or why the reset stopped.
+	ResetCluster(ctx context.Context, name string) error
 	Metrics() *metrics.Registry
 }
+
+// Errors of Source.ResetCluster.
+var (
+	ErrUnknownCluster = errors.New("no such cluster")
+	ErrCantReset      = errors.New("this type of cluster can't reset its workers")
+	ErrNotReady       = errors.New("the server is not ready")
+)
 
 // ClusterInfo describes a cluster for /clusters.
 type ClusterInfo struct {
@@ -51,6 +65,7 @@ var endpoints = []struct {
 	{"GET /ready", "200 when serving traffic; 503 while starting, draining, or a cluster has no live worker"},
 	{"GET /server_info", "version, state, uptime and config file (JSON)"},
 	{"GET /clusters", "every cluster with its state and workers (JSON)"},
+	{"POST /clusters/{name}/reset", "replace a cluster's workers one by one; returns when done"},
 	{"GET /metrics", "metrics in the Prometheus text format"},
 }
 
@@ -83,6 +98,31 @@ func NewHandler(src Source) http.Handler {
 		writeJSON(w, struct {
 			Clusters []ClusterInfo `json:"clusters"`
 		}{src.Clusters()})
+	})
+	mux.HandleFunc("POST /clusters/{name}/reset", func(w http.ResponseWriter, r *http.Request) {
+		// A client that gives up doesn't stop the reset half-way.
+		err := src.ResetCluster(context.WithoutCancel(r.Context()), r.PathValue("name"))
+		status := http.StatusOK
+		switch {
+		case err == nil:
+		case errors.Is(err, ErrUnknownCluster):
+			status = http.StatusNotFound
+		case errors.Is(err, ErrCantReset):
+			status = http.StatusNotImplemented
+		case errors.Is(err, cluster.ErrResetRunning):
+			status = http.StatusConflict
+		case errors.Is(err, ErrNotReady):
+			status = http.StatusServiceUnavailable
+		default:
+			status = http.StatusInternalServerError
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(status)
+		if err != nil {
+			fmt.Fprintln(w, err)
+			return
+		}
+		fmt.Fprintln(w, "reset done")
 	})
 	mux.Handle("GET /metrics", src.Metrics().Handler())
 	mux.HandleFunc("GET /server_info", func(w http.ResponseWriter, _ *http.Request) {

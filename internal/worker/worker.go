@@ -34,6 +34,8 @@ var (
 	ErrExecTimeout = errors.New("worker did not answer in time")
 	// ErrStartTimeout means a new worker didn't finish the handshake within StartTimeout.
 	ErrStartTimeout = errors.New("worker did not finish the handshake in time")
+	// ErrResetRunning means a Reset was called while another one runs.
+	ErrResetRunning = errors.New("a reset of the workers is already running")
 	// ErrStopRequested means the worker asked to be replaced instead of answering.
 	// The pool retries the job once on another worker.
 	ErrStopRequested = errors.New("worker asked to be replaced instead of answering")

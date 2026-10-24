@@ -4,8 +4,8 @@ An Envoy-inspired application server for PHP (and, later, WebAssembly), written 
 
 > **Status: experimental.** Milestones M0–M2 are done: kest serves PHP applications through pools of
 > unmodified RoadRunner PSR-7 workers (`roadrunner/http`), behind strictly validated Envoy-style routing,
-> with graceful shutdown. A Symfony app runs on it unchanged. Operability (metrics, rolling restarts,
-> access logs) is next. The goal is production quality; the plan is in [`.ai/roadmap.md`](.ai/roadmap.md).
+> with graceful shutdown. A Symfony app runs on it unchanged. M3 (operability) is in progress: metrics,
+> `/clusters` and rolling restarts without failed requests exist; access logs and limits are next. The goal is production quality; the plan is in [`.ai/roadmap.md`](.ai/roadmap.md).
 
 ## Why
 

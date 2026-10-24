@@ -43,7 +43,7 @@ For each `php_workers` cluster:
 | `kest_pool_queue_length` | gauge | `cluster` | Requests waiting for a free worker. |
 | `kest_pool_wait_seconds` | histogram | `cluster` | How long requests waited for a free worker. |
 | `kest_pool_rejected_total` | counter | `cluster`, `reason` | Requests that got no worker and were answered `503`: `queue_full` (`pool.max_queue_size` requests were waiting already) or `no_worker` (none became free within `pool.allocate_timeout`). |
-| `kest_pool_worker_restarts_total` | counter | `cluster`, `reason` | Workers replaced: `max_jobs`, `ttl`, `idle_ttl`, `memory` (over `supervisor.max_worker_memory`), `exec_ttl` (killed in a request that ran too long), `crash` (exited or broke the protocol), `stop_requested` (the worker asked for it), `start_failed` (a new worker didn't boot). |
+| `kest_pool_worker_restarts_total` | counter | `cluster`, `reason` | Workers replaced: `max_jobs`, `ttl`, `idle_ttl`, `memory` (over `supervisor.max_worker_memory`), `exec_ttl` (killed in a request that ran too long), `crash` (exited or broke the protocol), `stop_requested` (the worker asked for it), `start_failed` (a new worker didn't boot), `reset` (a rolling reset). |
 | `kest_pool_worker_memory_bytes` | gauge | `cluster`, `slot` | Each worker's resident memory, as last sampled. Sampled only when `supervisor.max_worker_memory` is set, every `supervisor.watch_tick`. |
 
 ## Go runtime and process

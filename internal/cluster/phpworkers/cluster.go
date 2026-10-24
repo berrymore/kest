@@ -45,6 +45,7 @@ type pool interface {
 	Health() worker.Health
 	Workers() []worker.Info
 	Waiting() int
+	Reset(ctx context.Context) error
 }
 
 // Cluster serves HTTP requests with a pool of PHP workers.
@@ -81,7 +82,22 @@ func newCluster(cfg *Config, configDir string, p pool, logger *slog.Logger) *Clu
 
 // Start starts the workers and returns once every one of them has booted.
 func (c *Cluster) Start(ctx context.Context) error {
-	err := c.pool.Start(ctx)
+	return withHint(c.pool.Start(ctx))
+}
+
+// Reset implements cluster.Resetter with a rolling replacement of the workers
+// (worker.Pool.Reset): a replacement that doesn't boot stops it, and the
+// workers it didn't reach keep serving.
+func (c *Cluster) Reset(ctx context.Context) error {
+	err := c.pool.Reset(ctx)
+	if errors.Is(err, worker.ErrResetRunning) {
+		return cluster.ErrResetRunning
+	}
+	return withHint(err)
+}
+
+// withHint adds stdoutHint to an error caused by a worker printing to stdout.
+func withHint(err error) error {
 	if _, ok := errors.AsType[*worker.StdoutError](err); ok {
 		return fmt.Errorf("%w; %s", err, stdoutHint)
 	}

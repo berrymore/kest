@@ -110,6 +110,7 @@ Endpoints:
 | `GET /ready` | `200 ready` while serving traffic; `503 starting` / `503 draining` otherwise, and `503 not serving: <clusters>` while a cluster has no live worker (a pool whose workers are only being replaced still counts as serving) |
 | `GET /server_info` | JSON: version, commit, Go version, state, start time, uptime, config file |
 | `GET /clusters` | JSON: every cluster with its `name`, `type`, whether it is `serving`, and its `status`; for `php_workers` the pool's `health` (`healthy`, `degraded`, `unhealthy`), `queue_length`, and each worker's `slot`, `state`, `pid`, `jobs`, `started_at`, `age_seconds` and `memory_bytes` (when sampled) |
+| `POST /clusters/{name}/reset` | Replace the cluster's workers one by one (a rolling restart, to deploy new code), and answer when done: `200 reset done`; `404` for an unknown cluster, `409` while a reset runs, `501` for a cluster type that can't, `503` while starting or draining, `500` with the reason when a new worker failed to boot (the reset stops there; the workers it didn't reach keep serving). A client that disconnects doesn't stop the reset. |
 | `GET /metrics` | Metrics in the Prometheus text format; see [Metrics](metrics.md) |
 
 The admin API has no authentication. Keep it on a loopback or private address.
@@ -121,7 +122,9 @@ The admin API has no authentication. Keep it on a loopback or private address.
 | `drain_timeout` | `15s` | After SIGINT/SIGTERM, how long in-flight requests may take to finish before their connections are closed. The same budget then applies to stopping clusters. `0s` closes immediately. |
 
 Shutdown order: `/ready` switches to `503 draining`; listeners stop accepting and drain; clusters stop;
-the admin server stops last. A second SIGINT/SIGTERM terminates the process immediately.
+the admin server stops last. A second SIGINT/SIGTERM terminates the process immediately. SIGHUP resets
+the workers of every cluster, like `POST /clusters/{name}/reset`, and logs the outcome; the configuration is
+not reloaded.
 
 ## `listeners`
 
@@ -278,7 +281,9 @@ finishes the request (within `exec_ttl`) with nobody waiting for it.
 
 **Startup and shutdown.** kest starts every worker before it opens the listeners, and fails to start
 if one of them can't boot (the error shows the worker's exit status and the end of its stderr).
-Workers that crash later are replaced, with a growing delay (up to 30s) if they keep failing. On
+Workers that crash later are replaced, with a growing delay (up to 30s) if they keep failing. A rolling
+reset (`POST /clusters/{name}/reset`, SIGHUP) boots each replacement while the old worker keeps serving, so the
+pool keeps its capacity and runs one extra process at a time. On
 shutdown, running requests finish first. Worker stderr is logged line by line with `cluster` and
 `worker_pid`. Anything a worker prints to stdout before `Worker::create()` (for example a PHP warning
 during boot, since PHP's CLI prints errors to stdout) breaks the protocol: the worker fails to start,

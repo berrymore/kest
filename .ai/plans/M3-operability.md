@@ -98,7 +98,7 @@ The first steps are the vertical slice: real metrics from a PHP app at `/metrics
 2. [x] **`/metrics` and `/ready`** (K-062) — `GET /metrics` on the admin server, `/ready` per D3. Acceptance: e2e
    with `examples/php-hello`: the counters and histograms move as requests are sent.
 3. [x] **`/clusters`** (K-074) — acceptance: e2e shows every worker of `php-hello` with pid, state and jobs.
-4. [ ] **Rolling reset** (K-063) — `Pool.Reset`, `POST /clusters/{name}/reset`, SIGHUP. Acceptance: a PHP e2e test
+4. [x] **Rolling reset** (K-063) — `Pool.Reset`, `POST /clusters/{name}/reset`, SIGHUP. Acceptance: a PHP e2e test
    resets under load (all workers busy) with zero failed requests; a reset to a worker that fails to boot leaves
    the old ones serving; `kest_pool_worker_restarts_total{reason="reset"}` counts it.
 5. [ ] **Filters** (K-064) — `request_id`, `access_log`, `recovery` in `internal/filters/<name>/`, documented in
@@ -124,6 +124,11 @@ The first steps are the vertical slice: real metrics from a PHP app at `/metrics
 
 ## Log
 
+- 2026-10-25 — Step 4 (K-063) done, with the surge of D4. A slot takes a handed-over process only between jobs; a
+  slot whose process started after the reset began (generation counter, not timestamps) drops it. Under load,
+  `max_jobs` replacements make some reset handovers unnecessary, so the reset count can be below the worker count.
+  `POST /clusters/{name}/reset` blocks until done and ignores a client that disconnects.
+- 2026-10-25 — Step 3 (K-074) done.
 - 2026-10-25 — Step 2 (K-062) done: the e2e tests read `/metrics` from `examples/hello` and `examples/php-hello`.
 - 2026-10-25 — Step 1 (K-061) done. Deviations: restarts also count `start_failed`; `kest_pool_rejected_total`
   and `kest_pool_wait_seconds` as planned; `process_resident_memory_bytes` exists on Linux only (macOS needs cgo);

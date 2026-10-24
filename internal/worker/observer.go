@@ -36,12 +36,13 @@ const (
 	ReasonCrash         Reason = "crash"          // exited, or broke the protocol
 	ReasonStopRequested Reason = "stop_requested" // the worker asked to be replaced
 	ReasonStartFailed   Reason = "start_failed"   // a new process didn't finish the handshake
+	ReasonReset         Reason = "reset"          // Pool.Reset replaced it
 )
 
 // ReplaceReasons lists every reason for Observer.Replaced, for metrics that
 // show all of them from the start.
 var ReplaceReasons = []Reason{ReasonMaxJobs, ReasonTTL, ReasonIdleTTL, ReasonMemory, ReasonExecTTL, ReasonCrash,
-	ReasonStopRequested, ReasonStartFailed}
+	ReasonStopRequested, ReasonStartFailed, ReasonReset}
 
 // nopObserver is the Observer of a pool without one.
 type nopObserver struct{}

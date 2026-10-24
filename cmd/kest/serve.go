@@ -32,6 +32,11 @@ func runServe(args []string, _, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	context.AfterFunc(ctx, stop)
+	// SIGHUP replaces the workers of every cluster, one by one.
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+	defer signal.Stop(hup)
+	srv.ResetOn(hup)
 
 	if err := srv.Run(ctx); err != nil {
 		fmt.Fprintf(stderr, "kest: %v\n", err)

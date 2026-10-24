@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -53,6 +54,7 @@ type Server struct {
 	state  atomic.Value // admin.State
 	ready  chan struct{}
 	failed chan error
+	resets <-chan os.Signal // each signal resets every cluster; nil: none
 }
 
 // New builds the server graph from a validated configuration. Extension
@@ -144,13 +146,26 @@ func (s *Server) Run(ctx context.Context) error {
 	close(s.ready)
 	s.logger.Info("kest is ready", "admin", s.admin.Addr().String(), "listeners", len(s.listeners))
 
+	// Resets run until shutdown begins; the pools stop them at once then.
+	resetCtx, cancelResets := context.WithCancel(context.WithoutCancel(ctx))
+	var resets sync.WaitGroup
 	var runErr error
-	select {
-	case <-ctx.Done():
-		s.logger.Info("shutting down", "drain_timeout", s.drainTimeout().String())
-	case runErr = <-s.failed:
-		s.logger.Error("shutting down after a fatal error", "err", runErr)
+loop:
+	for {
+		select {
+		case <-ctx.Done():
+			s.logger.Info("shutting down", "drain_timeout", s.drainTimeout().String())
+			break loop
+		case runErr = <-s.failed:
+			s.logger.Error("shutting down after a fatal error", "err", runErr)
+			break loop
+		case sig := <-s.resets:
+			s.logger.Info("resetting the workers", "signal", sig.String())
+			resets.Go(func() { s.resetAll(resetCtx) })
+		}
 	}
+	cancelResets()
+	resets.Wait()
 
 	stopErr := s.shutdown(ctx, started)
 	if stopErr == nil {
@@ -188,6 +203,44 @@ func (s *Server) NotServing() []string {
 		}
 	}
 	return down
+}
+
+// ResetOn makes Run reset every cluster's workers on each value from c
+// (SIGHUP). Call it before Run.
+func (s *Server) ResetOn(c <-chan os.Signal) {
+	s.resets = c
+}
+
+// ResetCluster implements admin.Source.
+func (s *Server) ResetCluster(ctx context.Context, name string) error {
+	if s.State() != admin.StateReady {
+		return admin.ErrNotReady
+	}
+	for _, c := range s.clusters {
+		if c.name != name {
+			continue
+		}
+		r, ok := c.lifecycle.(cluster.Resetter)
+		if !ok {
+			return admin.ErrCantReset
+		}
+		return r.Reset(ctx)
+	}
+	return admin.ErrUnknownCluster
+}
+
+// resetAll resets every cluster that can, one after the other, and logs the
+// outcome; the pools log their own progress.
+func (s *Server) resetAll(ctx context.Context) {
+	for _, c := range s.clusters {
+		r, ok := c.lifecycle.(cluster.Resetter)
+		if !ok {
+			continue
+		}
+		if err := r.Reset(ctx); err != nil {
+			s.logger.Error("reset failed", "cluster", c.name, "err", err)
+		}
+	}
 }
 
 // Clusters implements admin.Source.

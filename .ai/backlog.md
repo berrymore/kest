@@ -83,7 +83,9 @@ Milestone definitions: `roadmap.md`.
   recycled (max_jobs, ttl).
   Done: `GET /metrics`; `/ready` answers `503 not serving: <clusters>` through the optional `cluster.Prober`;
   `docs/metrics.md`.
-- [ ] K-063 Rolling reset without failed requests (admin and SIGHUP).
+- [x] K-063 Rolling reset without failed requests (admin and SIGHUP). `Pool.Reset` with a surge (D4); the e2e
+  test serves ~13 000 requests from 16 clients during an admin reset and a SIGHUP reset of `php-hello` with none
+  failed; a reset to code that doesn't boot stops and leaves the old workers serving.
 - [ ] K-064 Filters: `access_log`, `request_id`, `recovery`.
 - [ ] K-065 Per-route timeouts; max header and body sizes; slow-client protection (server timeouts).
 - [ ] K-066 Benchmarks against RoadRunner; report in `docs/benchmarks.md`.

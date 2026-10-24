@@ -1,13 +1,16 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/berrymore/kest/internal/cluster"
 	"github.com/berrymore/kest/internal/metrics"
 )
 
@@ -15,6 +18,8 @@ type fakeSource struct {
 	state      State
 	notServing []string
 	clusters   []ClusterInfo
+	resetErr   error
+	reset      string // the cluster ResetCluster was called for
 	metrics    *metrics.Registry
 }
 
@@ -23,6 +28,14 @@ func (f *fakeSource) StartedAt() time.Time    { return time.Now().Add(-90 * time
 func (f *fakeSource) ConfigFile() string      { return "/etc/kest/kest.yaml" }
 func (f *fakeSource) NotServing() []string    { return f.notServing }
 func (f *fakeSource) Clusters() []ClusterInfo { return f.clusters }
+
+func (f *fakeSource) ResetCluster(ctx context.Context, name string) error {
+	if ctx.Done() != nil {
+		return errors.New("the reset's context can be canceled")
+	}
+	f.reset = name
+	return f.resetErr
+}
 
 func (f *fakeSource) Metrics() *metrics.Registry {
 	if f.metrics == nil {
@@ -95,6 +108,32 @@ func TestClusters(t *testing.T) {
 `
 	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "application/json" || rec.Body.String() != want {
 		t.Errorf("GET /clusters = %d %q\n%s", rec.Code, rec.Header().Get("Content-Type"), rec.Body.String())
+	}
+}
+
+func TestResetCluster(t *testing.T) {
+	for _, tt := range []struct {
+		err  error
+		code int
+		body string
+	}{
+		{nil, http.StatusOK, "reset done\n"},
+		{ErrUnknownCluster, http.StatusNotFound, "no such cluster\n"},
+		{ErrCantReset, http.StatusNotImplemented, ErrCantReset.Error() + "\n"},
+		{cluster.ErrResetRunning, http.StatusConflict, "a reset is already running\n"},
+		{ErrNotReady, http.StatusServiceUnavailable, "the server is not ready\n"},
+		{errors.New("reset: 1 of 4 workers replaced, then: boot failed"), http.StatusInternalServerError,
+			"reset: 1 of 4 workers replaced, then: boot failed\n"},
+	} {
+		src := &fakeSource{resetErr: tt.err}
+		rec := serve(t, NewHandler(src), http.MethodPost, "/clusters/app/reset")
+		if rec.Code != tt.code || rec.Body.String() != tt.body || src.reset != "app" {
+			t.Errorf("reset with %v = %d %q (cluster %q), want %d %q", tt.err, rec.Code, rec.Body.String(), src.reset,
+				tt.code, tt.body)
+		}
+	}
+	if rec := serve(t, NewHandler(&fakeSource{}), http.MethodGet, "/clusters/app/reset"); rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("GET .../reset = %d, want 405", rec.Code)
 	}
 }
 
