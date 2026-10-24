@@ -136,7 +136,7 @@ plugin v6.0.0 and `roadrunner/http` 4.2.1, and by experiment). Layering: `cluste
    real binary. Acceptance: `curl` works; e2e green. **The vertical slice is done here.**
 6. [x] **Uploads** (K-043) — temp files, `uploads.dir`/`forbid`/`allow`, error codes, cleanup (also on timeouts and
    errors). Acceptance: PHP integration test uploads files and reads them back; no temp file is left.
-7. [ ] **Framework smoke test** (K-046) — Symfony skeleton with `runtime/roadrunner-symfony-nyholm`, e2e test.
+7. [x] **Framework smoke test** (K-046) — Symfony skeleton with `runtime/roadrunner-symfony-nyholm`, e2e test.
 8. [ ] **Docker PHP matrix** (K-047) — `make test-matrix`: PHP 8.3 / 8.4 / 8.5 images with composer, running the
    integration and PHP e2e tests on Linux.
 9. [ ] **Docs** (K-048) — `docs/getting-started.md`; `docs/config.md` for `php_workers`; README; architecture,

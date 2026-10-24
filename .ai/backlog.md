@@ -61,7 +61,8 @@ Milestone definitions: `roadmap.md`.
   `rrhttp.DecodeResponse` (JSON and protobuf), `WriteResponse` (framing, header hygiene, trailers), `ErrorStatus`.
 - [x] K-045 `examples/php-hello`: composer.json + PSR-7 worker + kest.yaml. E2e test with the real binary
   (`-tags e2e,integration`, run by `make test-integration`).
-- [ ] K-046 Framework smoke test (Symfony RoadRunner runtime or Laravel Octane RR worker).
+- [x] K-046 Framework smoke test (Symfony RoadRunner runtime or Laravel Octane RR worker). Symfony 7.4 on
+  `runtime/roadrunner-symfony-nyholm` 1.0.0 (`spiral/roadrunner-http` 3.6), both codecs: `test/e2e/symfony_test.go`.
 - [ ] K-047 Docker e2e environment with a PHP version matrix (8.3 / 8.4 / 8.5), runnable locally
   (`make e2e-matrix`); reused by CI later.
 - [ ] K-048 Getting-started guide in `docs/`.
