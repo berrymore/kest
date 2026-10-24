@@ -1,5 +1,6 @@
 GOLANGCI_LINT_VERSION := 2.15.0
 GO_IMAGE              := golang:1.27
+PHP_VERSIONS          := 8.3 8.4 8.5
 PHP_PROJECTS          := internal/worker/testdata/php internal/cluster/phpworkers/testdata/php examples/php-hello \
                          test/e2e/testdata/symfony
 
@@ -35,6 +36,15 @@ test-integration: php-deps ## Run unit, integration and PHP end-to-end tests (ne
 php-deps: ## Install the composer packages of the PHP test projects and examples
 	@for d in $(PHP_PROJECTS); do \
 		composer install --no-interaction --no-progress --working-dir=$$d || exit 1; \
+	done
+
+.PHONY: test-matrix
+test-matrix: ## Run the PHP tests on Linux with PHP 8.3, 8.4 and 8.5 (needs Docker)
+	@for v in $(PHP_VERSIONS); do \
+		echo "== PHP $$v"; \
+		docker build -q -t kest-test-php:$$v --build-arg PHP_VERSION=$$v --build-arg GO_IMAGE=$(GO_IMAGE) \
+			test/docker >/dev/null || exit 1; \
+		docker run --rm --init -v "$(CURDIR)":/src:ro kest-test-php:$$v || exit 1; \
 	done
 
 .PHONY: test-linux
