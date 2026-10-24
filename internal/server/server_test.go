@@ -13,6 +13,7 @@ import (
 
 	"github.com/berrymore/kest/internal/cluster"
 	"github.com/berrymore/kest/internal/config"
+	"github.com/berrymore/kest/internal/leaktest"
 	"github.com/berrymore/kest/internal/logging"
 	"github.com/berrymore/kest/internal/registry"
 	"github.com/berrymore/kest/internal/server"
@@ -33,6 +34,8 @@ type gateConfig struct {
 }
 
 var gates = map[string]*gateCluster{}
+
+func TestMain(m *testing.M) { leaktest.VerifyTestMain(m) }
 
 func init() {
 	cluster.Types.Register(registry.Factory[cluster.Cluster]{

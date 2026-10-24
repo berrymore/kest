@@ -34,6 +34,9 @@ Vision, goals, non-goals and glossary: `.ai/context.md`.
 
 Docs that drift from the code are worse than no docs. Keep them true, short and current.
 
+The user may run `/clear` at any point after a handoff. `.ai/status.md` → **Next up** must always let a
+fresh session continue without the chat history: concrete first step, files to read, open decisions.
+
 ## Commands
 
 Keep this table in sync with the Makefile (`make help` lists every target).
@@ -71,6 +74,7 @@ internal/cluster/    cluster interface and registry category
 internal/admin/      admin API
 internal/logging/    slog setup
 internal/buildinfo/  version information
+internal/leaktest/   goroutine-leak check for tests (TestMain)
 examples/            runnable configs
 docs/                user documentation (config reference)
 test/e2e/            end-to-end tests against the real binary

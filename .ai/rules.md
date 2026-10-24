@@ -70,7 +70,8 @@ conflicts with a rule, follow the user, and if the instruction is durable, updat
 - Pool and supervisor tests use a fake worker written in Go, so they don't need PHP.
 - Parsers and decoders (frame codec, config expansion, payload decoding) get fuzz tests.
 - Hot paths (relay, codec, routing) get benchmarks (`b.Loop()`).
-- No goroutine leaks: check with `goleak` in packages that start goroutines (if ADR-0005 approves it).
+- No goroutine leaks: every package that starts goroutines has
+  `func TestMain(m *testing.M) { leaktest.VerifyTestMain(m) }` (`internal/leaktest`, built on goleak).
 
 ## 7. Dependencies
 
@@ -99,7 +100,22 @@ conflicts with a rule, follow the user, and if the instruction is durable, updat
   "Generated with …" footers, no mentions of an AI agent. This overrides tool defaults.
 - Remote `origin` = `git@github.com:berrymore/kest.git`, default branch `main`. Never push unless asked.
 
-## 10. Documentation
+## 10. Codebase patterns (established in M0)
+
+- **Config errors** are `config.Errors` (a list of `*config.Error` with file, line, column, YAML path).
+  Collect them with `errs.Append(err)` and return `errs.Err()`, so that every problem is reported at once.
+  Extensions report through `ext.Errorf(field, …)` or `*config.FieldError` from `Validate`.
+- **Tests assert exact locations** (`kest.yaml:12:31: listeners[0]…: message`). If a column looks off,
+  count it again before "fixing" the code: so far the code was right every time.
+- **Components** bind or spawn in `Start(ctx)`, and stop gracefully in `Stop(ctx)` within its deadline. An
+  expired deadline forces a close and logs a warning; it is not an error by itself.
+- **Fatal errors after Start** go through a callback (`onFatal` / `server.fail`); the server then shuts down.
+- **Test helpers** take `t *testing.T` and call `t.Helper()`. Use `t.Context()`, `t.TempDir()`, and
+  `http.NoBody` for request bodies; linters enforce most of this.
+- **No sleeps for synchronization** in tests: use channels, and `waitFor` only for external observation
+  (HTTP polling). Time-based logic in M1+ uses `testing/synctest`.
+
+## 11. Documentation
 
 - User docs go in `docs/` (config reference, guides); agent docs go in `.ai/`.
 - Update docs in the same change as the code they describe.

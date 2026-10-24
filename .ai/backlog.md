@@ -25,8 +25,8 @@ Milestone definitions: `roadmap.md`.
 - [x] K-014 License file: MIT (2026-10-24).
 - [x] K-015 `make check`: build + vet + lint + `test -race` + e2e in one target; the local stand-in for CI.
 - [ ] K-016 Upgrade `go.yaml.in/yaml/v4` from rc.6 to v4.0.0 GA once released; rerun config tests.
-- [ ] K-017 Goroutine leak checks in tests: approve `go.uber.org/goleak` (ADR-0005) or write a small helper.
-  Needed before M1, when the pool starts many goroutines.
+- [x] K-017 Goroutine leak checks in tests: `internal/leaktest` on top of `go.uber.org/goleak`, used by
+  `listener` and `server` tests.
 
 ## M1 — Worker pool and relay
 

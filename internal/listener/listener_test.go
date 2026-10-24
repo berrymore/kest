@@ -8,8 +8,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/berrymore/kest/internal/leaktest"
 	"github.com/berrymore/kest/internal/logging"
 )
+
+func TestMain(m *testing.M) { leaktest.VerifyTestMain(m) }
 
 func start(t *testing.T, h http.Handler) *HTTP {
 	t.Helper()

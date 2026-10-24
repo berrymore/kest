@@ -1,6 +1,6 @@
 # ADR-0004: Compile-time extension registry with explicit lifecycle
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-10-24)
 - **Date:** 2026-10-24
 - **Deciders:** user, agent
 

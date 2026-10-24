@@ -1,6 +1,6 @@
 # ADR-0003: Run PHP in external worker processes speaking the RoadRunner protocol
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-10-24)
 - **Date:** 2026-10-24
 - **Deciders:** user, agent
 

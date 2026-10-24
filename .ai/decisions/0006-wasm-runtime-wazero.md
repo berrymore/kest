@@ -1,6 +1,6 @@
 # ADR-0006: Use wazero as the WASM runtime
 
-- **Status:** Proposed (decision needed before M5)
+- **Status:** Accepted (2026-10-24); re-verify the ❓ wazero facts when M5 starts
 - **Date:** 2026-10-24
 - **Deciders:** user, agent
 

@@ -57,7 +57,7 @@ kest is a single Go binary. At startup it reads one YAML file and builds a graph
 
 ## 3. Configuration model 🟢
 
-Decided in ADR-0002 (Proposed). Full example; fields marked in `docs/config.md` as existing are
+Decided in ADR-0002. Full example; fields marked in `docs/config.md` as existing are
 implemented, the rest (filters, `php_workers`) are planned:
 
 ```yaml
@@ -207,6 +207,20 @@ cmd/kest ─▶ server ─▶ config, registry
 
 `worker` and `relay` know nothing about HTTP; `cluster/phpworkers` maps HTTP to payloads.
 
+### Adding an extension (cluster type or HTTP filter)
+
+1. A package per extension: `internal/cluster/<name>/` or `internal/filters/<name>/`.
+2. A config struct with snake_case `yaml` tags. `NewConfig` returns a pointer pre-filled with defaults.
+   For field-level problems, `Validate() error` returns `*config.FieldError{Field, Msg}` values (joined with
+   `errors.Join`); they come out located, as in `clusters[0].config.pool.workers: must be positive`.
+3. Register in `init()`: `cluster.Types.Register(registry.Factory[cluster.Cluster]{Type, NewConfig, Build})`
+   (or `httpx.Filters`). `Build` must not start goroutines or do I/O; that belongs in `Start`.
+4. Blank-import the package from the binary, in `cmd/kest/extensions.go` (create it with the first
+   extension). Otherwise `init()` never runs and the type is "unknown".
+5. Tests: register test-only types from `_test.go` files (see `internal/server/server_test.go`), and add
+   `TestMain` with `leaktest.VerifyTestMain` if the extension starts goroutines.
+6. Document the type and its options in `docs/config.md`.
+
 ## 5. Worker lifecycle ⚪
 
 ```
@@ -273,6 +287,7 @@ internal/httpx/              🟢 filter chain, router, route actions
 internal/admin/              🟢 admin HTTP API
 internal/logging/            🟢 slog setup
 internal/cluster/            🟢 Cluster interface and registry category
+internal/leaktest/           🟢 goroutine-leak check for test binaries (goleak)
 internal/filters/<name>/     ⚪ built-in HTTP filters, one package each
 internal/cluster/phpworkers/ ⚪ php_workers: HTTP ↔ RoadRunner payload mapping
 internal/worker/             ⚪ process, pool, supervisor (language-agnostic)

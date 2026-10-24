@@ -1,6 +1,6 @@
 # ADR-0005: Go toolchain and dependency policy
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-10-24)
 - **Date:** 2026-10-24
 - **Deciders:** user, agent
 
@@ -25,7 +25,7 @@ upgrade and licensing liability. The user develops with Go 1.27 locally.
 |---|---|---|
 | `go.yaml.in/yaml/v4` v4.0.0-rc.6 (Apache-2.0) | Config parsing: strict decoding from nodes, all errors at once, positions | Approved by the user 2026-10-24; upgrade to GA when released (K-016) |
 | `golang.org/x/sync` | `errgroup` | Approved if needed |
-| `go.uber.org/goleak` | Goroutine leak checks (tests only) | Proposed |
+| `go.uber.org/goleak` v1.3.0 (MIT) | Goroutine leak checks, tests only, via `internal/leaktest` | Approved by the user 2026-10-24 |
 | `github.com/tetratelabs/wazero` | WASM runtime (M5) | See ADR-0006 |
 | Metrics library | M3 | To be decided (Q-E) |
 
