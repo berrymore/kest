@@ -46,8 +46,9 @@ Milestone definitions: `roadmap.md`.
 
 ## M2 — PHP HTTP (MVP)
 
-- [ ] K-040 Research: RR HTTP payload (JSON vs protobuf request context, uploads, cookies, attributes,
-  response format, streaming/chunked responses), RR `rpc` plugin usage by PHP libraries (Q-G).
+- [x] K-040 Research: RR HTTP payload (JSON vs protobuf request context, uploads, cookies, attributes,
+  response format, streaming/chunked responses), RR `rpc` plugin usage by PHP libraries (Q-G). Verified against
+  RR http plugin v6.0.0 and `roadrunner/http` 4.2.1, plus an experiment → `research/roadrunner.md` (2026-10-25).
 - [ ] K-041 `php_workers` cluster type: config, defaults, validation, wiring to pool. Decide the worker
   environment policy (inherit kest's environment like RR, or explicit only) and `RR_MODE`/`RR_VERSION`.
 - [ ] K-042 Request encoding: method, URI, headers, cookies, query, body (bounded), remote address, TLS info.
