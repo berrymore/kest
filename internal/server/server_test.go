@@ -27,6 +27,7 @@ type gateCluster struct {
 	entered  chan struct{}
 	started  atomic.Bool
 	stopped  atomic.Bool
+	down     atomic.Bool // Serving reports false
 	startErr error
 }
 
@@ -62,6 +63,8 @@ func (g *gateCluster) Stop(context.Context) error {
 	g.stopped.Store(true)
 	return nil
 }
+
+func (g *gateCluster) Serving() bool { return !g.down.Load() }
 
 func (g *gateCluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	g.entered <- struct{}{}
@@ -311,5 +314,29 @@ func TestMetrics(t *testing.T) {
 	}
 	if got := metricstest.Value(t, s.Metrics(), "go_goroutines"); got <= 0 {
 		t.Errorf("go_goroutines = %v", got)
+	}
+}
+
+// /ready fails while a cluster can't serve, and recovers with it.
+func TestReadyFollowsClusters(t *testing.T) {
+	s := newServer(t, "")
+	cancel, done := run(t, s)
+	defer func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Errorf("Run: %v", err)
+		}
+	}()
+	ready := "http://" + s.AdminAddr().String() + "/ready"
+	if code, body := get(t, ready); code != http.StatusOK {
+		t.Fatalf("/ready = %d %q", code, body)
+	}
+	gates["gate"].down.Store(true)
+	if code, body := get(t, ready); code != http.StatusServiceUnavailable || body != "not serving: gate\n" {
+		t.Errorf("/ready with the cluster down = %d %q", code, body)
+	}
+	gates["gate"].down.Store(false)
+	if code, _ := get(t, ready); code != http.StatusOK {
+		t.Errorf("/ready after the cluster recovered = %d", code)
 	}
 }

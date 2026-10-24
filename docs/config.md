@@ -107,8 +107,9 @@ Endpoints:
 | Endpoint | |
 |---|---|
 | `GET /` | List of endpoints |
-| `GET /ready` | `200 ready` while serving traffic; `503 starting` / `503 draining` otherwise |
+| `GET /ready` | `200 ready` while serving traffic; `503 starting` / `503 draining` otherwise, and `503 not serving: <clusters>` while a cluster has no live worker (a pool whose workers are only being replaced still counts as serving) |
 | `GET /server_info` | JSON: version, commit, Go version, state, start time, uptime, config file |
+| `GET /metrics` | Metrics in the Prometheus text format; see [Metrics](metrics.md) |
 
 The admin API has no authentication. Keep it on a loopback or private address.
 

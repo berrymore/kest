@@ -28,6 +28,7 @@ func TestMain(m *testing.M) { leaktest.VerifyTestMain(m) }
 type fakePool struct {
 	exec     func(ctx context.Context, req worker.Payload) (worker.Payload, error)
 	startErr error
+	health   worker.Health
 	last     worker.Payload
 	calls    int
 	started  bool
@@ -36,6 +37,7 @@ type fakePool struct {
 
 func (p *fakePool) Start(context.Context) error { p.started = true; return p.startErr }
 func (p *fakePool) Stop(context.Context) error  { p.stopped = true; return nil }
+func (p *fakePool) Health() worker.Health       { return p.health }
 
 func (p *fakePool) Exec(ctx context.Context, req worker.Payload) (worker.Payload, error) {
 	p.calls++
@@ -224,6 +226,15 @@ func TestStartErrors(t *testing.T) {
 				t.Errorf("Start = %v, hint %v, want %v", err, hint, tt.wantHint)
 			}
 		})
+	}
+}
+
+func TestServing(t *testing.T) {
+	for health, want := range map[worker.Health]bool{worker.Healthy: true, worker.Degraded: true, worker.Unhealthy: false} {
+		c := newTestCluster(t, nil, &fakePool{health: health})
+		if got := c.Serving(); got != want {
+			t.Errorf("Serving() with a %s pool = %v, want %v", health, got, want)
+		}
 	}
 }
 

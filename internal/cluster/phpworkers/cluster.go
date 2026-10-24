@@ -41,6 +41,7 @@ type pool interface {
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error
 	Exec(ctx context.Context, req worker.Payload) (worker.Payload, error)
+	Health() worker.Health
 }
 
 // Cluster serves HTTP requests with a pool of PHP workers.
@@ -89,6 +90,12 @@ const stdoutHint = "hint: the command must start a RoadRunner worker and print n
 	"(display_errors=stderr sends PHP errors to stderr); " +
 	"Symfony reads APP_RUNTIME before .env: " +
 	"set it in the cluster's env or as extra.runtime.class in composer.json"
+
+// Serving implements cluster.Prober: false while no worker is alive. A
+// degraded pool, with some workers being replaced, still serves.
+func (c *Cluster) Serving() bool {
+	return c.pool.Health() != worker.Unhealthy
+}
 
 // Stop lets running requests finish, then stops the workers.
 func (c *Cluster) Stop(ctx context.Context) error {

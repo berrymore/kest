@@ -95,7 +95,7 @@ The first steps are the vertical slice: real metrics from a PHP app at `/metrics
 1. [x] **Metrics core and instrumentation** (K-061) — `internal/metrics`, output checked with `expfmt` (test-only,
    ADR-0007); HTTP metrics in the router, pool metrics from the pool, Go and process metrics. Acceptance: a fuzzed
    set of series round-trips through `expfmt`; unit tests see the HTTP and pool series move.
-2. [ ] **`/metrics` and `/ready`** (K-062) — `GET /metrics` on the admin server, `/ready` per D3. Acceptance: e2e
+2. [x] **`/metrics` and `/ready`** (K-062) — `GET /metrics` on the admin server, `/ready` per D3. Acceptance: e2e
    with `examples/php-hello`: the counters and histograms move as requests are sent.
 3. [ ] **`/clusters`** (K-074) — acceptance: e2e shows every worker of `php-hello` with pid, state and jobs.
 4. [ ] **Rolling reset** (K-063) — `Pool.Reset`, `POST /clusters/{name}/reset`, SIGHUP. Acceptance: a PHP e2e test
@@ -124,6 +124,7 @@ The first steps are the vertical slice: real metrics from a PHP app at `/metrics
 
 ## Log
 
+- 2026-10-25 — Step 2 (K-062) done: the e2e tests read `/metrics` from `examples/hello` and `examples/php-hello`.
 - 2026-10-25 — Step 1 (K-061) done. Deviations: restarts also count `start_failed`; `kest_pool_rejected_total`
   and `kest_pool_wait_seconds` as planned; `process_resident_memory_bytes` exists on Linux only (macOS needs cgo);
   pool log lines now say `reason=memory` / `reason=stop_requested`, the metric label values. The fuzz test found

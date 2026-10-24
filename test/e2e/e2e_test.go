@@ -199,6 +199,11 @@ func TestServeHelloExample(t *testing.T) {
 	if _, body, err := get(t, "http://"+adminAddr+"/server_info"); err != nil || !strings.Contains(body, `"version": "e2e-test"`) {
 		t.Errorf("server_info = %q, %v", body, err)
 	}
+	if _, body, err := get(t, "http://"+adminAddr+"/metrics"); err != nil ||
+		!strings.Contains(body, `kest_http_requests_total{listener="main",virtual_host="default",cluster="",code="200"} 3`) ||
+		!strings.Contains(body, "\ngo_goroutines ") {
+		t.Errorf("metrics = %v\n%s", err, body)
+	}
 
 	k.stop(t)
 

@@ -174,6 +174,7 @@ type Cluster interface {
 	Stop(ctx context.Context) error
 }
 var Types = registry.NewCategory[Cluster]("cluster")
+// Optional: Prober { Serving() bool }; /ready fails while a cluster can't serve (php_workers: no live worker).
 ```
 
 Worker pool and relay 🟢 (M1; used by the `php_workers` cluster from M2):
@@ -341,12 +342,12 @@ test/docs/                   🟢 docs drift checks against the code and the Mak
 
 | Endpoint | Purpose | Milestone |
 |---|---|---|
-| `GET /ready` | 200 when serving, 503 while starting or draining | 🟢 M0 |
+| `GET /ready` | 200 when serving; 503 while starting, draining, or a cluster can't serve (`cluster.Prober`) | 🟢 M0, M3 |
 | `GET /server_info` | version, uptime, config path | 🟢 M0 |
 | `GET /config_dump` | effective config, defaults applied, secrets redacted | M3 |
 | `GET /clusters` | clusters, pools, workers (pid, state, jobs, memory, age) | M3 |
 | `POST /clusters/{name}/reset` | rolling restart of a pool | M3 |
-| `GET /metrics` | Prometheus exposition | M3 |
+| `GET /metrics` | Prometheus text format (`docs/metrics.md`) | 🟢 M3 |
 
 ## 9. WASM sandbox (M5) ⚪
 

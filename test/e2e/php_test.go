@@ -112,6 +112,19 @@ func TestServePHPHelloExample(t *testing.T) {
 		t.Errorf("requests went to %d worker(s), want several", len(pids))
 	}
 
+	_, metrics, err := get(t, "http://"+adminAddr+"/metrics")
+	for _, want := range []string{
+		`kest_http_requests_total{listener="main",virtual_host="default",cluster="hello",code="200"} 502`,
+		`kest_http_requests_total{listener="main",virtual_host="default",cluster="hello",code="500"} 1`,
+		`kest_pool_workers{cluster="hello",state="ready"} 4`,
+		`kest_pool_wait_seconds_count{cluster="hello"} 503`,
+		`kest_pool_queue_length{cluster="hello"} 0`,
+	} {
+		if err != nil || !strings.Contains(metrics, want) {
+			t.Errorf("metrics don't contain %s (%v):\n%s", want, err, metrics)
+		}
+	}
+
 	k.stop(t)
 	for _, want := range []string{"workers started", "kest is ready", `msg="request failed" cluster=hello method=GET path=/fail status=500`, "kest stopped"} {
 		if !strings.Contains(k.logs.String(), want) {

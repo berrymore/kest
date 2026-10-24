@@ -136,6 +136,7 @@ curl localhost:9901/ready          # admin API: ready
 - [Getting started](docs/getting-started.md): your first PHP app on kest, long-lived workers, Symfony,
   coming from RoadRunner.
 - [Configuration reference](docs/config.md).
+- [Metrics](docs/metrics.md): what `GET /metrics` reports, with example queries.
 
 ## Development
 

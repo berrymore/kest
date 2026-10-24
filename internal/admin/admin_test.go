@@ -7,15 +7,27 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/berrymore/kest/internal/metrics"
 )
 
 type fakeSource struct {
-	state State
+	state      State
+	notServing []string
+	metrics    *metrics.Registry
 }
 
 func (f *fakeSource) State() State         { return f.state }
 func (f *fakeSource) StartedAt() time.Time { return time.Now().Add(-90 * time.Second) }
 func (f *fakeSource) ConfigFile() string   { return "/etc/kest/kest.yaml" }
+func (f *fakeSource) NotServing() []string { return f.notServing }
+
+func (f *fakeSource) Metrics() *metrics.Registry {
+	if f.metrics == nil {
+		f.metrics = metrics.NewRegistry()
+	}
+	return f.metrics
+}
 
 func serve(t *testing.T, h http.Handler, method, path string) *httptest.ResponseRecorder {
 	t.Helper()
@@ -45,6 +57,28 @@ func TestReady(t *testing.T) {
 
 	if rec := serve(t, h, http.MethodPost, "/ready"); rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("POST /ready = %d, want 405", rec.Code)
+	}
+
+	// Ready, but a cluster has no live worker.
+	src.state, src.notServing = StateReady, []string{"app", "reports"}
+	if rec := serve(t, h, http.MethodGet, "/ready"); rec.Code != http.StatusServiceUnavailable ||
+		rec.Body.String() != "not serving: app, reports\n" {
+		t.Errorf("/ready with clusters down = %d %q, want 503", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMetrics(t *testing.T) {
+	src := &fakeSource{}
+	src.Metrics().NewCounter("kest_test_total", "A counter.").Add(3)
+	h := NewHandler(src)
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		rec := serve(t, h, method, "/metrics")
+		if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != metrics.ContentType {
+			t.Errorf("%s /metrics = %d, Content-Type %q", method, rec.Code, rec.Header().Get("Content-Type"))
+		}
+		if method == http.MethodGet && !strings.Contains(rec.Body.String(), "\nkest_test_total 3\n") {
+			t.Errorf("GET /metrics:\n%s", rec.Body.String())
+		}
 	}
 }
 

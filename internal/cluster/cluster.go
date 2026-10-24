@@ -23,5 +23,13 @@ type Cluster interface {
 	Stop(ctx context.Context) error
 }
 
+// Prober is implemented by clusters that can tell whether they serve at all,
+// such as a pool without a live worker. While one of them can't, the admin
+// /ready probe fails, so that load balancers send traffic elsewhere.
+type Prober interface {
+	// Serving reports whether the cluster can serve requests now.
+	Serving() bool
+}
+
 // Types is the registry of cluster implementations, keyed by config type.
 var Types = registry.NewCategory[Cluster]("cluster")

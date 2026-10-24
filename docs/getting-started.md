@@ -86,7 +86,16 @@ $ curl 'localhost:8080/?name=kest'
 Hello, kest!
 $ curl localhost:9901/ready
 ready
+$ curl -s localhost:9901/metrics | grep 'kest_pool_workers{'
+kest_pool_workers{cluster="hello",state="starting"} 0
+kest_pool_workers{cluster="hello",state="ready"} 4
+kest_pool_workers{cluster="hello",state="working"} 0
+kest_pool_workers{cluster="hello",state="stopping"} 0
+kest_pool_workers{cluster="hello",state="backoff"} 0
+kest_pool_workers{cluster="hello",state="stopped"} 0
 ```
+
+The admin server (`localhost:9901`) also serves [metrics](metrics.md) for Prometheus.
 
 kest starts the four workers before it opens the port; if one can't boot, kest exits with the
 worker's error output. Stop it with Ctrl-C or SIGTERM: running requests finish first.

@@ -178,7 +178,18 @@ func (s *Server) ConfigFile() string {
 	return s.cfg.File()
 }
 
-// Metrics returns the server's metrics registry.
+// NotServing implements admin.Source.
+func (s *Server) NotServing() []string {
+	var down []string
+	for _, c := range s.clusters {
+		if p, ok := c.lifecycle.(cluster.Prober); ok && !p.Serving() {
+			down = append(down, c.name)
+		}
+	}
+	return down
+}
+
+// Metrics implements admin.Source: the server's metrics registry.
 func (s *Server) Metrics() *metrics.Registry {
 	return s.metrics
 }
