@@ -44,7 +44,7 @@ Only build/test/vet work today. Once the Makefile lands (K-001), keep this table
 | Test (unit) | `go test -race ./...` |
 | Test (integration, needs `php` in PATH) | `go test -race -tags integration ./...` |
 | Vet | `go vet ./...` |
-| Lint | `golangci-lint run` (config arrives with K-002; not installed locally yet) |
+| Lint | `golangci-lint run` (v2.15.0 in `~/go/bin`; project config arrives with K-002) |
 | Format | `gofmt -w .` |
 | Run | `go run ./cmd/kest serve -c examples/hello/kest.yaml` (after M0; today only a placeholder `main.go`) |
 

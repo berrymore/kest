@@ -16,8 +16,7 @@ Nothing.
 ## Next up
 
 1. **User:** review the Proposed ADRs 0002–0006; accept or adjust.
-2. **User:** `brew install composer golangci-lint` (Composer needed from M1, K-028; golangci-lint for K-002).
-3. **Agent:** start M0 with K-001 (repo skeleton), following `plans/M0-foundation.md`.
+2. **Agent:** start M0 with K-001 (repo skeleton), following `plans/M0-foundation.md`.
 
 ## Open questions (need a decision from the user)
 
@@ -39,13 +38,19 @@ None right now.
 
 ## Environment (as of 2026-10-24)
 
-- macOS (darwin/arm64), Go 1.27.3, IDE: GoLand (`.idea/` is git-ignored)
-- PHP 8.5.12 (brew, NTS) with `sockets`, `pcntl`, `posix`, `json`, `mbstring`, `openssl`
-- Installed: Homebrew, Docker, git, gh (SSH protocol)
-- Not installed: Composer, golangci-lint
+- macOS (darwin/arm64), IDE: GoLand (`.idea/` is git-ignored)
+- Go 1.27.3 from the official installer (`/usr/local/go/bin`), GOPATH `~/go`, `~/go/bin` in PATH.
+  Don't install Go tools through brew: it pulls in its own Go.
+- golangci-lint 2.15.0 in `~/go/bin`: the prebuilt release binary from GitHub (sha256 verified), built
+  with go1.27.0. golangci-lint refuses to lint a module whose `go` directive is newer than the Go it was
+  built with, so when bumping Go, upgrade the linter too (or `go install` it with the local toolchain).
+- PHP 8.5.12 (brew, NTS) with `sockets`, `pcntl`, `posix`, `json`, `mbstring`, `openssl`; Composer 2.10.3
+- Also installed: Homebrew, Docker, git, gh (SSH protocol)
 
 ## Session log (newest first, keep ~15)
 
+- **2026-10-24** — Installed golangci-lint 2.15.0 into `~/go/bin` (release binary, no brew); the user
+  installed Composer. `golangci-lint run` on the repo: 0 issues.
 - **2026-10-24** — Resolved Q1–Q6 (English artifacts, `{type, config}`, MIT, PHP 8.3+ test floor,
   no CI yet, git). Added LICENSE and the no-AI-attribution rule; `git init`, remote, first commit.
 - **2026-10-24** — Bootstrapped project docs: AGENTS.md, CLAUDE.md, README.md, `.ai/` (context, rules,

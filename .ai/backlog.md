@@ -8,7 +8,8 @@ Milestone definitions: `roadmap.md`.
 
 - [ ] K-001 Repo skeleton: move `main.go` → `cmd/kest/main.go`, create `internal/` layout, Makefile
   (`build`, `test`, `test-integration`, `lint`, `fmt`), `.editorconfig`.
-- [ ] K-002 golangci-lint v2 config (`.golangci.yml`) + `make lint`.
+- [ ] K-002 golangci-lint v2 config (`.golangci.yml`) + `make lint`; the Makefile checks that the
+  installed linter version matches the pinned one (2.15.0) and prints install instructions if not.
 - [ ] K-004 CLI: `serve`, `validate [--dump]`, `version` (stdlib `flag` with subcommands; version info via `-ldflags`).
 - [ ] K-005 Choose a YAML library (`go.yaml.in/yaml/v3`/`v4` vs `goccy/go-yaml`): strict mode, node
   line/column for errors, maintenance status. Record the choice in ADR-0005.
