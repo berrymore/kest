@@ -136,7 +136,7 @@ Milestone definitions: `roadmap.md`.
 - [ ] K-081 HTTP/2 (h2 over TLS, h2c).
 - [ ] K-082 Static files route action / filter.
 - [ ] K-083 Compression filter.
-- [ ] K-084 CORS and header-manipulation filters; redirect action.
+- [ ] K-084 Header manipulation filter (`headers`). Split on 2026-10-25: CORS is K-089, redirects K-090.
 - [ ] K-085 `http_proxy` cluster: endpoints, load balancing, health checks, retries.
 - [ ] K-086 Path normalization before routing (dot segments, duplicate slashes; Envoy `normalize_path` /
   `merge_slashes`), so prefix routes can't be bypassed with `/a/../b`.
@@ -144,6 +144,12 @@ Milestone definitions: `roadmap.md`.
   the `ipAddress` attribute that `roadrunner/http` reads (RR's `proxy_ip_parser` middleware).
 - [ ] K-088 Streaming responses from PHP workers (`STREAM` frames, `PSR7Worker::$chunkSize`, generator bodies)
   and 1xx informational responses (103 Early Hints); stop a stream when the client goes away (Q-C).
+- [ ] K-089 CORS filter (`cors`): preflight answered by kest, allowed origins with wildcards.
+- [ ] K-090 Redirect route action (`redirect`): scheme, host, port, path, prefix rewrite, status.
+- [ ] K-091 Client certificates on TLS listeners (mTLS): a CA file, required or optional, the verified subject
+  passed to PHP.
+- [ ] K-092 Brotli and zstd in `compression` (each needs a dependency: no encoder in the standard library).
+- [ ] K-093 Precompressed static files: serve `file.gz` (and `.br`) next to `file` when the client accepts it.
 
 ## M5 — WASM sandbox
 

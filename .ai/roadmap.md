@@ -9,7 +9,7 @@ Work items live in `backlog.md` (IDs in brackets). Reprioritization is the user'
 | M1 | Worker pool and relay | ✅ done 2026-10-25 |
 | M2 | PHP HTTP — **MVP** | ✅ done 2026-10-25 |
 | M3 | Operability | ✅ done 2026-10-25 |
-| M4 | HTTP edge features | ⚪ |
+| M4 | HTTP edge features | 🟡 in progress |
 | M5 | WASM sandbox | ⚪ |
 | M6 | Dynamic configuration | ⚪ |
 
@@ -93,8 +93,15 @@ Exit criteria:
 
 ## M4 — HTTP edge features
 
-Scope [K-080…]: TLS from files (ACME later), HTTP/2 (h2, h2c), static files, compression, CORS,
-header manipulation, redirects, an `http_proxy` cluster (load balancing, health checks, retries).
+Scope [K-080…K-093]: TLS from files (ACME later), HTTP/2 (h2, h2c), static files, compression, CORS,
+header manipulation, redirects, an `http_proxy` cluster (load balancing, health checks, retries), path
+normalization, trusted proxies, streaming responses from PHP. Plan: `plans/M4-http-edge.md`.
+
+Exit criteria:
+- HTTP/2 over TLS (and h2c) reaches a PHP app; renewed certificates are served without a restart.
+- Prefix routes can't be bypassed with dot segments or duplicate slashes.
+- PHP workers stream responses; a client that goes away stops the stream.
+- `http_proxy` balances, health-checks and retries.
 
 ## M5 — WASM sandbox
 

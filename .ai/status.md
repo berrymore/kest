@@ -1,39 +1,32 @@
 # Status
 
-_Last updated: 2026-10-25 (M3 done)_
+_Last updated: 2026-10-25 (M4 started)_
 
 ## Current phase
 
-**M3 (operability) is done** and merged into `main` (PR #2). `plans/M3-operability.md` is its record: the
-decisions D1–D10, the steps, and a log of what was done and where it deviated. kest now has Prometheus metrics
-(`/metrics`, ADR-0007), `/clusters`, `/config_dump`, `/ready` per cluster, rolling resets of the workers without
-failed requests (admin API, SIGHUP, and `reload` on file changes for development), the filters `request_id`,
-`access_log` and `recovery`, configurable server limits, a drain delay, a budget for buffered request bodies, a
-benchmark against RoadRunner (`docs/benchmarks.md`) and an operations guide (`docs/operations.md`).
-
-**Next: M4 (HTTP edge features).**
+**M4 (HTTP edge features) is in progress** on `feat/m4-http-edge`, autonomously: the user delegated the milestone
+on 2026-10-25 and asked not to open the PR before they have looked at the branch locally. Active plan:
+`plans/M4-http-edge.md` (decisions D1–D11, steps 1–12). M3 is merged (PR #2).
 
 ## In progress
 
-Nothing.
+M4, step 1 (K-080, TLS listeners).
 
-## Next up: how to start M4 in a fresh session
+## Next up: how to continue M4 in a fresh session
 
-0. **Git first:** make sure the M3 PR is merged (`gh pr list --state all`); `git switch main && git pull`; delete
-   the local `feat/m3-operability`; create `feat/m4-http-edge`. One commit per backlog item; ask before every commit
-   unless the user says otherwise for M4.
-1. **Read first:** this file → `roadmap.md` § M4 → `backlog.md` § M4 (K-080…K-088) → `architecture.md` § 2–4
-   and § 10 (Q-A filter model, Q-C streaming, Q-D cluster interface) → `plans/M3-operability.md` (log).
-2. **Write `plans/M4-http-edge.md`**, a vertical slice first (for example TLS + HTTP/2 on one listener, K-080 and
-   K-081). K-085 (`http_proxy` cluster) is the second cluster type: it reopens Q-D. Path normalization (K-086) and
-   trusted proxies (K-087) are security items worth doing early.
-3. Get the user's approval of the plan before writing code.
-4. **End of M4:** the docs review (`review.md`) before `gh pr create`, and again before the merge if the branch
-   changed.
+1. **Read first:** this file → `plans/M4-http-edge.md` (design notes and the log: where the work stopped) →
+   `backlog.md` § M4 → `architecture.md` § 2–4 and § 10.
+2. Continue with the first open step of the plan. One commit per backlog item after a green `make check`; the
+   user allowed the agent to commit on `feat/m4-http-edge` without asking during M4.
+3. **End of M4:** the docs review (`review.md`); then stop and tell the user: **no push and no PR** until the user
+   has looked at the branch locally.
 
 ## Open questions (need a decision from the user)
 
-None.
+- **Q10** — Review the M4 decisions taken while away, in `plans/M4-http-edge.md`: the schema changes D1–D9 and
+  D11 (`tls`, `http.protocols`, `http.normalize_path`/`merge_slashes` on by default, the filters `client_ip`,
+  `headers`, `cors`, `compression`, the `redirect` action, `php_workers.static`, the cluster types `static_files`
+  and `http_proxy`). Recommendation: accept them as a whole with the PR.
 
 ## Resolved decisions
 
@@ -87,6 +80,10 @@ None.
 
 ## Session log (newest first, keep ~15)
 
+- **2026-10-25** — M3 merged (PR #2, squash). M4 started on `feat/m4-http-edge` while the user was away: the plan
+  (D1–D11), K-084 split into K-084/K-089/K-090; RoadRunner's `proxy_ip_parser` v6.0.0 (leftmost
+  `X-Forwarded-For`, replaces the remote address) and the streaming protocol (pool v2.0.0-beta.1,
+  `roadrunner/worker` 3.8.2) read in the sources.
 - **2026-10-25** — M3, after the user went to bed and left the rest to the agent, PR included: K-070 body budget,
   K-072 `reload` (a baseline race found by `make test-matrix` on PHP 8.5, fixed), K-066 benchmark against
   RoadRunner 3.0.1 (K-069 dropped), K-067 operations guide; the docs review (19 findings, all fixed); PR #2.
