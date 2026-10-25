@@ -1,11 +1,11 @@
 # Status
 
-_Last updated: 2026-10-25 (M5 done on `feat/m5-pools`, committed locally; waits for the user's local check, then PR)_
+_Last updated: 2026-10-25 (M5 done on `feat/m5-pools`; PR #5 open, waiting for the user's go-ahead to merge)_
 
 ## Current phase
 
-**M5 (Worker pools and routing to them) is done on its branch** `feat/m5-pools`, committed locally, not pushed: the
-user asked to finish it without them and to open no PR before they have checked the branch locally. M4 and K-148 are
+**M5 (Worker pools and routing to them) is done on its branch** `feat/m5-pools`: the user checked it locally,
+approved, and had it pushed; PR #5 is open. M4 and K-148 are
 in `main`. ADR-0008 still draws the line: kest is an application server behind a proxy. M5 made the pool the core:
 lanes per route (`route.max_workers`, `priority`, `queue_timeout`), `Retry-After` and overload control
 (`pool.overload`, CoDel, on by default after a measurement), a dynamic size (`pool.max_workers`,
@@ -15,7 +15,8 @@ listener filters' answers in the metrics, buffered relay reads; research on fork
 
 ## In progress
 
-Nothing. The branch waits for the user's local check. Decisions taken while the user was away, for that review:
+Nothing. PR #5 waits for the user's go-ahead to merge. Decisions taken while the user was away (the user checked
+them locally and approved):
 D4's names and defaults (`pool.overload: {queue_timeout: 500ms, interval: 5s}`, on by default; lanes with
 `max_workers` or `queue_timeout` left out), the dynamic pool's boot limit (`max(1, workers/4)`), the `sendfile`
 details (absolute paths only, `dirs` themselves refused), the `GOMAXPROCS` advice (Q15), K-153 and K-154 in the
@@ -30,9 +31,8 @@ replaced it.
    which the PR description must say: K-151 and K-905 share their pool commit (a046563) and, with K-144's
    `Retry-After` and `queue_timeout`, the route commit (4ff430e), as plan steps 3–4 bundled them; K-151's PHP test is
    its own commit (b57cb92), K-144's overload control too (c70475d).
-2. **If the user approves:** push the branch (`git push -u origin feat/m5-pools`; over HTTPS with `gh` as the
-   credential helper if SSH fails, see the memory notes), `gh pr create` with the decisions above in the description,
-   then after their go-ahead `gh pr merge --squash --delete-branch`, `git checkout main && git pull`, and mark M5
+2. **PR #5** (https://github.com/berrymore/kest/pull/5) is open. After the user's go-ahead:
+   `gh pr merge 5 --squash --delete-branch`, `git checkout main && git pull`, and mark M5
    merged here, in `roadmap.md`, in `plans/M5-pools.md` (Status) and in `architecture.md` (Last reviewed). Run the
    docs review again first if the branch changed.
 3. **After the merge:** M6 (WASM sandbox) on a new branch `feat/m6-wasm`: read `roadmap.md` § M6, `backlog.md`
@@ -49,6 +49,7 @@ replaced it.
 
 ## Resolved decisions
 
+- 2026-10-25 — The user checked `feat/m5-pools` locally ("all fine") and had it pushed and PR #5 opened.
 - 2026-10-25 — M5: the user lets the agent commit each item itself after a green `make check`, until the end of the
   milestone, then delegated all the remaining steps ("do all the steps"): the agent decides (D4's names and defaults
   included) and records the choices for the PR review. Push and PR only after the user's OK.
