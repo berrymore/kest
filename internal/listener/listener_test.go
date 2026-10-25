@@ -158,7 +158,7 @@ func TestReadHeaderTimeout(t *testing.T) {
 	limits := DefaultLimits()
 	limits.ReadHeaderTimeout = 200 * time.Millisecond
 	l := startWithLimits(t, limits)
-	conn, err := net.Dial("tcp", l.Addr().String())
+	conn, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", l.Addr().String())
 	if err != nil {
 		t.Fatal(err)
 	}

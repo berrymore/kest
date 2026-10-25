@@ -296,7 +296,7 @@ func TestSlowBody(t *testing.T) {
 		c.ServeHTTP(w, r.WithContext(ctx))
 	}))
 	defer srv.Close()
-	conn, err := net.Dial("tcp", srv.Listener.Addr().String())
+	conn, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", srv.Listener.Addr().String())
 	if err != nil {
 		t.Fatal(err)
 	}

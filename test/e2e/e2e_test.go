@@ -264,7 +264,7 @@ listeners:
 	k := serve(t, configPath, adminAddr)
 	defer k.stop(t)
 
-	conn, err := net.Dial("tcp", listenAddr)
+	conn, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", listenAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
