@@ -24,7 +24,8 @@
                 │                    └─ route → Cluster                                 │
                 │                               ├─ php_workers ─▶ Pool ─▶ Relay ────────┼──▶ php worker.php × N
                 │                               ├─ wasm (M5)  ─▶ wazero instances       │
-                │                               └─ http_proxy (M4) ─────────────────────┼──▶ remote endpoints
+                │                               ├─ static_files ─▶ a directory          │
+                │                               └─ http_proxy ─▶ ReverseProxy ──────────┼──▶ remote endpoints
                 │                                                                       │
                 │  Admin server (127.0.0.1:9901): /ready /server_info /config_dump        │
                 │                                 /clusters /metrics                     │
@@ -61,6 +62,15 @@ kest is a single Go binary. At startup it reads one YAML file and builds a graph
    written frame by frame (`rrhttp.DecodeStreamFrame`, `WriteInformational`, `WriteStreamHeader`), flushed.
 8. The worker goes back to the pool. The supervisor checks its limits (max_jobs, memory, TTL) and
    recycles it if needed.
+
+### HTTP → remote endpoints (`http_proxy`) 🟢
+
+`httputil.ReverseProxy` with `Rewrite` (no `Director`): it sets `X-Forwarded-*` (the peer appended to
+`X-Forwarded-For`, the scheme from `httpx.Scheme`) and an optional `Host`; its `Transport` is the cluster's
+round tripper, which picks an endpoint per attempt (round robin, least request, random; unhealthy endpoints skipped
+unless all are), sends it through one `http.Transport` (bounded connections per endpoint, no `HTTP_PROXY`), and
+retries on another endpoint: connect failures for any request whose body wasn't read, gateway errors and resets
+only for replayable requests. Active health checks run one goroutine per endpoint between `Start` and `Stop`.
 
 ## 3. Configuration model 🟢
 
@@ -338,6 +348,7 @@ internal/leaktest/           🟢 goroutine-leak check for test binaries (goleak
 internal/filters/            🟢 built-in HTTP filters, one package each: requestid/, accesslog/, recovery/, clientip/, headers/, cors/, compression/
 internal/cluster/phpworkers/ 🟢 php_workers: config, worker environment, pool lifecycle, HTTP handler, static files
 internal/cluster/static/     🟢 static_files: a directory served as a cluster
+internal/cluster/httpproxy/  🟢 http_proxy: endpoints, load balancing, health checks, retries (httputil.ReverseProxy)
 internal/staticfiles/        🟢 serving files from a directory: hidden paths, forbidden extensions, conditional and range requests
 internal/rrhttp/             🟢 HTTP ↔ RoadRunner HTTP payload (request context JSON/protobuf, form trees, responses)
 internal/worker/             🟢 process, pool, supervisor (language-agnostic); workertest/ has fake workers
@@ -396,7 +407,7 @@ at the start of M5.
 | Q-A | HTTP filter model: `func(http.Handler) http.Handler`, or Envoy-like decode/encode phases with per-filter state? | Middleware first; revisit when WASM filters arrive |
 | Q-B | Request body: buffer it whole (RR-style, bounded by `max_request_body` and per cluster by `max_buffered_bodies`) or stream it to the worker? | Buffered (M2). The RR protocol sends the body in the request frame, so streaming it would need a protocol extension |
 | Q-C | Streaming responses from PHP (SSE, large downloads) | ✅ M4 (K-088): `worker.Pool.ExecStream`; `php_workers` writes chunks as they come, 1xx as informational responses, STOP when the client goes away |
-| Q-D | Cluster interface: `http.Handler`, or a kest request/response type shared by php, wasm and proxy? | `http.Handler` until a second cluster type exists |
+| Q-D | Cluster interface: `http.Handler`, or a kest request/response type shared by php, wasm and proxy? | ✅ M4: `http.Handler` stays; `static_files` and `http_proxy` fit it without strain |
 | Q-E | Metrics: `prometheus/client_golang`, OpenTelemetry metrics, or a minimal custom exposition? | ✅ ADR-0007 (2026-10-25): a hand-written core with the Prometheus text format |
 | Q-F | Per-route priority and queueing inside one pool, on top of pool isolation | After M3 |
 | Q-G | PHP → kest RPC (RoadRunner's `rpc` plugin equivalent): needed for which PHP libraries? | Not for HTTP: `roadrunner/http` and `roadrunner/worker` don't use it (K-040); libraries for RR's KV, jobs, metrics, lock plugins do |

@@ -180,7 +180,7 @@ Steps 1–2 are the vertical slice: `curl --http2 -k https://localhost:8443/` ag
    PHP gets the rest, no escape from `dir`.
 10. [x] **Streaming responses** (K-088) — acceptance: PHP integration test with a generator and with 103 Early
     Hints; a client that disconnects mid-stream stops it and the worker serves the next request.
-11. [ ] **`http_proxy`** (K-085) — acceptance: e2e against test backends: balancing, health checks, retries,
+11. [x] **`http_proxy`** (K-085) — acceptance: e2e against test backends: balancing, health checks, retries,
     WebSocket upgrade.
 12. [ ] **Docs and review** — `docs/` (config reference, operations: TLS and proxies), README, architecture; the
     docs review (`review.md`). No PR until the user has looked at the branch.
@@ -196,6 +196,9 @@ Steps 1–2 are the vertical slice: `curl --http2 -k https://localhost:8443/` ag
 
 ## Log
 
+- 2026-10-25 — Step 11 (K-085) done as in D11; beyond it, `kest_upstream_requests_active`. `registry.Build` now
+  locates a `*config.FieldError` that `Build` returns (an unreadable `tls.ca_file`). Passive health checks went to
+  the backlog (K-094); counting filter-answered requests too (K-095).
 - 2026-10-25 — Step 10 (K-088) done as in D10. The end of a stream is `ok == false`, not `io.EOF`: a
   `*ProcessError` of a worker that died mid-stream wraps `io.EOF` and would read as a normal end. `Exec` joins a
   stream up to `MaxFrameSize` (`ErrStreamTooLarge`). The fake worker reads frames in the background, as an OS pipe

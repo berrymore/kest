@@ -66,7 +66,7 @@ func TestValidate(t *testing.T) {
 			name:       "unknown extension type",
 			args:       []string{"validate", "-c", badExtension},
 			wantCode:   exitError,
-			wantStderr: `clusters[0].type: unknown cluster type "nope" (known types: php_workers, static_files)`,
+			wantStderr: `clusters[0].type: unknown cluster type "nope" (known types: http_proxy, php_workers, static_files)`,
 		},
 		{
 			name:       "php_workers without a command",

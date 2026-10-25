@@ -143,6 +143,10 @@ func Build[T any](c *Category[T], ext *config.Extension, bc BuildContext) (T, er
 	}
 
 	component, err := f.Build(bc, cfg)
+	if fe, ok := errors.AsType[*config.FieldError](err); ok {
+		// A problem Build found in a field, such as a file it couldn't read.
+		return zero, ext.Errorf(joinField("config", fe.Field), "%s", fe.Msg)
+	}
 	if err != nil {
 		return zero, ext.Errorf("", "%v", err)
 	}

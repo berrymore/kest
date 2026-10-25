@@ -147,7 +147,10 @@ Milestone definitions: `roadmap.md`.
 - [x] K-084 Header manipulation filter (`headers`). Split on 2026-10-25: CORS is K-089, redirects K-090.
   `request`/`response` rules `remove`, `set`, `add`, `set_if_absent`; protected framing headers rejected;
   `httpx.BeforeHeader` edits a response header just before it goes out (shared with CORS and compression).
-- [ ] K-085 `http_proxy` cluster: endpoints, load balancing, health checks, retries.
+- [x] K-085 `http_proxy` cluster: endpoints, load balancing, health checks, retries. On `httputil.ReverseProxy`:
+  round robin / least request / random, active health checks with thresholds and panic mode, retries on another
+  endpoint (connect failures for any request, gateway errors and resets for replayable ones), upstream TLS
+  (`ca_file`), h2/h2c, WebSocket upgrades, `kest_upstream_*` metrics, `/clusters` report.
 - [x] K-086 Path normalization before routing (dot segments, duplicate slashes; Envoy `normalize_path` /
   `merge_slashes`), so prefix routes can't be bypassed with `/a/../b`. `listeners[].http.normalize_path` and
   `merge_slashes`, both on by default, on the decoded path before the filters; a changed path is rewritten for
@@ -167,6 +170,10 @@ Milestone definitions: `roadmap.md`.
   passed to PHP.
 - [ ] K-092 Brotli and zstd in `compression` (each needs a dependency: no encoder in the standard library).
 - [ ] K-093 Precompressed static files: serve `file.gz` (and `.br`) next to `file` when the client accepts it.
+- [ ] K-094 Passive health checks for `http_proxy` (outlier detection): take out an endpoint after consecutive
+  5xx or connect failures of real requests, without waiting for the active checks.
+- [ ] K-095 Count requests that filters answer themselves (CORS preflights) in the HTTP metrics: today only routed
+  requests are counted per virtual host and cluster.
 
 ## M5 — WASM sandbox
 
