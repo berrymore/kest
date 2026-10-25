@@ -1,6 +1,6 @@
 # Operations guide
 
-How to run kest in production: processes and signals, probes, deploys, sizing, monitoring and
+How to run kest in production: processes, TLS, signals, probes, deploys, sizing, monitoring and
 troubleshooting. Option details are in the [configuration reference](config.md), metrics in
 [Metrics](metrics.md).
 
@@ -34,6 +34,18 @@ from stderr.
 
 Workers run as kest's user, in their own process group, with kest's environment unless `inherit_env: false`.
 On Linux they die with kest even if kest is killed with SIGKILL.
+
+## TLS
+
+A listener with a `tls` block serves HTTPS ([`listeners[].tls`](config.md#listenerstls)). With Let's Encrypt:
+
+- Point `cert_file` at `fullchain.pem` (certificate and intermediates) and `key_file` at `privkey.pem`. kest picks
+  up a renewed pair by itself within about 20 seconds: no reload hook, no restart. `kest_tls_certificate_expiry_timestamp_seconds`
+  tells you when renewal didn't happen ([Metrics](metrics.md#tls)).
+- The private key must be readable by kest's user. certbot's `live/` directory is root-only: give the group of
+  kest's user read access to `archive/` and `live/`, or copy the files elsewhere in a deploy hook.
+- Ports below 1024 need `AmbientCapabilities=CAP_NET_BIND_SERVICE` in the systemd unit when kest runs as an
+  unprivileged user.
 
 ## Signals
 

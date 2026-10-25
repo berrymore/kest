@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -293,6 +294,36 @@ clusters:
 		if err == nil || !strings.Contains(err.Error(), w) {
 			t.Errorf("New error =\n%v\nwant it to contain %q", err, w)
 		}
+	}
+}
+
+// Certificate files are read when the graph is built, relative to the config
+// file; a pair that doesn't load is reported at its path.
+func TestNewLoadsCertificates(t *testing.T) {
+	dir := t.TempDir()
+	src := `version: v1
+listeners:
+  - name: secure
+    address: 127.0.0.1:0
+    tls:
+      certificates:
+        - {cert_file: missing.pem, key_file: missing.key}
+    http:
+      virtual_hosts:
+        - name: default
+          domains: ["*"]
+          routes: [{match: {prefix: /}, direct_response: {}}]
+`
+	file := filepath.Join(dir, "kest.yaml")
+	cfg, err := config.Parse([]byte(src), file, func(string) (string, bool) { return "", false })
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	_, err = server.New(cfg, logging.Discard())
+	want := file + ":7:11: listeners[0].tls.certificates[0]: open " + filepath.Join(dir, "missing.pem") +
+		": no such file or directory"
+	if err == nil || err.Error() != want {
+		t.Errorf("New error =\n%v\nwant\n%s", err, want)
 	}
 }
 

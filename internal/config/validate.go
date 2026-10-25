@@ -91,11 +91,32 @@ func (v *validator) listeners(list []Listener, adminAddress string, clusters map
 			addresses[l.Address] = path + ".address"
 		}
 
+		if l.TLS != nil {
+			v.tls(path+".tls", l.TLS)
+		}
 		if l.HTTP == nil {
 			v.errorf(path+".http", "required: http is the only supported protocol")
 			continue
 		}
 		v.http(path+".http", l.HTTP, clusters)
+	}
+}
+
+func (v *validator) tls(path string, t *TLS) {
+	if len(t.Certificates) == 0 {
+		v.errorf(path+".certificates", "at least one certificate is required")
+	}
+	for i, c := range t.Certificates {
+		cpath := indexPath(path+".certificates", i)
+		if c.CertFile == "" {
+			v.errorf(cpath+".cert_file", "required")
+		}
+		if c.KeyFile == "" {
+			v.errorf(cpath+".key_file", "required")
+		}
+	}
+	if t.MinVersion != TLS12 && t.MinVersion != TLS13 {
+		v.errorf(path+".min_version", "unsupported TLS version %q; use %q or %q", t.MinVersion, TLS12, TLS13)
 	}
 }
 

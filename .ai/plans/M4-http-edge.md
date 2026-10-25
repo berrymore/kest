@@ -165,7 +165,7 @@ answered: the cluster interface stays `http.Handler`.
 
 Steps 1–2 are the vertical slice: `curl --http2 -k https://localhost:8443/` against `php-hello`.
 
-1. [ ] **TLS listeners** (K-080) — acceptance: e2e over TLS with a generated certificate; a replaced certificate is
+1. [x] **TLS listeners** (K-080) — acceptance: e2e over TLS with a generated certificate; a replaced certificate is
    served without a restart; `kest validate` locates a missing file.
 2. [ ] **HTTP/2** (K-081) — acceptance: e2e with h2 over TLS and h2c; PHP sees `HTTP/2.0`.
 3. [ ] **Path normalization** (K-086) — acceptance: unit tests for dot segments, `%2e`, `//`; e2e: a deny route
@@ -196,6 +196,9 @@ Steps 1–2 are the vertical slice: `curl --http2 -k https://localhost:8443/` ag
 
 ## Log
 
+- 2026-10-25 — Step 1 (K-080) done as in D1. Beyond D1: the metrics `kest_tls_certificate_expiry_timestamp_seconds`
+  and `kest_tls_handshake_errors_total`; failed handshakes go to the debug log. `config.Config.ErrorAt` locates
+  errors found while the graph is built (unreadable certificate files).
 - 2026-10-25 — Draft, written while the user was away; K-084 split into K-084 (headers), K-089 (CORS), K-090
   (redirect). Research for D4 and D10 done in the RoadRunner sources (proxy_ip_parser v6.0.0, pool v2.0.0-beta.1,
   `roadrunner/worker` 3.8.2, `roadrunner/http` 4.2.1).

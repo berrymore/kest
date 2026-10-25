@@ -33,6 +33,15 @@ stays bounded:
 | `kest_http_request_duration_seconds` | histogram | `listener`, `virtual_host`, `cluster` | From routing the request until its handler returns: the wait for a worker and the worker's time. Buckets from 5 ms to 60 s. |
 | `kest_http_requests_in_flight` | gauge | `listener` | Requests being served now. |
 
+## TLS
+
+For each listener with `tls`:
+
+| Metric | Type | Labels | |
+|---|---|---|---|
+| `kest_tls_certificate_expiry_timestamp_seconds` | gauge | `listener`, `cert_file` | When each certificate expires, as a Unix timestamp; it moves when a renewed certificate is loaded. |
+| `kest_tls_handshake_errors_total` | counter | `listener` | TLS handshakes that failed: clients that don't trust the certificate, scanners, plain HTTP on the TLS port. |
+
 ## Worker pools
 
 For each `php_workers` cluster:
@@ -74,6 +83,9 @@ sum by (cluster) (kest_pool_workers{state="working"})
 
 # Requests turned away because the pool was full or too slow
 sum by (cluster, reason) (rate(kest_pool_rejected_total[5m]))
+
+# Certificates that expire within 14 days (renewal didn't happen)
+kest_tls_certificate_expiry_timestamp_seconds - time() < 14 * 86400
 
 # Worker restarts that are not routine
 sum by (cluster, reason) (increase(kest_pool_worker_restarts_total{reason=~"crash|exec_ttl|memory|start_failed"}[1h]))

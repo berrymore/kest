@@ -136,7 +136,36 @@ At least one listener is required.
 |---|---|---|
 | `name` | yes | Unique listener name |
 | `address` | yes | `host:port` to bind; must be unique (except port `0`) |
+| `tls` | no | Serve HTTPS with these certificates; see below |
 | `http` | yes | HTTP is the only protocol so far |
+
+### `listeners[].tls`
+
+```yaml
+listeners:
+  - name: https
+    address: 0.0.0.0:443
+    tls:
+      certificates:
+        - cert_file: /etc/letsencrypt/live/example.com/fullchain.pem
+          key_file: /etc/letsencrypt/live/example.com/privkey.pem
+        - cert_file: certs/other.example.pem   # relative to this file
+          key_file: certs/other.example.key
+    http: { … }
+```
+
+| Field | Default | |
+|---|---|---|
+| `certificates` | — | Required, at least one. The client's server name (SNI) picks the certificate; a client that asks for none of them gets the first. |
+| `certificates[].cert_file` | — | Required. PEM: the certificate, then the intermediates. |
+| `certificates[].key_file` | — | Required. PEM: its private key. |
+| `min_version` | `"1.2"` | The oldest TLS version accepted: `"1.2"` or `"1.3"`. |
+
+The files are read when the config is loaded, so `kest validate` reports one that is missing or broken. While kest
+runs, it checks them every 10 seconds and loads a pair that changed once the change has held still for a check:
+a renewed certificate (`certbot renew`) is served without a restart or a reload hook. A pair that fails to load is
+logged as an error and the old certificate stays. Cipher suites are Go's defaults. Failed handshakes are counted
+in `kest_tls_handshake_errors_total` and logged at `debug` level, since scanners cause them all the time.
 
 
 ### `listeners[].http`

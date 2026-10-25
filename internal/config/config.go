@@ -45,6 +45,17 @@ type Config struct {
 	src *source
 }
 
+// ErrorAt returns an error about the value at a YAML path, such as
+// "listeners[0].tls.certificates[1]", located in the file when the path is
+// known. Components that check the config while the server graph is built
+// use it for problems that validation can't see, like unreadable files.
+func (c *Config) ErrorAt(path, msg string) *Error {
+	if c.src == nil {
+		return &Error{Path: path, Msg: msg}
+	}
+	return c.src.errorAt(path, msg)
+}
+
 // File returns the path the configuration was loaded from.
 func (c *Config) File() string {
 	if c.src == nil {
@@ -119,8 +130,32 @@ type Server struct {
 type Listener struct {
 	Name    string `yaml:"name"`
 	Address string `yaml:"address"`
-	HTTP    *HTTP  `yaml:"http"`
+	// TLS, if set, makes the listener serve HTTPS.
+	TLS  *TLS  `yaml:"tls,omitempty"`
+	HTTP *HTTP `yaml:"http"`
 }
+
+// TLS holds a listener's certificates.
+type TLS struct {
+	// Certificates are chosen by the server name the client asks for (SNI);
+	// the first one serves clients that ask for none of them.
+	Certificates []Certificate `yaml:"certificates"`
+	// MinVersion is the oldest TLS version accepted: "1.2" or "1.3".
+	MinVersion string `yaml:"min_version"`
+}
+
+// Certificate is a certificate chain and its private key, in PEM files.
+// Relative paths resolve against the config file's directory.
+type Certificate struct {
+	CertFile string `yaml:"cert_file"` // the leaf first, then the intermediates
+	KeyFile  string `yaml:"key_file"`
+}
+
+// TLS versions of TLS.MinVersion.
+const (
+	TLS12 = "1.2"
+	TLS13 = "1.3"
+)
 
 // HTTP is the protocol block of an HTTP listener.
 type HTTP struct {
@@ -193,6 +228,9 @@ func (c *Config) applyDefaults() {
 		c.Server.DrainTimeout = &d
 	}
 	for i := range c.Listeners {
+		if t := c.Listeners[i].TLS; t != nil && t.MinVersion == "" {
+			t.MinVersion = TLS12
+		}
 		h := c.Listeners[i].HTTP
 		if h == nil {
 			continue

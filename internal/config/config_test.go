@@ -87,9 +87,41 @@ func TestParseValid(t *testing.T) {
 		t.Errorf("default route timeout = %v", got)
 	}
 
+	if l.TLS != nil {
+		t.Errorf("tls = %+v, want none", l.TLS)
+	}
+
 	c := cfg.Clusters[0]
 	if c.Name != "app" || c.Type != "fake" || !c.HasConfig() || c.Path() != "clusters[0]" {
 		t.Errorf("cluster = name %q type %q hasConfig %v path %q", c.Name, c.Type, c.HasConfig(), c.Path())
+	}
+}
+
+func TestParseTLS(t *testing.T) {
+	src := `version: v1
+listeners:
+  - name: secure
+    address: 127.0.0.1:8443
+    tls:
+      certificates: [{cert_file: a.pem, key_file: a.key}]
+    http: &http
+      virtual_hosts: [{name: a, domains: ["*"], routes: [{match: {prefix: /}, direct_response: {}}]}]
+  - name: modern
+    address: 127.0.0.1:8444
+    tls:
+      certificates: [{cert_file: a.pem, key_file: a.key}]
+      min_version: 1.3
+    http: *http
+`
+	cfg, err := parse(t, src, nil)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := cfg.Listeners[0].TLS; got.MinVersion != TLS12 || got.Certificates[0] != (Certificate{"a.pem", "a.key"}) {
+		t.Errorf("tls = %+v, want a.pem and the default version", got)
+	}
+	if got := cfg.Listeners[1].TLS.MinVersion; got != TLS13 {
+		t.Errorf("min_version = %q, want an unquoted 1.3 read as %q", got, TLS13)
 	}
 }
 
@@ -192,6 +224,33 @@ listeners:
 				`kest.yaml:14:22: listeners[0].http.virtual_hosts[0].routes[1].match: set only one of prefix or path`,
 				`kest.yaml:17:15: listeners[0].http.virtual_hosts[0].routes[2]: an action is required`,
 				`kest.yaml:17:22: listeners[0].http.virtual_hosts[0].routes[2].match: required: set prefix or path`,
+			},
+		},
+		{
+			name: "tls",
+			src: `version: v1
+listeners:
+  - name: a
+    address: 127.0.0.1:8443
+    tls: {min_version: "1.1"}
+    http: &http
+      virtual_hosts:
+        - name: a
+          domains: ["*"]
+          routes: [{match: {prefix: /}, direct_response: {}}]
+  - name: b
+    address: 127.0.0.1:8444
+    tls:
+      certificates:
+        - {cert_file: site.pem}
+        - {key_file: site.key}
+    http: *http
+`,
+			want: []string{
+				`kest.yaml:5:10: listeners[0].tls.certificates: at least one certificate is required`,
+				`kest.yaml:5:24: listeners[0].tls.min_version: unsupported TLS version "1.1"; use "1.2" or "1.3"`,
+				`kest.yaml:15:11: listeners[1].tls.certificates[0].key_file: required`,
+				`kest.yaml:16:11: listeners[1].tls.certificates[1].cert_file: required`,
 			},
 		},
 		{

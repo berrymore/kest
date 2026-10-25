@@ -4,6 +4,7 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -106,23 +107,75 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 			errs.Append(err)
 			continue
 		}
-		limits := listener.Limits{
+		opts := listener.Options{
 			ReadHeaderTimeout: l.HTTP.ReadHeaderTimeout.Std(),
 			ReadTimeout:       l.HTTP.ReadTimeout.Std(),
 			WriteTimeout:      l.HTTP.WriteTimeout.Std(),
 			IdleTimeout:       l.HTTP.IdleTimeout.Std(),
 			MaxHeaderBytes:    int(l.HTTP.MaxHeaderBytes),
+			Metrics:           s.metrics,
 		}
-		s.listeners = append(s.listeners, listener.NewHTTP(l.Name, l.Address, h, limits, log, s.fail))
+		if l.TLS != nil {
+			certs, err := loadCertificates(cfg, i, configDir)
+			if err != nil {
+				errs.Append(err)
+				continue
+			}
+			opts.TLS = certs
+		}
+		s.listeners = append(s.listeners, listener.NewHTTP(l.Name, l.Address, h, opts, log, s.fail))
 	}
 
-	s.admin = listener.NewHTTP("admin", cfg.Admin.Address, admin.NewHandler(s), listener.DefaultLimits(),
-		logger.With("component", "admin"), s.fail)
+	s.admin = listener.NewHTTP("admin", cfg.Admin.Address, admin.NewHandler(s),
+		listener.Options{Limits: listener.DefaultLimits()}, logger.With("component", "admin"), s.fail)
 
 	if err := errs.Err(); err != nil {
 		return nil, err
 	}
 	return s, nil
+}
+
+// loadCertificates loads the certificates of listener i, with paths relative
+// to configDir. A pair that doesn't load is a config error at its path.
+func loadCertificates(cfg *config.Config, i int, configDir string) (*listener.Certificates, error) {
+	t := cfg.Listeners[i].TLS
+	files := make([]listener.CertFiles, len(t.Certificates))
+	for j, c := range t.Certificates {
+		files[j] = listener.CertFiles{Cert: resolve(configDir, c.CertFile), Key: resolve(configDir, c.KeyFile)}
+	}
+	version := uint16(tls.VersionTLS12)
+	if t.MinVersion == config.TLS13 {
+		version = tls.VersionTLS13
+	}
+	certs, err := listener.LoadCertificates(files, version)
+	if err == nil {
+		return certs, nil
+	}
+	var errs config.Errors
+	for _, e := range unjoin(err) {
+		if ce, ok := errors.AsType[*listener.CertError](e); ok {
+			errs.Append(cfg.ErrorAt(fmt.Sprintf("listeners[%d].tls.certificates[%d]", i, ce.Index), ce.Err.Error()))
+		} else {
+			errs.Append(e)
+		}
+	}
+	return nil, errs.Err()
+}
+
+// unjoin returns the errors joined in err, or err alone.
+func unjoin(err error) []error {
+	if j, ok := err.(interface{ Unwrap() []error }); ok {
+		return j.Unwrap()
+	}
+	return []error{err}
+}
+
+// resolve makes a path relative to dir absolute; dir is "" without a config file.
+func resolve(dir, path string) string {
+	if filepath.IsAbs(path) || dir == "" {
+		return path
+	}
+	return filepath.Join(dir, path)
 }
 
 // configDir returns the absolute directory of the config file, or "" without one.

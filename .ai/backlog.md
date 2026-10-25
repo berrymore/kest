@@ -132,7 +132,9 @@ Milestone definitions: `roadmap.md`.
 
 ## M4 — HTTP edge features
 
-- [ ] K-080 TLS listeners from cert files.
+- [x] K-080 TLS listeners from cert files. `listeners[].tls` (`certificates` picked by SNI, `min_version`), loaded
+  when the graph is built (located errors in `kest validate`), checked every 10s and reloaded once a change holds
+  still; `kest_tls_certificate_expiry_timestamp_seconds`, `kest_tls_handshake_errors_total`.
 - [ ] K-081 HTTP/2 (h2 over TLS, h2c).
 - [ ] K-082 Static files route action / filter.
 - [ ] K-083 Compression filter.

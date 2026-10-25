@@ -323,7 +323,7 @@ internal/buildinfo/          🟢 version information (ldflags or embedded VCS d
 internal/config/             🟢 load, env expansion, strict decode, defaults, validation, dump
 internal/registry/           🟢 extension categories and factories
 internal/server/             🟢 build graph from config; start/stop order; drain
-internal/listener/           🟢 HTTP listeners (bind in Start, drain in Stop; listener.Limits from the http block)
+internal/listener/           🟢 HTTP listeners (bind in Start, drain in Stop; limits from the http block; TLS certificates, reloaded on change)
 internal/httpx/              🟢 filter chain, router, route actions
 internal/admin/              🟢 admin HTTP API
 internal/logging/            🟢 slog setup

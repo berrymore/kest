@@ -5,11 +5,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/berrymore/kest/internal/metrics"
 )
 
 // Limits are a listener's server timeouts and header size; a zero timeout
@@ -28,6 +32,16 @@ func DefaultLimits() Limits {
 	return Limits{ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second, MaxHeaderBytes: 1 << 20}
 }
 
+// Options configure a listener.
+type Options struct {
+	Limits
+	// TLS makes the listener serve HTTPS with these certificates; nil serves
+	// plain HTTP.
+	TLS *Certificates
+	// Metrics gets the listener's metrics; nil: a registry nothing reads.
+	Metrics *metrics.Registry
+}
+
 // HTTP serves a handler on one address. It binds in Start and drains
 // in-flight requests in Stop.
 type HTTP struct {
@@ -37,29 +51,66 @@ type HTTP struct {
 	logger  *slog.Logger
 	onFatal func(error)
 
-	mu sync.Mutex
-	ln net.Listener
-	wg sync.WaitGroup
+	certs        *Certificates // nil without TLS
+	certInterval time.Duration // how often certs are checked; replaced in tests
+
+	mu        sync.Mutex
+	ln        net.Listener
+	stopWatch context.CancelFunc // stops the certificate checks; nil without TLS
+	wg        sync.WaitGroup
 }
 
 // NewHTTP creates a listener. onFatal is called if serving fails after
 // Start, for example when the listening socket breaks.
-func NewHTTP(name, address string, handler http.Handler, limits Limits, logger *slog.Logger, onFatal func(error)) *HTTP {
-	return &HTTP{
-		name:    name,
-		address: address,
-		logger:  logger,
-		onFatal: onFatal,
+func NewHTTP(name, address string, handler http.Handler, opts Options, logger *slog.Logger, onFatal func(error)) *HTTP {
+	reg := opts.Metrics
+	if reg == nil {
+		reg = metrics.NewRegistry()
+	}
+	l := &HTTP{
+		name:         name,
+		address:      address,
+		logger:       logger,
+		onFatal:      onFatal,
+		certs:        opts.TLS,
+		certInterval: CertCheckInterval,
 		server: &http.Server{
 			Handler:           handler,
-			ReadHeaderTimeout: limits.ReadHeaderTimeout,
-			ReadTimeout:       limits.ReadTimeout,
-			WriteTimeout:      limits.WriteTimeout,
-			IdleTimeout:       limits.IdleTimeout,
-			MaxHeaderBytes:    limits.MaxHeaderBytes,
-			ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelWarn),
+			ReadHeaderTimeout: opts.ReadHeaderTimeout,
+			ReadTimeout:       opts.ReadTimeout,
+			WriteTimeout:      opts.WriteTimeout,
+			IdleTimeout:       opts.IdleTimeout,
+			MaxHeaderBytes:    opts.MaxHeaderBytes,
 		},
 	}
+	handshakeErrors := &metrics.Counter{} // nothing reads it without TLS
+	if l.certs != nil {
+		l.server.TLSConfig = l.certs.config()
+		l.certs.register(reg, name)
+		handshakeErrors = reg.NewCounterVec("kest_tls_handshake_errors_total",
+			"TLS handshakes that failed, by listener.", "listener").With(name)
+	}
+	l.server.ErrorLog = log.New(&serverLog{logger: logger, handshakeErrors: handshakeErrors}, "", 0)
+	return l
+}
+
+// serverLog takes net/http's messages for a listener's server: warnings,
+// except TLS handshake errors. Clients cause those all the time (scanners,
+// outdated trust stores), so they are counted and logged at debug level.
+type serverLog struct {
+	logger          *slog.Logger
+	handshakeErrors *metrics.Counter
+}
+
+func (s *serverLog) Write(p []byte) (int, error) {
+	msg := strings.TrimSuffix(string(p), "\n")
+	if strings.HasPrefix(msg, "http: TLS handshake error") {
+		s.handshakeErrors.Inc()
+		s.logger.Debug(msg)
+	} else {
+		s.logger.Warn(msg)
+	}
+	return len(p), nil
 }
 
 // Name returns the listener name.
@@ -89,12 +140,19 @@ func (l *HTTP) Start(ctx context.Context) error {
 	l.ln = ln
 	l.mu.Unlock()
 
+	serve := l.server.Serve
+	if l.certs != nil {
+		serve = func(ln net.Listener) error { return l.server.ServeTLS(ln, "", "") }
+		wctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+		l.stopWatch = cancel
+		l.wg.Go(func() { l.certs.watch(wctx, l.certInterval, l.logger) })
+	}
 	l.wg.Go(func() {
-		if err := l.server.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
+		if err := serve(ln); !errors.Is(err, http.ErrServerClosed) {
 			l.onFatal(fmt.Errorf("listener %q: serve: %w", l.name, err))
 		}
 	})
-	l.logger.Info("listening", "address", ln.Addr().String())
+	l.logger.Info("listening", "address", ln.Addr().String(), "tls", l.certs != nil)
 	return nil
 }
 
@@ -105,6 +163,9 @@ func (l *HTTP) Stop(ctx context.Context) error {
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		l.logger.Warn("drain timeout reached; closing remaining connections")
 		err = l.server.Close()
+	}
+	if l.stopWatch != nil {
+		l.stopWatch()
 	}
 	l.wg.Wait()
 	return err
