@@ -83,8 +83,8 @@ func (p *Pool) Lane(cfg LaneConfig) (*Lane, error) {
 	switch {
 	case cfg.MaxWorkers < 0:
 		add("MaxWorkers", "must not be negative, got %d", cfg.MaxWorkers)
-	case cfg.MaxWorkers > p.cfg.Workers:
-		add("MaxWorkers", "must not exceed the pool's %d workers, got %d", p.cfg.Workers, cfg.MaxWorkers)
+	case cfg.MaxWorkers > p.cfg.size():
+		add("MaxWorkers", "must not exceed the pool's %d workers, got %d", p.cfg.size(), cfg.MaxWorkers)
 	}
 	if cfg.Priority < PriorityLow || cfg.Priority > PriorityHigh {
 		add("Priority", "unknown priority %d", cfg.Priority)
@@ -185,6 +185,9 @@ func (l *Lane) exec(ctx context.Context, req Payload) (Payload, *Stream, error) 
 	p.enqueueLocked(j)
 	p.dispatchLocked()
 	queued := j.inQueue
+	if queued {
+		p.growLocked()
+	}
 	p.mu.Unlock()
 
 	var timeout <-chan time.Time
@@ -323,19 +326,24 @@ func (p *Pool) assignLocked(j *job, s *slot) {
 	s.jobs <- j // the slot holds no other job: never blocks
 }
 
-// dispatchLocked hands queued jobs to idle slots while both are there.
-// Once the pool stops, no job is handed out.
+// dispatchLocked hands queued jobs to idle slots while both are there, base
+// slots first, so that extra ones go idle when the load drops. Once the pool
+// stops, no job is handed out.
 func (p *Pool) dispatchLocked() {
 	if p.run.Err() != nil {
 		return
 	}
-	for len(p.idle) > 0 {
+	for len(p.idle)+len(p.idleExtra) > 0 {
 		j := p.nextLocked()
 		if j == nil {
 			return
 		}
-		s := p.idle[0]
-		p.idle = slices.Delete(p.idle, 0, 1)
+		list := &p.idle
+		if len(p.idle) == 0 {
+			list = &p.idleExtra
+		}
+		s := (*list)[0]
+		*list = slices.Delete(*list, 0, 1)
 		p.assignLocked(j, s)
 	}
 }
@@ -345,13 +353,20 @@ func (p *Pool) dispatchLocked() {
 func (p *Pool) park(s *slot) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.bootedLocked(s) {
+		defer p.growLocked() // after the job it takes no longer waits
+	}
 	if p.run.Err() == nil {
 		if j := p.nextLocked(); j != nil {
 			p.assignLocked(j, s)
 			return
 		}
 	}
-	p.idle = append(p.idle, s)
+	if s.extra {
+		p.idleExtra = append(p.idleExtra, s)
+	} else {
+		p.idle = append(p.idle, s)
+	}
 }
 
 // unpark takes a parked slot off the idle list because it has something
@@ -359,8 +374,12 @@ func (p *Pool) park(s *slot) {
 func (p *Pool) unpark(s *slot) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if i := slices.Index(p.idle, s); i >= 0 {
-		p.idle = slices.Delete(p.idle, i, i+1)
+	list := &p.idle
+	if s.extra {
+		list = &p.idleExtra
+	}
+	if i := slices.Index(*list, s); i >= 0 {
+		*list = slices.Delete(*list, i, i+1)
 		return
 	}
 	p.requeueLocked(<-s.jobs) // not idle: a job was handed to it

@@ -29,6 +29,7 @@ import (
 	"github.com/berrymore/kest/internal/metrics"
 	"github.com/berrymore/kest/internal/metrics/metricstest"
 	"github.com/berrymore/kest/internal/registry"
+	"github.com/berrymore/kest/internal/worker"
 )
 
 // Integration tests against an unmodified roadrunner/http PSR7Worker
@@ -509,6 +510,45 @@ func TestPHPConcurrent(t *testing.T) {
 	close(errs)
 	for err := range errs {
 		t.Error(err)
+	}
+}
+
+// A pool of 1 worker with max_workers 3 grows under 3 slow requests, so that
+// they run at once, and shrinks back after scale_down_after.
+func TestPHPGrows(t *testing.T) {
+	srv, c := phpCluster(t, CodecJSON, func(c *Config) {
+		c.Pool.Workers, c.Pool.MaxWorkers = 1, 3
+		c.Pool.ScaleDownAfter = config.Duration(time.Second)
+	}, metrics.NewRegistry())
+	start := time.Now()
+	var wg sync.WaitGroup
+	for range 3 {
+		wg.Go(func() {
+			if r := send(t, http.MethodGet, srv.URL+"/sleep/1500", "", http.NoBody, nil); r.status != http.StatusOK {
+				t.Errorf("GET /sleep/1500 = %+v", r)
+			}
+		})
+	}
+	wg.Wait()
+	// One worker would take 4.5 s; booting a PHP worker takes well under a second.
+	if elapsed := time.Since(start); elapsed > 3500*time.Millisecond {
+		t.Errorf("3 requests of 1.5 s took %s: the pool didn't grow", elapsed)
+	}
+	parked := func() int {
+		n := 0
+		for _, w := range c.pool.Workers() {
+			if w.State == worker.StateParked {
+				n++
+			}
+		}
+		return n
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for parked() != 2 {
+		if time.Now().After(deadline) {
+			t.Fatalf("extra workers didn't stop after scale_down_after: %+v", c.pool.Workers())
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 

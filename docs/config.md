@@ -403,7 +403,7 @@ Set exactly one of `match.prefix` and `match.path`. The match runs against the d
 |---|---|---|
 | `cluster` | — | Name of a cluster in `clusters`; required |
 | `timeout` | `30s` | Bounds the whole request. The cluster answers `504` when it expires; `php_workers` answers `408` if the request body is still arriving then. `0s` disables it. |
-| `max_workers` | none | At most this many of the cluster's workers serve the route at once; more requests wait in the route's queue. Up to the pool's `workers`. |
+| `max_workers` | none | At most this many of the cluster's workers serve the route at once; more requests wait in the route's queue. Up to the pool's `max_workers` (or `workers`). |
 | `priority` | `normal` | `high`, `normal` or `low`: a free worker takes the oldest request of the highest-priority lane that may take one. |
 | `queue_timeout` | the cluster's `pool.allocate_timeout` | How long a request of the route waits for a worker before it gets `503`. |
 
@@ -529,7 +529,9 @@ Uploads count towards `max_request_body`.
 
 | Field | Default | |
 |---|---|---|
-| `workers` | number of CPUs | Worker processes, 1–1024. |
+| `workers` | number of CPUs | Worker processes that always run, 1–1024. |
+| `max_workers` | `0` (= `workers`) | Up to this many while requests wait, at most 1024: an extra worker starts as soon as a request finds no free worker (one its route's lane would let through), at most `workers`/4 (at least 1) booting at once. `0` keeps the pool at `workers`. |
+| `scale_down_after` | `1m` | An extra worker idle this long stops. Requests go to the `workers` first, so the extra ones go idle when the load drops. |
 | `max_jobs` | `0` (unlimited) | Requests per worker before it is replaced; each worker's limit gets up to 14 % extra, so workers don't restart together. |
 | `max_queue_size` | `1000` | Requests that may wait for a free worker in each lane (see [`route`](#routes)); more get `503` at once. |
 | `allocate_timeout` | `60s` | How long a request waits for a free worker before it gets `503`, unless its route sets `queue_timeout`. |
@@ -573,8 +575,8 @@ makes one reset. Directories whose names start with a dot are skipped.
 A rewrite that keeps a file's size and lands within one tick of the file system's clock after a scan (a few
 milliseconds on Linux) isn't noticed until the next change.
 
-**Startup and shutdown.** kest starts every worker before it opens the listeners, and fails to start
-if one of them can't boot (the error shows the worker's exit status and the end of its stderr).
+**Startup and shutdown.** kest starts every worker (the `workers`, not the extra ones of `max_workers`) before it
+opens the listeners, and fails to start if one of them can't boot (the error shows the worker's exit status and the end of its stderr).
 Workers that crash later are replaced, with a growing delay (up to 30s) if they keep failing. A rolling
 reset (`POST /clusters/{name}/reset`, SIGHUP) boots each replacement while the old worker keeps serving, so the
 pool keeps its capacity and runs one extra process at a time. On

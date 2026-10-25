@@ -140,6 +140,10 @@ production: deploys should decide when workers switch to new code.
 - **`pool.workers`**: PHP runs one request per worker. CPU-bound applications want about one worker per core;
   applications that wait on databases or APIs want more. Start with 2× cores and watch the pool saturation
   query in [Metrics](metrics.md).
+- **`pool.max_workers`** lets the pool grow while requests wait and shrink after `scale_down_after`: memory for
+  quiet hours, workers for busy ones. A new worker boots the framework (often 100 ms to 1 s, and CPU-heavy), so it
+  helps with load that lasts, not with a spike of a second; kest boots at most `workers`/4 at once. Size `workers`
+  for the usual load and `max_workers` for the memory you can give at the peak.
 - **Waiting:** a request waits for a free worker up to `pool.allocate_timeout`, and at most
   `pool.max_queue_size` requests wait; others get `503` at once. Keep the queue short enough that a waiting
   request still finishes within its route `timeout`.

@@ -197,7 +197,7 @@ end to end. The user can look at it before the rest.
    and an operations guide section "Isolating slow endpoints".
 6. [x] K-144 overload (D4): the experiment, then the proposal (names, defaults) to the user, then the code —
    acceptance: the numbers are in `docs/benchmarks.md` and the log; tests with synctest.
-7. [ ] K-908 dynamic pool size (D5) — acceptance: synctest tests for growing, the boot limit, shrinking and parking;
+7. [x] K-908 dynamic pool size (D5) — acceptance: synctest tests for growing, the boot limit, shrinking and parking;
    an integration test with PHP; docs.
 8. [ ] K-143 `sendfile` filter (D6) — acceptance: unit tests (ranges, conditional requests, symlinks out of `dirs`,
    missing files, a client's own `X-Sendfile-Type`); the Symfony smoke test downloads a file through
@@ -265,3 +265,10 @@ end to end. The user can look at it before the rest.
   last job brought p90 to 1.7 s and the clients that gave up to 0. Lanes with `max_workers` are left out too (their
   queue is the limit at work, not an overload). The pool's unit tests run without overload control
   (`testConfig`); `TestOverload` and `TestOverloadBacklog` test it.
+- 2026-10-25 — Step 7 (K-908): `internal/worker/grow.go`; `pool.max_workers` (0 = `workers`), `pool.scale_down_after`
+  (1m); new slot state `parked`. An extra worker that reaches a limit or crashes parks (after the backoff if it
+  failed early) and is woken again at once if jobs wait, instead of being replaced in place. A boot counts until the
+  new worker first parks: counting it done when the process had booted, before it took its job, made the pool start
+  one worker too many per boot (caught by `TestPoolGrowBoots`). A Go subtlety met on the way: `s, list = list[0],
+  slices.Delete(list, 0, 1)` may read `list[0]` after the delete has cleared it (index expressions and calls on the
+  right have no fixed order); split into two statements. `BenchmarkPoolExec` unchanged (1.83 µs).

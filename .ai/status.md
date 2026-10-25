@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-10-25 (M5 on `feat/m5-pools`: steps 1–6 committed; step 7, dynamic pool size, next)_
+_Last updated: 2026-10-25 (M5 on `feat/m5-pools`: steps 1–7 committed; step 8, the sendfile filter, next)_
 
 ## Current phase
 
@@ -18,17 +18,19 @@ external authorization) to the icebox, K-141 to M6. `plans/M5-pools.md` (Active,
 1–13. Steps 1–4 are committed: the plan, K-910 route names, lanes in
 `worker.Pool` (`internal/worker/lane.go`), and route options to lanes (`route.max_workers`, `priority`,
 `queue_timeout`; `php_workers.retry_after`), and the slice end to end (`test/e2e/php_lanes_test.go`, the operations
-guide), and overload control (`pool.overload`, on by default, decided by a measurement). Step 7 is next. The agent commits each item itself after a green `make check` until the end of
+guide), overload control (`pool.overload`, on by default, decided by a measurement), and the dynamic pool size
+(`pool.max_workers`, `scale_down_after`). Step 8 is next. The agent commits each item itself after a green `make check` until the end of
 M5; the PR waits for the user's OK.
 
 ## Next up: how to continue in a fresh session
 
 1. **Git first:** `git checkout feat/m5-pools`; `git log --oneline -3` shows the `docs:` commit of the plan on top
    of K-148.
-2. **Step 7, dynamic pool size (plan D5, K-908):** `pool.max_workers`, `pool.scale_down_after`; extra slots parked
-   without a process (a new state `parked`), started when a request its lane would let through finds no free worker
-   (at most `max(1, workers/4)` boots at once), stopped after `scale_down_after` idle; the dispatcher prefers base
-   slots so extra ones go idle. Then steps 8–13 in order.
+2. **Step 8, the `sendfile` filter (plan D6, K-143):** a new package `internal/filters/sendfile` (read
+   `internal/filters/static` first, the closest filter); `dirs` required; on a 200 with `X-Sendfile` the filter drops
+   the body and the header and serves the file with `http.ServeContent`, keeping `Content-Type`,
+   `Content-Disposition`, `Cache-Control`; sets `X-Sendfile-Type: X-Sendfile` on requests; then a Symfony smoke test
+   (`test/e2e/testdata/symfony`) downloading through `BinaryFileResponse`. Then steps 9–13 in order.
 
 ## Open questions (need a decision from the user)
 

@@ -93,6 +93,8 @@ type Uploads struct {
 // Pool sizes the pool and bounds waiting for workers.
 type Pool struct {
 	Workers         int             `yaml:"workers"`
+	MaxWorkers      int             `yaml:"max_workers"` // 0: workers, a fixed size
+	ScaleDownAfter  config.Duration `yaml:"scale_down_after"`
 	MaxJobs         uint64          `yaml:"max_jobs"`
 	MaxQueueSize    int             `yaml:"max_queue_size"`
 	AllocateTimeout config.Duration `yaml:"allocate_timeout"`
@@ -130,6 +132,7 @@ func DefaultConfig() Config {
 		RetryAfter:        config.Duration(DefaultRetryAfter),
 		Pool: Pool{
 			Workers:         w.Workers,
+			ScaleDownAfter:  config.Duration(w.ScaleDownAfter),
 			MaxJobs:         w.MaxJobs,
 			MaxQueueSize:    w.MaxQueueSize,
 			AllocateTimeout: config.Duration(w.AllocateTimeout),
@@ -155,6 +158,8 @@ func DefaultConfig() Config {
 var yamlFields = map[string]string{
 	"Command":              "command",
 	"Workers":              "pool.workers",
+	"MaxWorkers":           "pool.max_workers",
+	"ScaleDownAfter":       "pool.scale_down_after",
 	"MaxQueueSize":         "pool.max_queue_size",
 	"AllocateTimeout":      "pool.allocate_timeout",
 	"StartTimeout":         "pool.start_timeout",
@@ -300,6 +305,8 @@ func (c *Config) worker(configDir string, environ []string) worker.Config {
 		Env:             c.environment(environ),
 		Dir:             resolve(configDir, c.Dir),
 		Workers:         c.Pool.Workers,
+		MaxWorkers:      c.Pool.MaxWorkers,
+		ScaleDownAfter:  c.Pool.ScaleDownAfter.Std(),
 		MaxJobs:         c.Pool.MaxJobs,
 		MaxQueueSize:    c.Pool.MaxQueueSize,
 		AllocateTimeout: c.Pool.AllocateTimeout.Std(),

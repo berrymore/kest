@@ -30,10 +30,16 @@ type Pool struct {
 
 	// The dispatcher's state (lane.go). lanes is fixed once the pool starts;
 	// the default lane is first.
-	mu    sync.Mutex
-	lanes []*Lane
-	idle  []*slot // parked slots without a job, longest idle first
-	seq   uint64  // arrival order of jobs, across lanes
+	mu        sync.Mutex
+	lanes     []*Lane
+	idle      []*slot // parked base slots without a job, longest idle first
+	idleExtra []*slot // the same for extra slots, which get jobs only when no base slot is idle
+	seq       uint64  // arrival order of jobs, across lanes
+
+	// Growing (grow.go): extra slots without a process, and how many boot.
+	parked   []*slot
+	booting  int
+	maxBoots int
 
 	waiting    atomic.Int64 // jobs in the lanes' queues
 	running    atomic.Bool
@@ -106,15 +112,22 @@ func newPool(cfg Config, logger *slog.Logger, spawn spawnFunc) *Pool {
 		p.obs = nopObserver{}
 	}
 	p.lanes = []*Lane{newLane(p, LaneConfig{})}
-	for i := range cfg.Workers {
-		p.slots = append(p.slots, &slot{
+	p.maxBoots = max(1, cfg.Workers/4)
+	for i := range cfg.size() {
+		s := &slot{
 			pool:   p,
 			id:     i,
+			extra:  i >= cfg.Workers,
 			info:   Info{Slot: i, State: StateStopped},
 			jobs:   make(chan *job, 1),
 			memory: make(chan struct{}, 1),
 			swap:   make(chan handoff),
-		})
+		}
+		if s.extra {
+			s.wake = make(chan struct{}, 1)
+			p.parked = append(p.parked, s)
+		}
+		p.slots = append(p.slots, s)
 	}
 	return p
 }
@@ -122,6 +135,7 @@ func newPool(cfg Config, logger *slog.Logger, spawn spawnFunc) *Pool {
 // Start starts every worker and returns once all of them have finished the
 // handshake. If one fails, or ctx ends first, Start stops the others and
 // returns the error: a worker that can't start is a configuration problem.
+// Extra workers (MaxWorkers) start later, when jobs wait.
 func (p *Pool) Start(ctx context.Context) error {
 	if p.run != nil {
 		return errors.New("worker pool already started")
@@ -132,7 +146,11 @@ func (p *Pool) Start(ctx context.Context) error {
 
 	first := make(chan error, len(p.slots))
 	for _, s := range p.slots {
-		p.wg.Go(func() { s.run(p.run, first) })
+		if s.extra {
+			p.wg.Go(func() { s.runExtra(p.run, first) })
+		} else {
+			p.wg.Go(func() { s.run(p.run, first) })
+		}
 	}
 	var err error
 	for range p.slots {
@@ -154,7 +172,7 @@ func (p *Pool) Start(ctx context.Context) error {
 		p.wg.Go(func() { p.supervise(p.run) })
 	}
 	p.running.Store(true)
-	p.logger.Info("workers started", "workers", len(p.slots))
+	p.logger.Info("workers started", "workers", p.cfg.Workers, "max_workers", p.cfg.size())
 	return nil
 }
 
@@ -304,16 +322,17 @@ func (p *Pool) Workers() []Info {
 	return out
 }
 
-// Health reports how many slots have a live worker.
+// Health reports how many of the base slots (Workers, not the extra ones)
+// have a live worker.
 func (p *Pool) Health() Health {
 	live := 0
-	for _, s := range p.slots {
+	for _, s := range p.slots[:p.cfg.Workers] {
 		if st := s.snapshot().State; st == StateReady || st == StateWorking {
 			live++
 		}
 	}
 	switch live {
-	case len(p.slots):
+	case p.cfg.Workers:
 		return Healthy
 	case 0:
 		return Unhealthy
@@ -333,6 +352,7 @@ const (
 	StateWorking               // running a job
 	StateStopping              // the process is being stopped
 	StateBackoff               // waiting to start a process after failures
+	StateParked                // an extra slot without a process, until jobs wait
 )
 
 func (s State) String() string {
@@ -349,6 +369,8 @@ func (s State) String() string {
 		return "stopping"
 	case StateBackoff:
 		return "backoff"
+	case StateParked:
+		return "parked"
 	default:
 		return fmt.Sprintf("State(%d)", int(s))
 	}
@@ -371,7 +393,7 @@ type Health int
 const (
 	Unhealthy Health = iota // no live worker
 	Degraded                // some slots have no live worker
-	Healthy                 // every slot has a live worker
+	Healthy                 // every base slot has a live worker
 )
 
 func (h Health) String() string {
@@ -397,10 +419,15 @@ const (
 // slot is one worker position in the pool. Its goroutine (run) owns the
 // process; other goroutines only read the snapshot, signal memory, or kill.
 type slot struct {
-	pool   *Pool
-	id     int
-	jobs   chan *job     // the job the dispatcher hands to the parked slot, capacity 1
-	memory chan struct{} // the supervisor's "over MaxWorkerMemory", capacity 1
+	pool  *Pool
+	id    int
+	extra bool          // beyond Workers: runs a process only while the pool has grown (runExtra)
+	wake  chan struct{} // an extra slot's signal to start a process, capacity 1
+	// booting is set while an extra slot counts in Pool.booting: from its
+	// wake until its new worker first parks. Guarded by Pool.mu.
+	booting bool
+	jobs    chan *job     // the job the dispatcher hands to the parked slot, capacity 1
+	memory  chan struct{} // the supervisor's "over MaxWorkerMemory", capacity 1
 
 	swap chan handoff // processes booted by Reset, taken between jobs
 	gen  uint64       // the generation the current process started in; owned by run
@@ -505,7 +532,11 @@ func (s *slot) serve(ctx context.Context, proc process) (next *handoff, failedEa
 	}
 	ttl := newOptionalTimer(ttlLeft)
 	defer ttl.stop()
-	idle := newOptionalTimer(p.cfg.IdleTTL)
+	idleAfter := p.cfg.IdleTTL
+	if s.extra {
+		idleAfter = p.cfg.ScaleDownAfter
+	}
+	idle := newOptionalTimer(idleAfter)
 	defer idle.stop()
 
 	for {
@@ -554,9 +585,13 @@ func (s *slot) serve(ctx context.Context, proc process) (next *handoff, failedEa
 				s.replace(proc, logger, reason)
 				return nil, false
 			}
-			idle.reset(p.cfg.IdleTTL)
+			idle.reset(idleAfter)
 		case <-idle.c():
 			p.unpark(s)
+			if s.extra {
+				s.retire(proc, logger, reasonScaleDown)
+				return nil, false
+			}
 			s.replace(proc, logger, ReasonIdleTTL)
 			return nil, false
 		case <-ttl.c():
@@ -669,7 +704,7 @@ func (s *slot) retire(proc process, logger *slog.Logger, reason string) {
 	switch {
 	case !stopProcess(proc, s.pool.cfg.DestroyTimeout):
 		logger.Warn("worker did not exit in time, killed", "reason", reason, "timeout", s.pool.cfg.DestroyTimeout)
-	case reason == string(ReasonMemory) || reason == string(ReasonStopRequested):
+	case reason == string(ReasonMemory) || reason == string(ReasonStopRequested) || reason == reasonScaleDown:
 		logger.Info("worker stopped", "reason", reason)
 	default:
 		logger.Debug("worker stopped", "reason", reason)

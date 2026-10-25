@@ -95,6 +95,8 @@ func TestConfigFull(t *testing.T) {
         allow: [.jpg]
       pool:
         workers: 3
+        max_workers: 6
+        scale_down_after: 30s
         max_jobs: 500
         max_queue_size: 20
         allocate_timeout: 2s
@@ -114,6 +116,8 @@ func TestConfigFull(t *testing.T) {
 		Env:             []string{"APP_ENV=prod", "DEBUG=false", "WORKERS=4", "RR_MODE=http"},
 		Dir:             "/srv/app",
 		Workers:         3,
+		MaxWorkers:      6,
+		ScaleDownAfter:  30 * time.Second,
 		MaxJobs:         500,
 		MaxQueueSize:    20,
 		AllocateTimeout: 2 * time.Second,

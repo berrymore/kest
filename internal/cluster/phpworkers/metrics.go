@@ -87,7 +87,7 @@ func (m *poolMetrics) Replaced(reason worker.Reason) {
 
 // workerStates are the states kest_pool_workers reports, all of them always.
 var workerStates = []worker.State{worker.StateStarting, worker.StateReady, worker.StateWorking, worker.StateStopping,
-	worker.StateBackoff, worker.StateStopped}
+	worker.StateBackoff, worker.StateParked, worker.StateStopped}
 
 // collectPool registers the gauges read from the pool at scrape time.
 func collectPool(reg *metrics.Registry, cluster string, p *worker.Pool) {

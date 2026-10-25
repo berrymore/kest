@@ -190,8 +190,9 @@ IDs start at K-140: the milestones were renumbered on 2026-10-25 (ADR-0008), and
 - [x] K-144 Fast rejection under overload: `Retry-After` on every `503` of the pool, per-route `queue_timeout`, and
   overload control (CoDel, `pool.overload`, on by default at 500ms / 5s after a measurement; plan D3, D4;
   2026-10-25).
-- [ ] K-908 Dynamic pool size: extra workers start as soon as requests wait, not after `allocate_timeout` as in
-  RoadRunner's `pool.dynamic_allocator`, and stop when idle (plan D5).
+- [x] K-908 Dynamic pool size: extra workers start as soon as requests wait, not after `allocate_timeout` as in
+  RoadRunner's `pool.dynamic_allocator`, and stop when idle (`pool.max_workers`, `scale_down_after`; plan D5;
+  2026-10-25).
 - [ ] K-143 `sendfile` filter: PHP answers `X-Sendfile`, kest sends the file from configured directories, with
   ranges and conditional requests (plan D6; RoadRunner's `send` middleware ✅ in `research/roadrunner.md`).
 - [ ] K-140 Route matches on method, headers and query parameters, and regular-expression paths (RE2) (plan D7).

@@ -30,7 +30,7 @@ stays bounded:
 - `code`: the HTTP status code of the response.
 - `state`, `reason`: the fixed values listed below.
 - `cert_file`: a TLS certificate file from the config.
-- `slot`: a worker's position in its pool, `0` to `workers - 1`. Workers are not labeled by pid, so replacing them
+- `slot`: a worker's position in its pool, `0` to `max_workers - 1` (`workers - 1` for a pool of a fixed size). Workers are not labeled by pid, so replacing them
   doesn't add series.
 
 ## HTTP
@@ -56,7 +56,7 @@ For each `php_workers` cluster:
 
 | Metric | Type | Labels | |
 |---|---|---|---|
-| `kest_pool_workers` | gauge | `cluster`, `state` | Worker slots by state: `starting`, `ready`, `working`, `stopping`, `backoff` (waiting to restart after failures), `stopped`. |
+| `kest_pool_workers` | gauge | `cluster`, `state` | Worker slots by state: `starting`, `ready`, `working`, `stopping`, `backoff` (waiting to restart after failures), `parked` (an extra slot of a pool that can grow, without a worker now), `stopped`. |
 | `kest_pool_queue_length` | gauge | `cluster`, `route` | Requests waiting for a free worker, by lane. |
 | `kest_pool_lane_workers` | gauge | `cluster`, `route` | Workers running the requests of each lane now. |
 | `kest_pool_buffered_body_bytes` | gauge | `cluster` | Request body bytes reserved now, out of `max_buffered_bodies`. |

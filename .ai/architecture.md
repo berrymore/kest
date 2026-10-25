@@ -298,7 +298,9 @@ Stopped ──▶ Starting ──▶ Ready ⇄ Working ──▶ Stopping ──
 | Working | job done, `max_jobs` / `ttl` / memory limit reached, or the worker asked to be replaced | Stopping |
 | Working | crash, protocol error, `exec_ttl` exceeded | killed, then Backoff or Starting |
 | Stopping | process exited after the stop frame, or SIGKILL after `destroy_timeout` | Starting (or done if the pool stops) |
-| Backoff | 100 ms … 30 s elapsed (exponential, jitter) | Starting |
+| Backoff | 100 ms … 30 s elapsed (exponential, jitter) | Starting (Parked for an extra slot) |
+| Parked | an extra slot (beyond `Workers`) is woken: a job waits that its lane would let through (M5) | Starting |
+| Ready | an extra worker idle for `ScaleDownAfter`, or its process ends | Stopping, then Parked |
 | Ready | `Pool.Reset` hands over a booted process | Ready with the new process; the old one stops in the background |
 
 - Dispatch (`lane.go`): a ready slot parks: under the pool's mutex it takes the next job a lane may hand out, or joins
@@ -307,6 +309,11 @@ Stopped ──▶ Starting ──▶ Ready ⇄ Working ──▶ Stopping ──
   list and gives back a job handed to it meanwhile, to the head of its lane (failed instead if its queue timeout has
   passed or the pool stops, dropped if its caller is gone). A lane's busy count drops when the slot is done with the
   job, the last stream frame included.
+- Growing (`grow.go`, M5): slots `Workers`…`MaxWorkers-1` are extra. Their goroutine (`runExtra`) parks them without a
+  process until `growLocked` wakes one: when a queued job that its lane would let through finds no free worker, at
+  most `max(1, Workers/4)` booting at once, and no more than such jobs wait. A boot counts until the new worker first
+  parks (and takes a job). Idle extra workers stop after `ScaleDownAfter`; base slots get jobs first (`idle` before
+  `idleExtra`), so the extra ones go idle. `Health` counts the base slots only.
 - Overload control (CoDel, `OverloadQueueTimeout`/`OverloadInterval`, 500ms/5s by default): a lane is overloaded
   once jobs have waited in it without a break for the interval (`backlogSince`, reset only when a worker takes the
   last waiting job). Its new jobs then wait at most the overload timeout (`ErrOverloaded`), and `nextLocked` sheds

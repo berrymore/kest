@@ -655,7 +655,7 @@ func TestConfigValidate(t *testing.T) {
 	}
 
 	bad := Config{
-		Workers:         MaxWorkers + 1,
+		Workers:         WorkerLimit + 1,
 		MaxQueueSize:    0,
 		MaxFrameSize:    0,
 		AllocateTimeout: 0,

@@ -15,7 +15,9 @@ type Config struct {
 	Env     []string // the complete worker environment; RR_RELAY=pipes is added
 	Dir     string   // working directory; empty means kest's
 
-	Workers         int           // number of worker processes
+	Workers         int           // worker processes that always run
+	MaxWorkers      int           // up to this many while jobs wait (extra workers); 0 = Workers, a fixed size
+	ScaleDownAfter  time.Duration // an extra worker idle this long stops
 	MaxJobs         uint64        // jobs per worker before it is replaced (+0…14 % jitter); 0 = unlimited
 	MaxQueueSize    int           // callers that may wait for a free worker
 	AllocateTimeout time.Duration // how long a caller waits for a free worker
@@ -40,7 +42,7 @@ type Config struct {
 
 // Limits on Config values.
 const (
-	MaxWorkers = 1024
+	WorkerLimit = 1024 // most worker processes in a pool
 )
 
 // DefaultConfig returns the defaults. RoadRunner leaves the queue, the job
@@ -48,6 +50,7 @@ const (
 func DefaultConfig() Config {
 	return Config{
 		Workers:         runtime.NumCPU(),
+		ScaleDownAfter:  time.Minute,
 		MaxQueueSize:    1000,
 		AllocateTimeout: 60 * time.Second,
 		StartTimeout:    60 * time.Second,
@@ -62,6 +65,11 @@ func DefaultConfig() Config {
 		OverloadQueueTimeout: 500 * time.Millisecond,
 		OverloadInterval:     5 * time.Second,
 	}
+}
+
+// size returns the most workers the pool runs.
+func (c *Config) size() int {
+	return max(c.Workers, c.MaxWorkers)
 }
 
 // FieldError is an invalid Config field. Callers with a config file
@@ -85,8 +93,15 @@ func (c *Config) Validate() error {
 	if len(c.Command) == 0 || c.Command[0] == "" {
 		add("Command", "must not be empty")
 	}
-	if c.Workers < 1 || c.Workers > MaxWorkers {
-		add("Workers", "must be between 1 and %d, got %d", MaxWorkers, c.Workers)
+	if c.Workers < 1 || c.Workers > WorkerLimit {
+		add("Workers", "must be between 1 and %d, got %d", WorkerLimit, c.Workers)
+	}
+	switch {
+	case c.MaxWorkers == 0:
+	case c.MaxWorkers < c.Workers || c.MaxWorkers > WorkerLimit:
+		add("MaxWorkers", "must be between the %d workers and %d, got %d", c.Workers, WorkerLimit, c.MaxWorkers)
+	case c.MaxWorkers > c.Workers && c.ScaleDownAfter <= 0:
+		add("ScaleDownAfter", "must be positive while the pool can grow, got %s", c.ScaleDownAfter)
 	}
 	if c.MaxQueueSize < 1 {
 		add("MaxQueueSize", "must be at least 1, got %d", c.MaxQueueSize)
