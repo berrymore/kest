@@ -1,11 +1,11 @@
 # Status
 
-_Last updated: 2026-10-25 (M4 narrowed by ADR-0008, PR #3 open for the user's review)_
+_Last updated: 2026-10-25 (M4 merged, PR #3; M5 not started)_
 
 ## Current phase
 
-**M4 (HTTP edge features) is done and narrowed** on `feat/m4-http-edge`, pushed, in PR #3. The user
-delegated the milestone on 2026-10-25, looked at the result, and found kest drifting towards nginx and Envoy.
+**M4 (HTTP edge features) is done and merged** (PR #3, squashed into `main`). The user delegated the milestone
+on 2026-10-25, looked at the result, and found kest drifting towards nginx and Envoy.
 ADR-0008 (accepted) draws the line: kest is an application server behind a proxy; it takes on what concerns how
 the proxy talks to the application or what makes up for a weakness of PHP. So, before the merge, the `http_proxy`
 cluster was removed (K-085), filters can be set on virtual hosts and routes (K-096), and static files are the
@@ -18,40 +18,30 @@ responses from PHP (generators, `$chunkSize`, 103 Early Hints).
 
 ## In progress
 
-Nothing: PR #3 waits for the user's review.
+Nothing. M5 is next, but the user asked not to start it in the session that merged M4.
 
 ## Next up: how to continue in a fresh session
 
-1. **Git first:** `git status` on `feat/m4-http-edge`; `git log --oneline main..HEAD` shows one commit per item
-   (K-080…K-090, then the narrowing: K-085 removed, K-096, K-082 redone) and the `docs:` commits (ADR-0008 among
-   them).
-2. **PR #3 is open** (`gh pr view 3`). Merge only on the user's go-ahead: `gh pr merge 3 --squash
-   --delete-branch` (`rules.md` § 9); if the branch changed after the docs review, run it again first. If a push
-   over SSH fails while the SSH agent is locked: `git -c credential.helper= -c "credential.helper=!gh auth
-   git-credential" push https://github.com/berrymore/kest.git feat/m4-http-edge:feat/m4-http-edge`.
-3. **After the merge: M5 (Routing, filters and pools)** on a new branch `feat/m5-routing` from an updated `main`.
-   Read `roadmap.md` § M5, `backlog.md` § M5 (K-140…K-147, K-095, K-905, K-908, K-910), ADR-0008 and `architecture.md`
-   § 2–4 (`internal/httpx`: router, filter chain, metrics). First write `plans/M5-routing.md` and agree its scope
-   with the user (vertical slice first). Research before designing: Envoy's route matching and
+1. **Git first:** `git checkout main && git pull`; `git status` is clean, `git log --oneline -3` shows the M4
+   squash commit on top.
+2. **M5 (Routing, filters and pools)** on a new branch `feat/m5-routing` from `main`, once the user says to start.
+   Read `roadmap.md` § M5, `backlog.md` § M5 (K-140…K-147, K-095, K-905, K-908, K-910), ADR-0008 and
+   `architecture.md` § 2–4 (`internal/httpx`: router, filter chain, metrics). First write `plans/M5-routing.md` and
+   agree its scope with the user (vertical slice first). Research before designing: Envoy's route matching and
    `typed_per_filter_config` ❓, RoadRunner's `sendfile` middleware ❓ (K-143).
 
 ## Open questions (need a decision from the user)
 
-- **Q10** — Review the M4 decisions taken while away, in `plans/M4-http-edge.md`: the schema changes D1–D8 and D12
-  (`tls`, `http.protocols`, `http.normalize_path`/`merge_slashes` on by default, the filters `client_ip`,
-  `headers`, `cors`, `compression`, `static`, the `redirect` action, `filters` on virtual hosts and routes).
-  Recommendation: accept them as a whole with the PR.
-- **Q12** — The order of M6 (WASM sandbox) and M7 (Protocols: gRPC, WebSockets and SSE, unix sockets). The roadmap
-  keeps WASM first, since WASM filters build on the filter model that M5 finishes. Recommendation: keep it; swap if
-  gRPC or WebSockets are needed sooner.
+None.
 
 ## Resolved decisions
 
+- 2026-10-25 — The user merged PR #3 (M4). The schema changes D1–D8 and D12 (was Q10) went in with it as proposed.
+  M6 WASM stays before M7 Protocols (was Q12).
 - 2026-10-25 — Filters stay nested (listener → virtual host → route), rather than on listeners only with
   include/exclude paths in `static`: the router scopes every filter by host and path in one place, and a deny
   route can't be bypassed by a filter that keeps its own path list. Turning a listener filter off on a route stays
   K-141 (M5). The user then had the branch pushed and PR #3 opened.
-
 - 2026-10-25 — ADR-0008 accepted: kest is an application server behind a proxy, not an edge proxy. M4 narrowed
   before its merge (`http_proxy` removed, static files as a filter on routes, filters on virtual hosts and routes);
   HTTP/2 and h2c are core, TLS and gzip stay as they are; dropped K-091, K-092, K-093, K-094, K-906. New
@@ -110,6 +100,8 @@ Nothing: PR #3 waits for the user's review.
 
 ## Session log (newest first, keep ~15)
 
+- **2026-10-25** — Kept filters nested after the user asked about listener-only filters with paths in `static`;
+  PR #3 opened, then merged (squash) on the user's go-ahead, WASM kept before protocols. M5 not started, as asked.
 - **2026-10-25** — The user looked at M4 and questioned the direction: kest was becoming an edge proxy. ADR-0008
   (accepted) positions it behind a proxy; `context.md`, roadmap and backlog follow (M5 routing, filters and pools;
   M7 protocols). M4 narrowed: K-085 `http_proxy` removed, K-096 filters on virtual hosts and routes (a filter's own

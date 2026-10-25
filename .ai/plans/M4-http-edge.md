@@ -1,9 +1,8 @@
 # Plan: M4 — HTTP edge features
 
-- **Status:** Done (2026-10-25), on `feat/m4-http-edge`, not pushed: the user delegated M4 ("start M4, write the
-  plan, try to finish the milestone yourself") and asked not to open the PR before they have looked at the result
-  locally. The decisions below
-  were taken by the agent; the ones marked **schema** change the config file and are listed for the user's
+- **Status:** Done (2026-10-25), merged in PR #3. The user delegated M4 ("start M4, write the plan, try to finish
+  the milestone yourself") and asked not to open the PR before they had looked at the result locally. The decisions
+  below were taken by the agent; the ones marked **schema** change the config file and were listed for the user's
   review. After that look, the user narrowed the milestone (ADR-0008, step 13): D9 and D11 are superseded by D12.
 - **Milestone:** M4
 - **Backlog:** K-080…K-090, K-096 (K-084 split into K-084, K-089, K-090 on 2026-10-25; K-085 removed)
@@ -223,7 +222,8 @@ Steps 1–2 are the vertical slice: `curl --http2 -k https://localhost:8443/` ag
   gRPC in M7); TLS and gzip stay as they are. K-095 moved to M5. After the narrowing `make check`,
   `make test-integration` and `make test-matrix` (PHP 8.3.36, 8.4.27, 8.5.12) are green; the docs review found 6
   drifts, all fixed. The user asked whether filters should stay on listeners only, with include/exclude paths in
-  `static`; kept nested, since the router then scopes every filter by host and path in one place. PR #3.
+  `static`; kept nested, since the router then scopes every filter by host and path in one place. PR #3, merged
+  on the user's go-ahead with D1–D8 and D12 as proposed.
 
 - 2026-10-25 — Step 12 done: README, getting started (RoadRunner mapping), operations (TLS, load balancers),
   architecture; the docs review found 19 drifts (one blocker: `docs/config.md` still said streaming was
