@@ -37,7 +37,7 @@ None.
 
 ## Resolved decisions
 
-- 2026-10-25 — K-148: the user had it committed on its own branch, the PR opened and merged (squash) without
+- 2026-10-25 — K-148: the user had it committed on its own branch, PR #4 opened and merged (squash) without
   stopping. K-150 (the benchmark with OPcache and JIT, was Q13): not now. msgpack: the user asked, the agent
   advised against it (`research/roadrunner.md`, the codec paragraph: `roadrunner/http` doesn't read it, goridge 4.6
   deprecates it, at most ~2 µs of the 4.5 µs `json_decode` takes per request); nothing planned.
@@ -113,7 +113,7 @@ None.
   With the extension `proto` is 1–4 % behind `json` (it was 30–35 %); PHP pays 14.4 µs per request for `json`,
   20.1 µs for `proto` with the extension, 135 µs without (`test/bench/codec.php`, new). RoadRunner is 8 % ahead on
   forms with 16 clients, confirmed by an interleaved re-run: kest's server takes more CPU per request (K-149).
-  msgpack advised against; K-150 (OPcache and JIT) proposed, not now. Merged on the user's go-ahead (squash).
+  msgpack advised against; K-150 (OPcache and JIT) proposed, not now. PR #4, merged on the user's go-ahead (squash).
 - **2026-10-25** — Kept filters nested after the user asked about listener-only filters with paths in `static`;
   PR #3 opened, then merged (squash) on the user's go-ahead, WASM kept before protocols. M5 not started, as asked.
 - **2026-10-25** — The user looked at M4 and questioned the direction: kest was becoming an edge proxy. ADR-0008
