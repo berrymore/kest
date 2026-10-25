@@ -4,9 +4,9 @@
   plan, try to finish the milestone yourself") and asked not to open the PR before they have looked at the result
   locally. The decisions below
   were taken by the agent; the ones marked **schema** change the config file and are listed for the user's
-  review.
+  review. After that look, the user narrowed the milestone (ADR-0008, step 13): D9 and D11 are superseded by D12.
 - **Milestone:** M4
-- **Backlog:** K-080…K-090 (K-084 split into K-084, K-089, K-090 on 2026-10-25)
+- **Backlog:** K-080…K-090, K-096 (K-084 split into K-084, K-089, K-090 on 2026-10-25; K-085 removed)
 
 ## Goal
 
@@ -17,14 +17,19 @@ headers, answer CORS and compress responses; routes redirect; `php_workers` serv
 and a `static_files` cluster serves whole directories; PHP workers stream responses (generators, early hints); and
 an `http_proxy` cluster forwards to remote endpoints with load balancing, health checks and retries.
 
+Narrowed by ADR-0008 before the merge: kest is an application server behind a proxy, not "the edge". The files of
+`public/` come from a `static` filter on the route to PHP, filters can be set on virtual hosts and routes, and
+`http_proxy` is gone (D12).
+
 Exit criteria:
 - `curl --http2 https://…` reaches `examples/php-hello` through a TLS listener, and h2c with prior knowledge works
   on a plain listener; a renewed certificate is served without a restart.
 - A deny route on `/admin/` can't be bypassed with dot segments, duplicate slashes or `%2e%2e`.
 - A PHP generator streams chunk by chunk; a client that disconnects stops the stream, and the worker serves the
   next request.
-- `http_proxy` spreads requests over its endpoints, skips one that fails its health checks, and retries a
-  connect failure on another endpoint.
+- ~~`http_proxy` spreads requests over its endpoints, skips one that fails its health checks, and retries a
+  connect failure on another endpoint.~~ Dropped with `http_proxy` (D12). Instead: a route with the `static` filter
+  serves the files of `public/` without PHP; other routes and virtual hosts don't.
 - `make check`, `make test-integration` and `make test-matrix` are green.
 
 ## Design notes
@@ -103,7 +108,7 @@ gzip, the response has no `Content-Encoding`, isn't `HEAD`, `204`, `304` or `206
 no-transform`; then `Content-Length` is dropped, `Vary: Accept-Encoding` added and a strong `ETag` made weak.
 Flushes reach the client (streams stay streams). Writers are pooled.
 
-**D9. Static files** (K-082, schema). One implementation (`internal/staticfiles`), two uses:
+**D9. Static files** (K-082, schema). _Superseded by D12._ One implementation (`internal/staticfiles`), two uses:
 - `php_workers.static: {dir: public, forbid: [.php], headers: {}}`: a `GET` or `HEAD` for a regular file under
   `dir` is served by kest, everything else goes to PHP (nginx's `try_files $uri /index.php`, RoadRunner's
   `http.static`). Off unless `dir` is set.
@@ -127,7 +132,8 @@ stream with a `STOP` frame and discards frames until one without `STREAM`. kest:
   first final frame, sends each body chunk as it comes and flushes. An error after the headers went out aborts the
   connection, so the client sees a cut-off response. A non-streamed response is written as today.
 
-**D11. `http_proxy` cluster** (K-085, schema). The second cluster type, on `httputil.ReverseProxy`:
+**D11. `http_proxy` cluster** (K-085, schema). _Superseded by D12: built, then removed._ The second cluster type,
+on `httputil.ReverseProxy`:
 
 ```yaml
 - name: api
@@ -157,6 +163,17 @@ metrics: `kest_upstream_requests_total{cluster,endpoint,code}`, `kest_upstream_e
 reason}`, `kest_upstream_retries_total{cluster}`, `kest_upstream_endpoint_healthy{cluster,endpoint}`. Q-D is
 answered: the cluster interface stays `http.Handler`.
 
+**D12. Narrowing after the user's look** (ADR-0008; K-096, K-082, K-085; schema). kest stands behind a proxy:
+- `http_proxy` is removed with its metrics and docs; the cluster interface stays `http.Handler`.
+- Filters on virtual hosts and routes (K-096): `virtual_hosts[].filters` run for every request to the virtual host
+  the router chose, `routes[].filters` after them for the route it chose, then the action. The router instruments
+  each virtual host; a route's cluster marks the request in `RequestInfo`, so a response that a filter makes counts
+  with `cluster=""`, and there is no lookup per request.
+- The `static` filter (`internal/filters/static`) replaces `php_workers.static` and the `static_files` cluster:
+  `{dir, forbid: [.php], headers}`, the file for a `GET` or `HEAD` if there is one, else the rest of the chain. Set
+  on the route to PHP, it can't serve past a deny route or on another application's virtual host. `dir` is checked
+  when the graph is built, so `kest validate` reports it. Directory index files (`index`) went with the cluster.
+
 **Other choices.**
 - Response wrappers (headers, compression, CORS) keep `Flush`, `Unwrap` and `http.ResponseController` working, so
   streams and `Upgrade` pass through them.
@@ -181,10 +198,12 @@ Steps 1–2 are the vertical slice: `curl --http2 -k https://localhost:8443/` ag
    PHP gets the rest, no escape from `dir`.
 10. [x] **Streaming responses** (K-088) — acceptance: PHP integration test with a generator and with 103 Early
     Hints; a client that disconnects mid-stream stops it and the worker serves the next request.
-11. [x] **`http_proxy`** (K-085) — acceptance: e2e against test backends: balancing, health checks, retries,
-    WebSocket upgrade.
+11. [x] ~~**`http_proxy`** (K-085) — acceptance: e2e against test backends: balancing, health checks, retries,
+    WebSocket upgrade.~~ Removed in step 13.
 12. [x] **Docs and review** — `docs/` (config reference, operations: TLS and proxies), README, architecture; the
     docs review (`review.md`). No PR until the user has looked at the branch.
+13. [x] **Narrowing (D12, ADR-0008)** — remove `http_proxy` (K-085); filters on virtual hosts and routes (K-096);
+    the `static` filter (K-082); docs, roadmap (M5 routing, filters and pools; M7 protocols), the docs review.
 
 ## Risks / open questions
 
@@ -196,6 +215,12 @@ Steps 1–2 are the vertical slice: `curl --http2 -k https://localhost:8443/` ag
   go to the backlog.
 
 ## Log
+
+- 2026-10-25 — Step 13 done (D12). The user looked at the branch and found kest drifting towards nginx and Envoy:
+  static files inside a worker pool, a reverse proxy nobody needs behind nginx. ADR-0008 (accepted) draws the
+  line; `http_proxy` and `static_files` are removed, `static` is a filter, filters work on virtual hosts and routes.
+  The PHP example's `/robots.txt` now counts without a cluster. HTTP/2 and h2c stay core (nginx's `grpc_pass`,
+  gRPC in M7); TLS and gzip stay as they are.
 
 - 2026-10-25 — Step 12 done: README, getting started (RoadRunner mapping), operations (TLS, load balancers),
   architecture; the docs review found 19 drifts (one blocker: `docs/config.md` still said streaming was

@@ -2,7 +2,7 @@
 
 > A living document. It describes the **target** design and marks what is implemented.
 > Legend: 🟢 implemented · 🟡 in progress · ⚪ planned.
-> **Last reviewed: 2026-10-25 (M4 done).** Implemented: config loading and validation, extension
+> **Last reviewed: 2026-10-25 (M4 done, narrowed by ADR-0008).** Implemented: config loading and validation, extension
 > registry, server lifecycle, HTTP listeners with configurable limits, TLS (reloaded certificates) and HTTP/2/h2c,
 > path normalization, router with `direct_response` and `redirect`; the goridge relay and the worker pool with
 > rolling resets and streamed answers (`internal/relay`, `internal/worker`); the RoadRunner HTTP payload

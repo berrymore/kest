@@ -1,44 +1,60 @@
 # Status
 
-_Last updated: 2026-10-25 (M4 done, waiting for the user's local review)_
+_Last updated: 2026-10-25 (M4 narrowed by ADR-0008, waiting for the user's go-ahead for the PR)_
 
 ## Current phase
 
-**M4 (HTTP edge features) is done** on `feat/m4-http-edge`, not pushed and without a PR: the user delegated the
-milestone on 2026-10-25 and asked to look at the result locally before a PR is opened. `plans/M4-http-edge.md` is
-its record: decisions D1–D11, steps 1–12 and a log of the deviations. kest now terminates TLS (certificates by
-SNI, reloaded on change) and HTTP/2 (h2, h2c), normalizes paths before routing, takes the client IP from trusted
-proxies (`client_ip`), sets headers (`headers`), answers CORS (`cors`), gzips (`compression`), redirects
-(`redirect` action), serves static files (`php_workers.static`, `static_files`), streams responses from PHP
-(generators, `$chunkSize`, 103 Early Hints) and proxies to remote endpoints (`http_proxy`).
+**M4 (HTTP edge features) is done and narrowed** on `feat/m4-http-edge`, not pushed and without a PR. The user
+delegated the milestone on 2026-10-25, looked at the result, and found kest drifting towards nginx and Envoy.
+ADR-0008 (accepted) draws the line: kest is an application server behind a proxy; it takes on what concerns how
+the proxy talks to the application or what makes up for a weakness of PHP. So, before the merge, the `http_proxy`
+cluster was removed (K-085), filters can be set on virtual hosts and routes (K-096), and static files are the
+`static` filter on the route to PHP instead of `php_workers.static` and the `static_files` cluster (K-082).
+`plans/M4-http-edge.md` is the record: decisions D1–D12 (D9 and D11 superseded by D12), steps 1–13 and the log.
+kest terminates TLS (certificates by SNI, reloaded on change) and HTTP/2 (h2, h2c), normalizes paths before
+routing, takes the client IP from trusted proxies (`client_ip`), sets headers (`headers`), answers CORS (`cors`),
+gzips (`compression`), redirects (`redirect` action), serves the files of `public/` (`static`) and streams
+responses from PHP (generators, `$chunkSize`, 103 Early Hints).
 
 ## In progress
 
-Nothing: the branch waits for the user.
+Nothing: the branch waits for the user's go-ahead for the PR.
 
 ## Next up: how to continue in a fresh session
 
 1. **Git first:** `git status` on `feat/m4-http-edge`; `git log --oneline main..HEAD` shows one commit per item
-   (K-080…K-090) and the `docs:` commits.
-2. **When the user has looked at the branch and agrees:** push it (`git push -u origin feat/m4-http-edge`; if SSH
-   fails while the SSH agent is locked: `git -c credential.helper= -c "credential.helper=!gh auth git-credential"
+   (K-080…K-090, then the narrowing: K-085 removed, K-096, K-082 redone) and the `docs:` commits (ADR-0008 among
+   them).
+2. **When the user agrees:** push the branch (`git push -u origin feat/m4-http-edge`; if SSH fails while the SSH
+   agent is locked: `git -c credential.helper= -c "credential.helper=!gh auth git-credential"
    push https://github.com/berrymore/kest.git feat/m4-http-edge:feat/m4-http-edge`), `gh pr create` with the milestone summary,
-   the items, the decisions to review (Q10 below), how it was tested, and that the docs review ran. Merge only on
-   the user's go-ahead (`rules.md` § 9); run the docs review again if the branch changed.
-3. **After the merge: M5 (WASM sandbox)** on a new branch `feat/m5-wasm` from an updated `main`. Read
-   `roadmap.md` § M5, `backlog.md` § M5 (K-100…), ADR-0006 and `architecture.md` § 9; K-100 (the guest ABI ADR)
-   comes first and needs research (Proxy-Wasm, http-wasm, WASI).
+   ADR-0008 and the narrowing, the items, the decisions to review (Q10 below), how it was tested, and that the docs
+   review ran. Merge only on the user's go-ahead (`rules.md` § 9); run the docs review again if the branch changed.
+3. **After the merge: M5 (Routing, filters and pools)** on a new branch `feat/m5-routing` from an updated `main`.
+   Read `roadmap.md` § M5, `backlog.md` § M5 (K-140…K-147, K-905, K-908, K-910), ADR-0008 and `architecture.md`
+   § 2–4 (`internal/httpx`: router, filter chain, metrics). First write `plans/M5-routing.md` and agree its scope
+   with the user (vertical slice first). Research before designing: Envoy's route matching and
+   `typed_per_filter_config` ❓, RoadRunner's `sendfile` middleware ❓ (K-143).
 
 ## Open questions (need a decision from the user)
 
-- **Q10** — Review the M4 decisions taken while away, in `plans/M4-http-edge.md`: the schema changes D1–D9 and
-  D11 (`tls`, `http.protocols`, `http.normalize_path`/`merge_slashes` on by default, the filters `client_ip`,
-  `headers`, `cors`, `compression`, the `redirect` action, `php_workers.static`, the cluster types `static_files`
-  and `http_proxy`). Recommendation: accept them as a whole with the PR.
-- **Q11** — `.ai/context.md`'s glossary lists the cluster types `php_workers`, `wasm`, `http_proxy`; M4 added
-  `static_files`. `context.md` changes only with the user: add it?
+- **Q10** — Review the M4 decisions taken while away, in `plans/M4-http-edge.md`: the schema changes D1–D8 and D12
+  (`tls`, `http.protocols`, `http.normalize_path`/`merge_slashes` on by default, the filters `client_ip`,
+  `headers`, `cors`, `compression`, `static`, the `redirect` action, `filters` on virtual hosts and routes).
+  Recommendation: accept them as a whole with the PR.
+- **Q12** — The order of M6 (WASM sandbox) and M7 (Protocols: gRPC, WebSockets and SSE, unix sockets). The roadmap
+  keeps WASM first, since WASM filters build on the filter model that M5 finishes. Recommendation: keep it; swap if
+  gRPC or WebSockets are needed sooner.
 
 ## Resolved decisions
+
+- 2026-10-25 — ADR-0008 accepted: kest is an application server behind a proxy, not an edge proxy. M4 narrowed
+  before its merge (`http_proxy` removed, static files as a filter on routes, filters on virtual hosts and routes);
+  HTTP/2 and h2c are core, TLS and gzip stay as they are; dropped K-091, K-092, K-093, K-094, K-906. New
+  milestones: M5 Routing, filters and pools; M7 Protocols (gRPC, WebSockets and SSE, unix sockets); WASM is M6,
+  dynamic configuration M8. A FastCGI listener waits in the icebox as a bonus (K-911).
+- 2026-10-25 — Q11 (add `static_files` to the glossary of `context.md`) is moot: the cluster type is gone. The
+  glossary changed with ADR-0008.
 
 - 2026-10-25 — M3: the agent committed each item itself after a green `make check`; the user then left the rest of
   M3 to the agent ("finish it to the end"), the PR included. The choices made while the user was away (K-070,
@@ -89,6 +105,11 @@ Nothing: the branch waits for the user.
   RoadRunner's release binary (`RR=/path/to/rr`): none is installed; K-066 used 3.0.1 from the GitHub release.
 
 ## Session log (newest first, keep ~15)
+
+- **2026-10-25** — The user looked at M4 and questioned the direction: kest was becoming an edge proxy. ADR-0008
+  (accepted) positions it behind a proxy; `context.md`, roadmap and backlog follow (M5 routing, filters and pools;
+  M7 protocols). M4 narrowed: K-085 `http_proxy` removed, K-096 filters on virtual hosts and routes (a filter's own
+  answer counts without a cluster), K-082 redone as the `static` filter; operations guide: running behind nginx.
 
 - **2026-10-25** — M3 merged (PR #2, squash). M4 done on `feat/m4-http-edge` while the user was away (no push, no
   PR): the plan (D1–D11, K-084 split into K-084/K-089/K-090), then K-080 TLS with certificate reload, K-081 HTTP/2,

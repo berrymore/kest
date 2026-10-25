@@ -1,7 +1,7 @@
 # Operations guide
 
-How to run kest in production: processes, TLS, load balancers, signals, probes, deploys, sizing, monitoring and
-troubleshooting. Option details are in the [configuration reference](config.md), metrics in
+How to run kest in production: processes, the proxy in front, TLS, signals, probes, deploys, sizing, monitoring
+and troubleshooting. Option details are in the [configuration reference](config.md), metrics in
 [Metrics](metrics.md).
 
 ## Running kest
@@ -35,9 +35,51 @@ from stderr.
 Workers run as kest's user, in their own process group, with kest's environment unless `inherit_env: false`.
 On Linux they die with kest even if kest is killed with SIGKILL.
 
+## Behind a proxy
+
+kest is an application server: it runs behind nginx, a Kubernetes ingress or a load balancer, which faces the
+internet (certificates for browsers, files for CDNs, balancing over hosts). With nginx on the same host:
+
+```nginx
+upstream kest {
+    server 127.0.0.1:8080;
+    keepalive 32;                     # reuse connections to kest
+}
+
+server {
+    listen 443 ssl;
+    server_name example.com;
+    # ssl_certificate, ssl_certificate_key …
+
+    location / {
+        proxy_pass http://kest;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+- Add the `client_ip` filter with the proxy's addresses in `trusted_proxies` (here `127.0.0.1`), so that PHP, the
+  access log and your rate limits see the client instead of the proxy, and so that PHP builds `https://` URLs when
+  the proxy terminates TLS (`X-Forwarded-Proto`). Without it, PHP sees the proxy's address. Don't also configure
+  your framework's trusted proxies with the proxy's address: PHP already sees the client as the remote address.
+- Files: when the proxy can see the files of `public/` (the same host, a shared volume), let it serve them (nginx:
+  `root` and `try_files $uri @kest`, keeping `.php` files from being served as files) and leave the `static` filter
+  out. An ingress usually can't see the application's container: then set `static` on kest's route to PHP.
+- Streamed responses (server-sent events, generators): nginx buffers responses by default, so the client gets the
+  stream only at its end. Send `X-Accel-Buffering: no` from PHP for those responses, or set `proxy_buffering off`
+  on their location.
+- Load balancers that speak HTTP/2 to their backends without TLS (h2c with prior knowledge) can use it: add
+  `http2` to the listener's [`protocols`](config.md#listenershttp).
+
 ## TLS
 
-A listener with a `tls` block serves HTTPS ([`listeners[].tls`](config.md#listenerstls)). With Let's Encrypt:
+The proxy in front usually terminates TLS. A listener with a `tls` block serves HTTPS itself
+([`listeners[].tls`](config.md#listenerstls)), for when nothing in front does: development, a load balancer that
+passes TCP through, traffic that must stay encrypted inside the network. With Let's Encrypt:
 
 - Point `cert_file` at `fullchain.pem` (certificate and intermediates) and `key_file` at `privkey.pem`. kest picks
   up a renewed pair by itself within about 20 seconds: no reload hook, no restart. `kest_tls_certificate_expiry_timestamp_seconds`
@@ -49,13 +91,6 @@ A listener with a `tls` block serves HTTPS ([`listeners[].tls`](config.md#listen
 - Send plain HTTP to HTTPS with a second listener on port 80 whose only route is
   `{match: {prefix: /}, redirect: {scheme: https}}`, and tell browsers to stay on HTTPS with the `headers` filter:
   `response: {set: {Strict-Transport-Security: max-age=63072000}}`.
-
-## Behind a load balancer
-
-Add the `client_ip` filter with the balancer's addresses in `trusted_proxies`, so that PHP, the access log and
-your rate limits see the client instead of the balancer, and so that PHP builds `https://` URLs when the balancer
-terminates TLS (`X-Forwarded-Proto`). Without it, PHP sees the balancer's address. Don't also configure your
-framework's trusted proxies with the balancer's address: PHP already sees the client as the remote address.
 
 ## Signals
 
