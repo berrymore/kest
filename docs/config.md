@@ -322,6 +322,7 @@ Every route has a `match` and exactly one action.
 | `match.path` | The path equals this value; must start with `/` |
 | `route` | Forward to a cluster |
 | `direct_response` | Answer without an upstream |
+| `redirect` | Answer with a redirect |
 
 Set exactly one of `match.prefix` and `match.path`. The match runs against the decoded URL path, after
 `normalize_path` and `merge_slashes`, without the query string. If no route matches → `404`.
@@ -339,6 +340,30 @@ Set exactly one of `match.prefix` and `match.path`. The match runs against the d
 |---|---|---|
 | `status` | `200` | 100–599 |
 | `body` | empty | Sent as `text/plain; charset=utf-8` |
+
+**`redirect`** sends the client to the request's URL with some parts replaced:
+
+```yaml
+routes:
+  - match: {prefix: /}                  # on a plain listener: everything to HTTPS
+    redirect: {scheme: https}
+  - match: {prefix: /blog/}
+    redirect: {host: blog.example.com, prefix_rewrite: /}
+```
+
+| Field | Default | |
+|---|---|---|
+| `scheme` | the request's | `http` or `https` |
+| `host` | the request's | A host name or an IP address, without a port |
+| `port` | the request's | A new `scheme` or `host` drops the request's port unless `port` is set; the scheme's default port is left out of the URL. |
+| `path` | the request's | Replaces the whole path. |
+| `prefix_rewrite` | — | Replaces the part of the path that `match.prefix` matched: with `match.prefix: /blog/` and `prefix_rewrite: /`, `/blog/a` becomes `/a`. Not with `path`. |
+| `strip_query` | `false` | Drop the query string; otherwise it is kept. |
+| `status` | `301` | `301`, `302`, `303`, `307` or `308`. `307` and `308` keep the method and body of a `POST`. |
+
+At least one part must change. The request's scheme is the one the client used, as the `client_ip` filter reports
+it behind a trusted proxy; still, a `scheme: https` redirect on a listener that a TLS-terminating balancer sends all
+traffic to would loop: let the balancer redirect then.
 
 ## `clusters`
 

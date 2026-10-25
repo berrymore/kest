@@ -206,11 +206,19 @@ func (v *validator) route(path string, r *Route, clusters map[string]bool) {
 		v.errorf(path+".match.path", "must start with /")
 	}
 
+	actions := 0
+	for _, set := range []bool{r.Route != nil, r.DirectResponse != nil, r.Redirect != nil} {
+		if set {
+			actions++
+		}
+	}
 	switch {
-	case r.Route == nil && r.DirectResponse == nil:
-		v.errorf(path, "an action is required: set route or direct_response")
-	case r.Route != nil && r.DirectResponse != nil:
-		v.errorf(path, "set only one action: route or direct_response")
+	case actions == 0:
+		v.errorf(path, "an action is required: set route, direct_response or redirect")
+	case actions > 1:
+		v.errorf(path, "set only one action: route, direct_response or redirect")
+	case r.Redirect != nil:
+		v.redirect(path+".redirect", r.Redirect, m.Prefix != "")
 	case r.Route != nil:
 		switch {
 		case r.Route.Cluster == "":
@@ -225,6 +233,36 @@ func (v *validator) route(path string, r *Route, clusters map[string]bool) {
 		if s := r.DirectResponse.Status; s < 100 || s > 599 {
 			v.errorf(path+".direct_response.status", "invalid HTTP status %d", s)
 		}
+	}
+}
+
+func (v *validator) redirect(path string, r *Redirect, prefixMatch bool) {
+	if r.Scheme == "" && r.Host == "" && r.Port == 0 && r.Path == "" && r.PrefixRewrite == "" && !r.StripQuery {
+		v.errorf(path, "set what changes: scheme, host, port, path, prefix_rewrite or strip_query")
+	}
+	if r.Scheme != "" && r.Scheme != "http" && r.Scheme != "https" {
+		v.errorf(path+".scheme", "unsupported scheme %q; use http or https", r.Scheme)
+	}
+	if r.Host != "" {
+		if err := checkDomain(r.Host); err != nil || strings.Contains(r.Host, "*") {
+			v.errorf(path+".host", "invalid host %q: a host name or an IP address, without a port", r.Host)
+		}
+	}
+	if r.Port < 0 || r.Port > 65535 {
+		v.errorf(path+".port", "invalid port %d", r.Port)
+	}
+	switch {
+	case r.Path != "" && r.PrefixRewrite != "":
+		v.errorf(path, "set only one of path or prefix_rewrite")
+	case r.Path != "" && !strings.HasPrefix(r.Path, "/"):
+		v.errorf(path+".path", "must start with /")
+	case r.PrefixRewrite != "" && !prefixMatch:
+		v.errorf(path+".prefix_rewrite", "needs a match.prefix to replace")
+	case r.PrefixRewrite != "" && !strings.HasPrefix(r.PrefixRewrite, "/"):
+		v.errorf(path+".prefix_rewrite", "must start with /")
+	}
+	if !slices.Contains([]int{301, 302, 303, 307, 308}, r.Status) {
+		v.errorf(path+".status", "invalid redirect status %d; use 301, 302, 303, 307 or 308", r.Status)
 	}
 }
 

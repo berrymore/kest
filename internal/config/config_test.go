@@ -281,6 +281,38 @@ listeners:
 			},
 		},
 		{
+			name: "redirects",
+			src: `version: v1
+listeners:
+  - name: a
+    address: 127.0.0.1:8080
+    http:
+      virtual_hosts:
+        - name: a
+          domains: ["*"]
+          routes:
+            - match: {prefix: /a}
+              redirect: {}
+            - match: {path: /b}
+              redirect: {scheme: ftp, host: "example.com:80", port: 70000, prefix_rewrite: /x, status: 200}
+            - match: {prefix: /c}
+              redirect: {path: x, prefix_rewrite: /y}
+            - match: {prefix: /d}
+              redirect: {path: x}
+              direct_response: {}
+`,
+			want: []string{
+				`kest.yaml:11:25: listeners[0].http.virtual_hosts[0].routes[0].redirect: set what changes`,
+				`kest.yaml:13:34: listeners[0].http.virtual_hosts[0].routes[1].redirect.scheme: unsupported scheme "ftp"`,
+				`kest.yaml:13:45: listeners[0].http.virtual_hosts[0].routes[1].redirect.host: invalid host "example.com:80"`,
+				`kest.yaml:13:69: listeners[0].http.virtual_hosts[0].routes[1].redirect.port: invalid port 70000`,
+				`kest.yaml:13:92: listeners[0].http.virtual_hosts[0].routes[1].redirect.prefix_rewrite: needs a match.prefix`,
+				`kest.yaml:13:104: listeners[0].http.virtual_hosts[0].routes[1].redirect.status: invalid redirect status 200`,
+				`kest.yaml:15:25: listeners[0].http.virtual_hosts[0].routes[2].redirect: set only one of path or prefix_rewrite`,
+				`kest.yaml:16:15: listeners[0].http.virtual_hosts[0].routes[3]: set only one action`,
+			},
+		},
+		{
 			name: "duplicates",
 			src: `version: v1
 admin: {address: 127.0.0.1:9000}

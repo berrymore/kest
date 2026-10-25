@@ -87,6 +87,8 @@ func newRoute(cfg *config.Route, clusters ClusterLookup) route {
 	switch {
 	case cfg.DirectResponse != nil:
 		r.handler = directResponse(cfg.DirectResponse.Status, cfg.DirectResponse.Body)
+	case cfg.Redirect != nil:
+		r.handler = redirect(cfg.Redirect, cfg.Match.Prefix)
 	case cfg.Route != nil:
 		h, ok := clusters(cfg.Route.Cluster)
 		if !ok {

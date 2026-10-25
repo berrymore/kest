@@ -46,6 +46,9 @@ A listener with a `tls` block serves HTTPS ([`listeners[].tls`](config.md#listen
   kest's user read access to `archive/` and `live/`, or copy the files elsewhere in a deploy hook.
 - Ports below 1024 need `AmbientCapabilities=CAP_NET_BIND_SERVICE` in the systemd unit when kest runs as an
   unprivileged user.
+- Send plain HTTP to HTTPS with a second listener on port 80 whose only route is
+  `{match: {prefix: /}, redirect: {scheme: https}}`, and tell browsers to stay on HTTPS with the `headers` filter:
+  `response: {set: {Strict-Transport-Security: max-age=63072000}}`.
 
 ## Behind a load balancer
 

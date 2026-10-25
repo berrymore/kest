@@ -20,7 +20,7 @@
                 │               ├─ filter: …                                            │
                 │               └─ router (implicit, last)                              │
                 │                    │ vhost by Host, first matching route              │
-                │                    ├─ direct_response                                 │
+                │                    ├─ direct_response, redirect                       │
                 │                    └─ route → Cluster                                 │
                 │                               ├─ php_workers ─▶ Pool ─▶ Relay ────────┼──▶ php worker.php × N
                 │                               ├─ wasm (M5)  ─▶ wazero instances       │

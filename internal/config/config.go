@@ -202,6 +202,7 @@ type Route struct {
 	Match          RouteMatch      `yaml:"match"`
 	Route          *RouteAction    `yaml:"route,omitempty"`
 	DirectResponse *DirectResponse `yaml:"direct_response,omitempty"`
+	Redirect       *Redirect       `yaml:"redirect,omitempty"`
 }
 
 // RouteMatch selects requests by path. Exactly one field must be set.
@@ -222,6 +223,23 @@ type DirectResponse struct {
 	Status int    `yaml:"status"`
 	Body   string `yaml:"body,omitempty"`
 }
+
+// Redirect answers with a redirect to the request's URL with some parts
+// replaced. A new scheme or host drops the request's port unless Port is set.
+type Redirect struct {
+	Scheme string `yaml:"scheme,omitempty"` // "http" or "https"
+	Host   string `yaml:"host,omitempty"`
+	Port   int    `yaml:"port,omitempty"`
+	// Path replaces the whole path; PrefixRewrite replaces the part that
+	// match.prefix matched.
+	Path          string `yaml:"path,omitempty"`
+	PrefixRewrite string `yaml:"prefix_rewrite,omitempty"`
+	StripQuery    bool   `yaml:"strip_query,omitempty"`
+	Status        int    `yaml:"status"` // 301, 302, 303, 307 or 308
+}
+
+// DefaultRedirectStatus is the status of a redirect that sets none.
+const DefaultRedirectStatus = 301
 
 // Cluster is a named upstream; its type selects the implementation.
 type Cluster struct {
@@ -293,6 +311,9 @@ func (c *Config) applyDefaults() {
 				}
 				if r.DirectResponse != nil && r.DirectResponse.Status == 0 {
 					r.DirectResponse.Status = DefaultStatus
+				}
+				if r.Redirect != nil && r.Redirect.Status == 0 {
+					r.Redirect.Status = DefaultRedirectStatus
 				}
 			}
 		}

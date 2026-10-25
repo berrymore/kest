@@ -10,7 +10,7 @@ on 2026-10-25 and asked not to open the PR before they have looked at the branch
 
 ## In progress
 
-M4, step 7 (K-090, redirect action).
+M4, step 8 (K-083, `compression`).
 
 ## Next up: how to continue M4 in a fresh session
 

@@ -174,7 +174,7 @@ Steps 1–2 are the vertical slice: `curl --http2 -k https://localhost:8443/` ag
    `REMOTE_ADDR` and the access log show the client.
 5. [x] **`headers`** (K-084).
 6. [x] **`cors`** (K-089) — acceptance: preflight answered by kest; disallowed origins get no CORS headers.
-7. [ ] **Redirect action** (K-090).
+7. [x] **Redirect action** (K-090).
 8. [ ] **`compression`** (K-083) — acceptance: gzip round trip, streams flushed, HEAD/304/no-transform skipped.
 9. [ ] **Static files** (K-082) — acceptance: `php_workers.static` serves `public/` files with Range and ETag,
    PHP gets the rest, no escape from `dir`.
@@ -196,6 +196,8 @@ Steps 1–2 are the vertical slice: `curl --http2 -k https://localhost:8443/` ag
 
 ## Log
 
+- 2026-10-25 — Step 7 (K-090) done as in D7. The request's scheme comes from `httpx.Scheme` (trusted proxies
+  included); a redirect needs at least one part that changes.
 - 2026-10-25 — Step 6 (K-089) done as in D6. `allow_headers: ["*"]` echoes the requested headers (works with
   credentials too).
 - 2026-10-25 — Step 5 (K-084) done as in D5; `remove: [Date]` suppresses net/http's `Date`.

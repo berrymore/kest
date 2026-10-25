@@ -391,3 +391,48 @@ func TestPathNormalization(t *testing.T) {
 		}
 	}
 }
+
+func TestRedirect(t *testing.T) {
+	h, err := httpx.NewHandler(loadHTTP(t, `
+  - name: main
+    address: 127.0.0.1:0
+    http:
+      virtual_hosts:
+        - name: default
+          domains: ["*"]
+          routes:
+            - match: {prefix: /old/}
+              redirect: {prefix_rewrite: /new/, status: 308}
+            - match: {path: /docs}
+              redirect: {path: /documentation, strip_query: true}
+            - match: {prefix: /moved}
+              redirect: {host: www.example.com, status: 302}
+            - match: {prefix: /tls-port}
+              redirect: {scheme: https, port: 8443}
+            - match: {prefix: /keep-port}
+              redirect: {path: /x}
+            - match: {prefix: /}
+              redirect: {scheme: https}
+`), lookup, registry.BuildContext{Logger: logging.Discard()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		host, path string
+		status     int
+		location   string
+	}{
+		{"example.com", "/old/a/b?x=1", 308, "http://example.com/new/a/b?x=1"},
+		{"example.com", "/docs?page=2", 301, "http://example.com/documentation"},
+		{"example.com:8080", "/moved/here?q", 302, "http://www.example.com/moved/here?q"},
+		{"example.com:8080", "/tls-port/a", 301, "https://example.com:8443/tls-port/a"},
+		{"example.com:8080", "/keep-port/a", 301, "http://example.com:8080/x"},
+		{"example.com:8080", "/a%2Fb?q=1", 301, "https://example.com/a%2Fb?q=1"},
+		{"[::1]:8080", "/v6", 301, "https://[::1]/v6"},
+	} {
+		rec := get(t, h, tt.host, tt.path)
+		if rec.Code != tt.status || rec.Header().Get("Location") != tt.location {
+			t.Errorf("%s%s → %d %q, want %d %q", tt.host, tt.path, rec.Code, rec.Header().Get("Location"), tt.status, tt.location)
+		}
+	}
+}
