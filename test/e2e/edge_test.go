@@ -204,3 +204,31 @@ listeners:
 		t.Errorf("GET /admin/../public = %q, want 200", got)
 	}
 }
+
+func TestHeadersFilter(t *testing.T) {
+	listenAddr, adminAddr := freeAddr(t), freeAddr(t)
+	configPath := filepath.Join(t.TempDir(), "kest.yaml")
+	writeFile(t, configPath, `version: v1
+admin: {address: "`+adminAddr+`"}
+listeners:
+  - name: main
+    address: "`+listenAddr+`"
+    http:
+      filters:
+        - type: headers
+          config:
+            response:
+              set: {X-Content-Type-Options: nosniff}
+              remove: [Date]
+      virtual_hosts:
+        - name: default
+          domains: ["*"]
+          routes: [{match: {prefix: /}, direct_response: {body: "ok"}}]
+`)
+	k := serve(t, configPath, adminAddr)
+	defer k.stop(t)
+	resp := do(t, http.DefaultClient, "http://"+listenAddr+"/")
+	if resp.Header.Get("X-Content-Type-Options") != "nosniff" || resp.Header.Get("Date") != "" {
+		t.Errorf("response headers %v: want X-Content-Type-Options and no Date", resp.Header)
+	}
+}

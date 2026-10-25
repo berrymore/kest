@@ -185,7 +185,7 @@ in `kest_tls_handshake_errors_total` and logged at `debug` level, since scanners
 
 ### Filters
 
-Built-in types: `request_id`, `access_log`, `recovery`, `client_ip`. Put `recovery` first so that it covers the
+Built-in types: `request_id`, `access_log`, `recovery`, `client_ip`, `headers`. Put `recovery` first so that it covers the
 other filters too:
 
 ```yaml
@@ -237,6 +237,34 @@ the scheme. PHP sees the client's IP as the remote address (`REMOTE_ADDR`), as w
 the request URI, so frameworks build `https://` links behind a TLS-terminating balancer. `access_log` logs the
 client's IP whatever the filter order. Requests from other peers keep the peer's address and their headers are
 ignored, not removed.
+
+**`headers`** changes request headers on the way to the cluster and response headers on the way to the client:
+
+```yaml
+- type: headers
+  config:
+    request:
+      set: {X-Env: prod}
+      remove: [X-Debug]
+    response:
+      set_if_absent:
+        Strict-Transport-Security: max-age=63072000
+        X-Content-Type-Options: nosniff
+      remove: [X-Powered-By]
+```
+
+| Field | |
+|---|---|
+| `request` | Rules for the request that the cluster gets. |
+| `response` | Rules for every response: from clusters, direct responses, redirects and kest's own errors. |
+| `remove` | Header names to remove. |
+| `set` | Name → value: replaces any value the header had. |
+| `add` | Name → value: adds a value to those the header has. |
+| `set_if_absent` | Name → value: only when the header has no value, so that the application can override it. |
+
+The rules run in this order: `remove`, `set`, `add`, `set_if_absent`. Values are literal. Headers that kest
+manages can't be changed: `Host`, `Content-Length`, `Transfer-Encoding`, `Connection`, `Keep-Alive`,
+`Proxy-Connection`, `TE`, `Trailer`, `Upgrade`. `response.remove: [Date]` stops kest from adding a `Date`.
 
 ### `virtual_hosts[]`
 

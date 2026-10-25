@@ -10,7 +10,7 @@ on 2026-10-25 and asked not to open the PR before they have looked at the branch
 
 ## In progress
 
-M4, step 5 (K-084, `headers`).
+M4, step 6 (K-089, `cors`).
 
 ## Next up: how to continue M4 in a fresh session
 

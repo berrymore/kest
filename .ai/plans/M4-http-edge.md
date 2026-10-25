@@ -172,7 +172,7 @@ Steps 1–2 are the vertical slice: `curl --http2 -k https://localhost:8443/` ag
    can't be bypassed.
 4. [x] **`client_ip`** (K-087) — acceptance: spoofed `X-Forwarded-For` from an untrusted peer is ignored; PHP's
    `REMOTE_ADDR` and the access log show the client.
-5. [ ] **`headers`** (K-084).
+5. [x] **`headers`** (K-084).
 6. [ ] **`cors`** (K-089) — acceptance: preflight answered by kest; disallowed origins get no CORS headers.
 7. [ ] **Redirect action** (K-090).
 8. [ ] **`compression`** (K-083) — acceptance: gzip round trip, streams flushed, HEAD/304/no-transform skipped.
@@ -196,6 +196,7 @@ Steps 1–2 are the vertical slice: `curl --http2 -k https://localhost:8443/` ag
 
 ## Log
 
+- 2026-10-25 — Step 5 (K-084) done as in D5; `remove: [Date]` suppresses net/http's `Date`.
 - 2026-10-25 — Step 4 (K-087) done as in D4. `httpx.IsToken` is shared by the filters that check header names.
 - 2026-10-25 — Step 3 (K-086) done as in D3.
 - 2026-10-25 — Step 2 (K-081) done as in D2: the vertical slice runs (`php-hello` over h2 and h2c). `php-hello`'s

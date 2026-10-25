@@ -139,7 +139,9 @@ Milestone definitions: `roadmap.md`.
   without); h2c is prior knowledge through `http.Protocols`; the PHP e2e test sees protocol `2` both ways.
 - [ ] K-082 Static files route action / filter.
 - [ ] K-083 Compression filter.
-- [ ] K-084 Header manipulation filter (`headers`). Split on 2026-10-25: CORS is K-089, redirects K-090.
+- [x] K-084 Header manipulation filter (`headers`). Split on 2026-10-25: CORS is K-089, redirects K-090.
+  `request`/`response` rules `remove`, `set`, `add`, `set_if_absent`; protected framing headers rejected;
+  `httpx.BeforeHeader` edits a response header just before it goes out (shared with CORS and compression).
 - [ ] K-085 `http_proxy` cluster: endpoints, load balancing, health checks, retries.
 - [x] K-086 Path normalization before routing (dot segments, duplicate slashes; Envoy `normalize_path` /
   `merge_slashes`), so prefix routes can't be bypassed with `/a/../b`. `listeners[].http.normalize_path` and
