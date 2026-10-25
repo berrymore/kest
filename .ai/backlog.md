@@ -132,20 +132,78 @@ Milestone definitions: `roadmap.md`.
 
 ## M4 — HTTP edge features
 
-- [ ] K-080 TLS listeners from cert files.
-- [ ] K-081 HTTP/2 (h2 over TLS, h2c).
-- [ ] K-082 Static files route action / filter.
-- [ ] K-083 Compression filter.
-- [ ] K-084 CORS and header-manipulation filters; redirect action.
-- [ ] K-085 `http_proxy` cluster: endpoints, load balancing, health checks, retries.
-- [ ] K-086 Path normalization before routing (dot segments, duplicate slashes; Envoy `normalize_path` /
-  `merge_slashes`), so prefix routes can't be bypassed with `/a/../b`.
-- [ ] K-087 Trusted proxies: client IP from `X-Forwarded-For` / `Forwarded` for trusted peers, passed to PHP as
-  the `ipAddress` attribute that `roadrunner/http` reads (RR's `proxy_ip_parser` middleware).
-- [ ] K-088 Streaming responses from PHP workers (`STREAM` frames, `PSR7Worker::$chunkSize`, generator bodies)
+- [x] K-080 TLS listeners from cert files. `listeners[].tls` (`certificates` picked by SNI, `min_version`), loaded
+  when the graph is built (located errors in `kest validate`), checked every 10s and reloaded once a change holds
+  still; `kest_tls_certificate_expiry_timestamp_seconds`, `kest_tls_handshake_errors_total`.
+- [x] K-081 HTTP/2 (h2 over TLS, h2c). `listeners[].http.protocols` (`http1`, `http2`; both with `tls`, `http1`
+  without); h2c is prior knowledge through `http.Protocols`; the PHP e2e test sees protocol `2` both ways.
+- [x] K-082 Static files route action / filter. Done as the `static` filter (`dir`, `forbid: [.php]`, `headers`;
+  the file if there is one, else the rest of the chain), set on the route to PHP (K-096): hidden paths refused
+  except `/.well-known/`, symlinks followed, `http.ServeContent` with a weak ETag, `dir` checked when the graph is
+  built; `examples/php-hello` serves `public/`. First built as `php_workers.static` and a `static_files` cluster,
+  both removed before the merge (ADR-0008).
+- [x] K-083 Compression filter. `compression`: gzip with pooled writers, `level`, `min_length`, `content_types`;
+  the decision waits for the first write (sniffed Content-Type), flushes pass through, `HEAD`/`204`/`206`/`304`/
+  `no-transform`/encoded responses are left alone.
+- [x] K-084 Header manipulation filter (`headers`). Split on 2026-10-25: CORS is K-089, redirects K-090.
+  `request`/`response` rules `remove`, `set`, `add`, `set_if_absent`; protected framing headers rejected;
+  `httpx.BeforeHeader` edits a response header just before it goes out (shared with CORS and compression).
+- [-] K-085 `http_proxy` cluster: endpoints, load balancing, health checks, retries. Built on 2026-10-25 (round
+  robin / least request / random, active health checks, retries, upstream TLS, `kest_upstream_*` metrics), then
+  removed before the merge: proxying to other services is the job of the proxy in front of kest (ADR-0008).
+- [x] K-086 Path normalization before routing (dot segments, duplicate slashes; Envoy `normalize_path` /
+  `merge_slashes`), so prefix routes can't be bypassed with `/a/../b`. `listeners[].http.normalize_path` and
+  `merge_slashes`, both on by default, on the decoded path before the filters; a changed path is rewritten for
+  the cluster too (fuzzed: idempotent, no dot segments or `//` left).
+- [x] K-087 Trusted proxies: client IP from `X-Forwarded-For` / `Forwarded` for trusted peers, passed to PHP as
+  the `ipAddress` attribute that `roadrunner/http` reads (RR's `proxy_ip_parser` middleware). Done as the
+  `client_ip` filter: right-to-left walk over trusted hops, `X-Forwarded-Proto`; PHP gets the IP in `remoteAddr`
+  (what RR's `proxy_ip_parser` v6 does, not an attribute) and the scheme in the URI; `httpx.ClientIP`/`Scheme`.
+- [x] K-088 Streaming responses from PHP workers (`STREAM` frames, `PSR7Worker::$chunkSize`, generator bodies)
   and 1xx informational responses (103 Early Hints); stop a stream when the client goes away (Q-C).
+  `worker.Pool.ExecStream`/`Stream` (PING→PONG, STOP and drain, `exec_ttl` per frame), the fake worker streams like
+  `roadrunner/worker`; `php_workers` flushes each chunk, aborts the connection on a failure after the headers; PHP
+  integration test with a generator, early hints, `$chunkSize` and a client that disconnects, on both codecs.
+- [x] K-089 CORS filter (`cors`): preflight answered by kest, allowed origins with wildcards.
+- [x] K-090 Redirect route action (`redirect`): scheme, host, port, path, prefix rewrite, status.
+- [-] K-091 Client certificates on TLS listeners (mTLS): a CA file, required or optional, the verified subject
+  passed to PHP. Dropped: the proxy in front or a mesh sidecar checks client certificates (ADR-0008).
+- [-] K-092 Brotli and zstd in `compression` (each needs a dependency: no encoder in the standard library).
+  Dropped: an edge feature; `compression` stays gzip only (ADR-0008).
+- [-] K-093 Precompressed static files: serve `file.gz` (and `.br`) next to `file` when the client accepts it.
+  Dropped: static files stay basic (ADR-0008).
+- [-] K-094 Passive health checks for `http_proxy` (outlier detection). Dropped with K-085 (ADR-0008).
+- [x] K-096 Filters on virtual hosts and routes (`virtual_hosts[].filters`, `routes[].filters`), run after the
+  router has chosen them; a response one of them makes counts with an empty `cluster` (ADR-0008). The router
+  instruments each virtual host and a route's cluster marks the request (`RequestInfo`), so the metrics need no
+  lookup; `/config_dump` redacts their configs too.
 
-## M5 — WASM sandbox
+## M5 — Routing, filters and pools
+
+IDs start at K-140: the milestones were renumbered on 2026-10-25 (ADR-0008), and WASM keeps its K-100 range.
+
+- [ ] K-140 Route matches on method, headers and query parameters, and regular-expression paths (RE2).
+- [ ] K-141 Per-route filter settings: turn a listener filter off, or change its config, on a virtual host or a
+  route (Envoy's `typed_per_filter_config`).
+- [ ] K-142 Weighted clusters: split a route's requests between clusters by weight, such as a new release in a pool
+  of its own taking a share of the traffic.
+- [ ] K-143 `X-Sendfile` / `X-Accel-Redirect`: PHP names a file, kest sends it and the worker is free at once
+  (RoadRunner's `sendfile` middleware ❓).
+- [ ] K-144 Fast rejection under overload: when a pool can't take a request in time, answer `503` with
+  `Retry-After` at once instead of queueing it.
+- [ ] K-145 Authentication filters: JWT verification (keys from a file or a JWKS URL) and API keys; the verified
+  claims reach PHP as headers.
+- [ ] K-146 Local rate limiting filter: token buckets keyed by client IP, a header or the route.
+- [ ] K-147 External authorization through a cluster: a subrequest to a small PHP pool decides, and the headers it
+  returns go to the main request (Envoy's `ext_authz`).
+- [ ] K-905 Per-route priority queues within one pool (Q-F).
+- [ ] K-908 Dynamic pool size (RR `pool.dynamic_allocator`).
+- [ ] K-095 Count requests that listener filters answer themselves (CORS preflights) in the HTTP metrics: today
+  only requests that reach the router are counted per virtual host and cluster. Moved from M4 on 2026-10-25.
+- [ ] K-910 Optional route `name`, and a `route` label on the HTTP metrics (M3 plan D2): today two routes to the
+  same cluster on one virtual host can't be told apart in metrics.
+
+## M6 — WASM sandbox
 
 - [ ] K-100 Research and ADR: guest ABI (Proxy-Wasm, http-wasm, WASI stdin/stdout, custom).
 - [ ] K-101 wazero runtime, compilation cache, instance pool, memory and time limits.
@@ -153,7 +211,18 @@ Milestone definitions: `roadmap.md`.
 - [ ] K-103 `wasm` HTTP filter.
 - [ ] K-104 Example modules (Go/TinyGo, Rust) + benchmarks.
 
-## M6 — Dynamic configuration
+## M7 — Protocols
+
+- [ ] K-160 Research and ADR: gRPC in kest. RoadRunner's `grpc` plugin ❓ (what PHP gets, which call types),
+  the codec to PHP workers, gRPC statuses for kest's own errors (`RESOURCE_EXHAUSTED`, `DEADLINE_EXCEEDED`),
+  `grpc-timeout` as the request's deadline.
+- [ ] K-161 gRPC unary calls to `php_workers` on the HTTP/2 listener, routed like any request.
+- [ ] K-162 gRPC server streaming over streamed worker responses (K-088).
+- [ ] K-163 Research and ADR: WebSockets and SSE held by kest while PHP handles the events (RoadRunner's
+  `centrifuge` and `broadcast` plugins ❓).
+- [ ] K-164 Unix socket listeners (`address: unix:/run/kest.sock`), for a proxy on the same host.
+
+## M8 — Dynamic configuration
 
 - [ ] K-120 Design ADR: reload model, graph diffing, listener handover.
 - [ ] K-121 Reload on SIGHUP / file change with diff-based apply.
@@ -168,13 +237,11 @@ Milestone definitions: `roadmap.md`.
 
 - [ ] K-900 PHP → kest RPC channel (RoadRunner `rpc` plugin equivalent).
 - [ ] K-901 Queues/jobs plugin.
-- [ ] K-902 gRPC listener with PHP workers.
+- [-] K-902 gRPC listener with PHP workers. Superseded by M7 (K-160…K-162).
 - [ ] K-903 systemd notify and socket activation.
 - [ ] K-904 Envoy-style hot restart (FD passing to the new process).
-- [ ] K-905 Per-route priority queues within one pool (Q-F).
-- [ ] K-906 ACME (automatic TLS certificates).
+- [-] K-906 ACME (automatic TLS certificates). Dropped: the proxy in front gets the certificates (ADR-0008).
 - [ ] K-907 Run workers as another user/group (RR `server.user` / `server.group`).
-- [ ] K-908 Dynamic pool size (RR `pool.dynamic_allocator`).
 - [ ] K-909 One-off command before workers start (RR `server.on_init`).
-- [ ] K-910 Optional route `name`, and a `route` label on the HTTP metrics (M3 plan D2): today two routes to the
-  same cluster on one virtual host can't be told apart in metrics.
+- [ ] K-911 FastCGI listener: nginx's `fastcgi_pass` to kest in place of PHP-FPM, without touching the nginx
+  config (`net/http/fcgi`; RoadRunner's `http.fcgi` ❓). A bonus, not a priority (2026-10-25).

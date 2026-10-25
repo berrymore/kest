@@ -18,10 +18,14 @@ Every label value comes from the config or from a small fixed set, never from a 
 stays bounded:
 
 - `listener`, `virtual_host`, `cluster`: names from the config. Routes have no names, so requests are counted by
-  virtual host and cluster. `cluster` is empty for `direct_response` routes and for requests that match no route;
-  `virtual_host` is empty when no virtual host matches the request's host.
+  virtual host and cluster. `cluster` is set when the request reaches a route's cluster: it is empty for
+  `direct_response` and `redirect` routes, for requests that match no route, and for requests that a filter of the
+  virtual host or the route answers itself. `virtual_host` is empty when no virtual host matches the request's host.
+  Requests that a filter of the listener answers itself (CORS preflights from `cors`) don't reach the router and
+  aren't counted in `kest_http_requests_*`.
 - `code`: the HTTP status code of the response.
 - `state`, `reason`: the fixed values listed below.
+- `cert_file`: a TLS certificate file from the config.
 - `slot`: a worker's position in its pool, `0` to `workers - 1`. Workers are not labeled by pid, so replacing them
   doesn't add series.
 
@@ -30,8 +34,17 @@ stays bounded:
 | Metric | Type | Labels | |
 |---|---|---|---|
 | `kest_http_requests_total` | counter | `listener`, `virtual_host`, `cluster`, `code` | Requests, counted when the response is done. |
-| `kest_http_request_duration_seconds` | histogram | `listener`, `virtual_host`, `cluster` | From routing the request until its handler returns: the wait for a worker and the worker's time. Buckets from 5 ms to 60 s. |
+| `kest_http_request_duration_seconds` | histogram | `listener`, `virtual_host`, `cluster` | From choosing the virtual host until the response is done: the filters of the virtual host and the route, the wait for a worker and the worker's time. Buckets from 5 ms to 60 s. |
 | `kest_http_requests_in_flight` | gauge | `listener` | Requests being served now. |
+
+## TLS
+
+For each listener with `tls`:
+
+| Metric | Type | Labels | |
+|---|---|---|---|
+| `kest_tls_certificate_expiry_timestamp_seconds` | gauge | `listener`, `cert_file` | When each certificate expires, as a Unix timestamp; it moves when a renewed certificate is loaded. |
+| `kest_tls_handshake_errors_total` | counter | `listener` | TLS handshakes that failed: clients that don't trust the certificate, scanners, plain HTTP on the TLS port. |
 
 ## Worker pools
 
@@ -74,6 +87,9 @@ sum by (cluster) (kest_pool_workers{state="working"})
 
 # Requests turned away because the pool was full or too slow
 sum by (cluster, reason) (rate(kest_pool_rejected_total[5m]))
+
+# Certificates that expire within 14 days (renewal didn't happen)
+kest_tls_certificate_expiry_timestamp_seconds - time() < 14 * 86400
 
 # Worker restarts that are not routine
 sum by (cluster, reason) (increase(kest_pool_worker_restarts_total{reason=~"crash|exec_ttl|memory|start_failed"}[1h]))

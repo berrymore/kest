@@ -2,6 +2,7 @@ package httpx
 
 import (
 	"context"
+	"net"
 	"net/http"
 )
 
@@ -13,7 +14,14 @@ import (
 type RequestInfo struct {
 	RequestID   string // set by the request_id filter
 	VirtualHost string // set by the router; empty if none matched
-	Cluster     string // set by the router; empty for direct responses and unrouted requests
+	Cluster     string // set by the router when the request reaches a route's cluster; empty otherwise
+	// ClientIP and Scheme are what a trusted proxy said about the client
+	// (the client_ip filter); empty when nothing did. Read them through
+	// ClientIP and Scheme.
+	ClientIP string
+	Scheme   string // "http" or "https"
+
+	target *targetMetrics // the routed cluster's metrics; nil until a route's cluster is reached
 }
 
 type infoKey struct{}
@@ -32,6 +40,31 @@ func Info(r *http.Request) *RequestInfo {
 // listener gives every request.
 func WithRequestInfo(r *http.Request) *http.Request {
 	return r.WithContext(context.WithValue(r.Context(), infoKey{}, &RequestInfo{}))
+}
+
+// ClientIP returns the IP of the client: what a trusted proxy reported, or
+// else the peer's address without the port.
+func ClientIP(r *http.Request) string {
+	if ip := Info(r).ClientIP; ip != "" {
+		return ip
+	}
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+	return r.RemoteAddr
+}
+
+// Scheme returns the scheme the client used: what a trusted proxy reported,
+// or else "https" on a TLS connection and "http" otherwise.
+func Scheme(r *http.Request) string {
+	switch {
+	case Info(r).Scheme != "":
+		return Info(r).Scheme
+	case r.TLS != nil:
+		return "https"
+	default:
+		return "http"
+	}
 }
 
 // ResponseWriter records the status code and the body size of a response.

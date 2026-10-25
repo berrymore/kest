@@ -8,9 +8,14 @@
 //   - Options control the start: boot time, output before the handshake, a
 //     failed boot, the reported pid, ignoring the stop frame.
 //   - The body of each request is a command: "sleep 2s", "hang", "error msg",
-//     "stop", "crash", "exit", "garbage", "stream", "big 1024", "memory 1024",
-//     "no-options". Any other body is echoed: the response has the request's
-//     context as header and its body as body.
+//     "stop", "crash", "exit", "garbage", "stream 3 1s", "big 1024",
+//     "memory 1024", "no-options". Any other body is echoed: the response has
+//     the request's context as header and its body as body.
+//
+// "stream n [delay] [nostop]" streams like roadrunner/worker: n frames
+// "chunk i" with the STREAM bit, each after delay, a PING on every fifth
+// one, then a last frame "end". A STOP read after a PING ends the stream with an
+// empty last frame, unless nostop is given.
 package workertest
 
 import (
@@ -95,10 +100,35 @@ func serve(conn *relay.Conn, opts Options, h host) int {
 		return exitOnError(err, h)
 	}
 
+	// Frames are read in the background into a buffer, as an OS pipe holds
+	// them: a streaming worker checks for a STOP without blocking, and kest's
+	// PONG frames don't block kest while the worker streams.
+	in := make(chan inbound, 64)
+	quit := make(chan struct{})
+	defer close(quit)
+	go func() {
+		for {
+			var f relay.Frame
+			err := conn.Receive(&f)
+			select {
+			case in <- inbound{f, err}:
+			case <-quit:
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
 	for {
-		var f relay.Frame
-		if err := conn.Receive(&f); err != nil {
-			return exitOnError(err, h)
+		m := <-in
+		if m.err != nil {
+			return exitOnError(m.err, h)
+		}
+		f := m.frame
+		if f.Stream.Has(relay.StreamPong) || f.Stream.Has(relay.StreamStop) {
+			continue // late answers to a stream; roadrunner/worker skips them too
 		}
 		if f.Flags.Has(relay.FlagControl) {
 			if !strings.Contains(string(f.Payload), `"stop":true`) {
@@ -118,6 +148,12 @@ func serve(conn *relay.Conn, opts Options, h host) int {
 
 		if opts.AskStop {
 			body = []byte("stop")
+		}
+		if cmd, arg, _ := strings.Cut(string(body), " "); cmd == "stream" {
+			if err := stream(conn, in, header, arg, h); err != nil {
+				return exitOnError(err, h)
+			}
+			continue
 		}
 		resp, code, exit := handle(header, body, h)
 		if exit {
@@ -156,10 +192,6 @@ func handle(header, body []byte, h host) (resp *relay.Frame, code int, exit bool
 		_, _ = io.WriteString(h.out, Garbage)
 		h.hang()
 		return nil, 0, true
-	case "stream":
-		f := response(header, []byte("first chunk"))
-		f.Stream = relay.StreamMore
-		return f, 0, false
 	case "big":
 		n, _ := strconv.Atoi(arg)
 		return response(header, bytes.Repeat([]byte{'x'}, n)), 0, false
@@ -170,6 +202,59 @@ func handle(header, body []byte, h host) (resp *relay.Frame, code int, exit bool
 		return &relay.Frame{Payload: body}, 0, false
 	}
 	return response(header, body), 0, false
+}
+
+// inbound is a frame read in the background, or the error that ended reading.
+type inbound struct {
+	frame relay.Frame
+	err   error
+}
+
+// stream answers "stream n [delay] [nostop]" as roadrunner/worker's stream
+// mode does.
+func stream(conn *relay.Conn, in <-chan inbound, header []byte, arg string, h host) error {
+	fields := strings.Fields(arg)
+	n := 3
+	var delay time.Duration
+	stopOnRequest := true
+	for i, f := range fields {
+		switch {
+		case i == 0:
+			n, _ = strconv.Atoi(f)
+		case f == "nostop":
+			stopOnRequest = false
+		default:
+			delay, _ = time.ParseDuration(f)
+		}
+	}
+	waitingPong := false
+	for i := range n {
+		if waitingPong && stopOnRequest {
+			select {
+			case m := <-in:
+				switch {
+				case m.err != nil:
+					return m.err
+				case m.frame.Stream.Has(relay.StreamStop):
+					return conn.Send(response(nil, nil)) // the empty last frame
+				case m.frame.Stream.Has(relay.StreamPong):
+					waitingPong = false
+				}
+			default:
+			}
+		}
+		h.sleep(delay)
+		f := response(header, fmt.Appendf(nil, "chunk %d\n", i))
+		f.Stream = relay.StreamMore
+		if i > 0 && i%5 == 0 && !waitingPong {
+			f.Stream |= relay.StreamPing
+			waitingPong = true
+		}
+		if err := conn.Send(f); err != nil {
+			return err
+		}
+	}
+	return conn.Send(response(header, []byte("end")))
 }
 
 func response(header, body []byte) *relay.Frame {

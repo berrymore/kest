@@ -17,7 +17,7 @@ func TestMain(m *testing.M) { leaktest.VerifyTestMain(m) }
 
 func start(t *testing.T, h http.Handler) *HTTP {
 	t.Helper()
-	l := NewHTTP("test", "127.0.0.1:0", h, DefaultLimits(), logging.Discard(), func(err error) {
+	l := NewHTTP("test", "127.0.0.1:0", h, Options{Limits: DefaultLimits()}, logging.Discard(), func(err error) {
 		t.Errorf("unexpected fatal error: %v", err)
 	})
 	if err := l.Start(t.Context()); err != nil {
@@ -131,7 +131,7 @@ func TestStartAddressInUse(t *testing.T) {
 	first := start(t, http.NotFoundHandler())
 	defer func() { _ = first.Stop(t.Context()) }()
 
-	second := NewHTTP("second", first.Addr().String(), http.NotFoundHandler(), DefaultLimits(), logging.Discard(), func(error) {})
+	second := NewHTTP("second", first.Addr().String(), http.NotFoundHandler(), Options{Limits: DefaultLimits()}, logging.Discard(), func(error) {})
 	err := second.Start(t.Context())
 	if err == nil || !strings.Contains(err.Error(), "listen") {
 		t.Errorf("Start on a used address = %v, want a listen error", err)
@@ -143,7 +143,7 @@ func TestStartAddressInUse(t *testing.T) {
 
 func startWithLimits(t *testing.T, limits Limits) *HTTP {
 	t.Helper()
-	l := NewHTTP("test", "127.0.0.1:0", http.NotFoundHandler(), limits, logging.Discard(), func(err error) {
+	l := NewHTTP("test", "127.0.0.1:0", http.NotFoundHandler(), Options{Limits: limits}, logging.Discard(), func(err error) {
 		t.Errorf("unexpected fatal error: %v", err)
 	})
 	if err := l.Start(t.Context()); err != nil {

@@ -68,6 +68,9 @@ func TestServePHPHelloExample(t *testing.T) {
 	if code, _, err := get(t, base+"/fail"); err != nil || code != http.StatusInternalServerError {
 		t.Errorf("GET /fail = %d, %v; want 500", code, err)
 	}
+	if code, body, err := get(t, base+"/robots.txt"); err != nil || code != http.StatusOK || !strings.HasPrefix(body, "User-agent: *") {
+		t.Errorf("GET /robots.txt = %d %q, %v; want the file of public/", code, body, err)
+	}
 
 	// request_id: PHP and the client see the same ID; access_log logs it.
 	resp, err := http.Get(base + "/info") //nolint:noctx // a plain test request
@@ -167,8 +170,10 @@ func TestServePHPHelloExample(t *testing.T) {
 	}
 
 	_, metrics, err := get(t, "http://"+adminAddr+"/metrics")
+	// /robots.txt and /healthz were answered by kest: they count without a cluster.
 	for _, want := range []string{
 		`kest_http_requests_total{listener="main",virtual_host="default",cluster="hello",code="200"} 503`,
+		`kest_http_requests_total{listener="main",virtual_host="default",cluster="",code="200"} 2`,
 		`kest_http_requests_total{listener="main",virtual_host="default",cluster="hello",code="500"} 1`,
 		`kest_pool_workers{cluster="hello",state="ready"} 4`,
 		`kest_pool_wait_seconds_count{cluster="hello"} 504`,

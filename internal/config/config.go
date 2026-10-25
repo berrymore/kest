@@ -45,6 +45,17 @@ type Config struct {
 	src *source
 }
 
+// ErrorAt returns an error about the value at a YAML path, such as
+// "listeners[0].tls.certificates[1]", located in the file when the path is
+// known. Components that check the config while the server graph is built
+// use it for problems that validation can't see, like unreadable files.
+func (c *Config) ErrorAt(path, msg string) *Error {
+	if c.src == nil {
+		return &Error{Path: path, Msg: msg}
+	}
+	return c.src.errorAt(path, msg)
+}
+
 // File returns the path the configuration was loaded from.
 func (c *Config) File() string {
 	if c.src == nil {
@@ -81,16 +92,32 @@ func (c *Config) DumpRedacted() ([]byte, error) {
 	}
 	out.Listeners = slices.Clone(c.Listeners)
 	for i := range out.Listeners {
-		if h := out.Listeners[i].HTTP; h != nil {
-			copied := *h
-			copied.Filters = slices.Clone(h.Filters)
-			for j := range copied.Filters {
-				copied.Filters[j] = copied.Filters[j].redacted()
-			}
-			out.Listeners[i].HTTP = &copied
+		h := out.Listeners[i].HTTP
+		if h == nil {
+			continue
 		}
+		copied := *h
+		copied.Filters = redactedFilters(h.Filters)
+		copied.VirtualHosts = slices.Clone(h.VirtualHosts)
+		for j := range copied.VirtualHosts {
+			vh := &copied.VirtualHosts[j]
+			vh.Filters = redactedFilters(vh.Filters)
+			vh.Routes = slices.Clone(vh.Routes)
+			for k := range vh.Routes {
+				vh.Routes[k].Filters = redactedFilters(vh.Routes[k].Filters)
+			}
+		}
+		out.Listeners[i].HTTP = &copied
 	}
 	return yaml.Dump(&out, yaml.WithIndent(2))
+}
+
+func redactedFilters(filters []Extension) []Extension {
+	out := slices.Clone(filters)
+	for i := range out {
+		out[i] = out[i].redacted()
+	}
+	return out
 }
 
 // Log configures the process logger.
@@ -119,13 +146,55 @@ type Server struct {
 type Listener struct {
 	Name    string `yaml:"name"`
 	Address string `yaml:"address"`
-	HTTP    *HTTP  `yaml:"http"`
+	// TLS, if set, makes the listener serve HTTPS.
+	TLS  *TLS  `yaml:"tls,omitempty"`
+	HTTP *HTTP `yaml:"http"`
 }
+
+// TLS holds a listener's certificates.
+type TLS struct {
+	// Certificates are chosen by the server name the client asks for (SNI);
+	// the first one serves clients that ask for none of them.
+	Certificates []Certificate `yaml:"certificates"`
+	// MinVersion is the oldest TLS version accepted: "1.2" or "1.3".
+	MinVersion string `yaml:"min_version"`
+}
+
+// Certificate is a certificate chain and its private key, in PEM files.
+// Relative paths resolve against the config file's directory.
+type Certificate struct {
+	CertFile string `yaml:"cert_file"` // the leaf first, then the intermediates
+	KeyFile  string `yaml:"key_file"`
+}
+
+// Values of HTTP.Protocols.
+const (
+	ProtocolHTTP1 = "http1"
+	ProtocolHTTP2 = "http2"
+)
+
+// TLS versions of TLS.MinVersion.
+const (
+	TLS12 = "1.2"
+	TLS13 = "1.3"
+)
 
 // HTTP is the protocol block of an HTTP listener.
 type HTTP struct {
-	// Filters run in order before the router, which is always last.
+	// Filters run in order before the router, which is always last. Virtual
+	// hosts and routes have filters of their own, which run after the router
+	// has chosen them.
 	Filters []Extension `yaml:"filters,omitempty"`
+
+	// Protocols are the HTTP versions served: ProtocolHTTP1, ProtocolHTTP2.
+	// HTTP/2 without TLS is h2c with prior knowledge.
+	Protocols []string `yaml:"protocols"`
+
+	// NormalizePath removes "." and ".." segments from request paths, and
+	// MergeSlashes collapses repeated slashes, before the filters and the
+	// router see the request. Both default to true.
+	NormalizePath *bool `yaml:"normalize_path"`
+	MergeSlashes  *bool `yaml:"merge_slashes"`
 
 	// Server limits. 0s turns a timeout off.
 	ReadHeaderTimeout *Duration `yaml:"read_header_timeout"` // reading a request's headers
@@ -143,14 +212,20 @@ type VirtualHost struct {
 	// Domains are exact hosts ("example.com"), suffix wildcards
 	// ("*.example.com") or "*" for any host. Ports are ignored when matching.
 	Domains []string `yaml:"domains"`
-	Routes  []Route  `yaml:"routes"`
+	// Filters run for every request to the virtual host, before the router
+	// chooses a route.
+	Filters []Extension `yaml:"filters,omitempty"`
+	Routes  []Route     `yaml:"routes"`
 }
 
 // Route is a match rule and exactly one action.
 type Route struct {
-	Match          RouteMatch      `yaml:"match"`
+	Match RouteMatch `yaml:"match"`
+	// Filters run after the virtual host's, before the action.
+	Filters        []Extension     `yaml:"filters,omitempty"`
 	Route          *RouteAction    `yaml:"route,omitempty"`
 	DirectResponse *DirectResponse `yaml:"direct_response,omitempty"`
+	Redirect       *Redirect       `yaml:"redirect,omitempty"`
 }
 
 // RouteMatch selects requests by path. Exactly one field must be set.
@@ -171,6 +246,23 @@ type DirectResponse struct {
 	Status int    `yaml:"status"`
 	Body   string `yaml:"body,omitempty"`
 }
+
+// Redirect answers with a redirect to the request's URL with some parts
+// replaced. A new scheme or host drops the request's port unless Port is set.
+type Redirect struct {
+	Scheme string `yaml:"scheme,omitempty"` // "http" or "https"
+	Host   string `yaml:"host,omitempty"`
+	Port   int    `yaml:"port,omitempty"`
+	// Path replaces the whole path; PrefixRewrite replaces the part that
+	// match.prefix matched.
+	Path          string `yaml:"path,omitempty"`
+	PrefixRewrite string `yaml:"prefix_rewrite,omitempty"`
+	StripQuery    bool   `yaml:"strip_query,omitempty"`
+	Status        int    `yaml:"status"` // 301, 302, 303, 307 or 308
+}
+
+// DefaultRedirectStatus is the status of a redirect that sets none.
+const DefaultRedirectStatus = 301
 
 // Cluster is a named upstream; its type selects the implementation.
 type Cluster struct {
@@ -193,9 +285,24 @@ func (c *Config) applyDefaults() {
 		c.Server.DrainTimeout = &d
 	}
 	for i := range c.Listeners {
+		if t := c.Listeners[i].TLS; t != nil && t.MinVersion == "" {
+			t.MinVersion = TLS12
+		}
 		h := c.Listeners[i].HTTP
 		if h == nil {
 			continue
+		}
+		for _, b := range []**bool{&h.NormalizePath, &h.MergeSlashes} {
+			if *b == nil {
+				on := true
+				*b = &on
+			}
+		}
+		if h.Protocols == nil {
+			h.Protocols = []string{ProtocolHTTP1}
+			if c.Listeners[i].TLS != nil {
+				h.Protocols = append(h.Protocols, ProtocolHTTP2)
+			}
 		}
 		for _, d := range []struct {
 			field **Duration
@@ -227,6 +334,9 @@ func (c *Config) applyDefaults() {
 				}
 				if r.DirectResponse != nil && r.DirectResponse.Status == 0 {
 					r.DirectResponse.Status = DefaultStatus
+				}
+				if r.Redirect != nil && r.Redirect.Status == 0 {
+					r.Redirect.Status = DefaultRedirectStatus
 				}
 			}
 		}

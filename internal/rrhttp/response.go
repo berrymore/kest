@@ -42,6 +42,23 @@ func (e *ResponseError) Unwrap() error {
 // flag); an empty context means status 200 without headers, as in RoadRunner.
 // Errors are *ResponseError values.
 func DecodeResponse(p worker.Payload) (*Response, error) {
+	return decodeResponse(p, false)
+}
+
+// DecodeStreamFrame decodes a frame of a streamed response as DecodeResponse
+// does, except that it also accepts informational statuses (100–199 but
+// 101), which a worker sends before the final response (103 Early Hints).
+func DecodeStreamFrame(p worker.Payload) (*Response, error) {
+	return decodeResponse(p, true)
+}
+
+// Informational reports a 1xx status other than 101, which comes before the
+// final response.
+func (resp *Response) Informational() bool {
+	return resp.Status < 200
+}
+
+func decodeResponse(p worker.Payload, informational bool) (*Response, error) {
 	resp := &Response{Status: http.StatusOK, Body: p.Body}
 	if len(p.Context) > 0 {
 		resp.Status = 0 // a context must have a status
@@ -55,8 +72,13 @@ func DecodeResponse(p worker.Payload) (*Response, error) {
 			return nil, &ResponseError{Err: err}
 		}
 	}
-	// 1xx are only meaningful before a final response, in a stream.
-	if resp.Status < 200 || resp.Status > 599 {
+	// 1xx are only meaningful before a final response, in a stream; 101
+	// would switch protocols, which workers can't do.
+	lowest := 200
+	if informational {
+		lowest = 100
+	}
+	if resp.Status < lowest || resp.Status > 599 || resp.Status == http.StatusSwitchingProtocols {
 		return nil, &ResponseError{Err: fmt.Errorf("invalid status %d", resp.Status)}
 	}
 	return resp, nil
@@ -171,6 +193,54 @@ func WriteResponse(w http.ResponseWriter, r *http.Request, resp *Response) (drop
 	}
 	maps.Copy(h, trailerValues)
 	return dropped, err
+}
+
+// WriteStreamHeader writes the status line and headers of a streamed
+// response, whose body follows in chunks of unknown total size: framing
+// headers and trailers are left out, net/http chunks the body. It returns
+// how many invalid headers it dropped, as WriteResponse.
+func WriteStreamHeader(w http.ResponseWriter, resp *Response) (dropped int) {
+	dropped = copyHeaders(w.Header(), resp.Header)
+	w.WriteHeader(resp.Status)
+	return dropped
+}
+
+// WriteInformational sends an informational (1xx) response, such as 103
+// Early Hints, with resp's headers; they are gone from w's headers after it,
+// so the final response doesn't repeat them.
+func WriteInformational(w http.ResponseWriter, resp *Response) (dropped int) {
+	h := w.Header()
+	saved := h.Clone()
+	dropped = copyHeaders(h, resp.Header)
+	w.WriteHeader(resp.Status)
+	for k := range h {
+		delete(h, k)
+	}
+	maps.Copy(h, saved)
+	return dropped
+}
+
+// copyHeaders adds the valid headers of src to dst, except framing ones, and
+// returns how many values it dropped as invalid.
+func copyHeaders(dst http.Header, src map[string][]string) (dropped int) {
+	for name, values := range src {
+		if !validHeaderName(name) {
+			dropped += len(values)
+			continue
+		}
+		key := http.CanonicalHeaderKey(name)
+		if framingHeader(key) {
+			continue
+		}
+		for _, v := range values {
+			if !validHeaderValue(v) {
+				dropped++
+				continue
+			}
+			dst[key] = append(dst[key], v)
+		}
+	}
+	return dropped
 }
 
 // trailerNames returns the canonical names listed in the "Trailer" header

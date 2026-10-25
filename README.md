@@ -2,10 +2,14 @@
 
 An Envoy-inspired application server for PHP (and, later, WebAssembly), written in Go.
 
-> **Status: experimental.** Milestones M0–M3 are done: kest serves PHP applications through pools of
+> **Status: experimental.** Milestones M0–M4 are done: kest serves PHP applications through pools of
 > unmodified RoadRunner PSR-7 workers (`roadrunner/http`), behind strictly validated Envoy-style routing, with
 > Prometheus metrics, rolling restarts without failed requests, access logs and request IDs, and bounded
-> resources. A Symfony app runs on it unchanged. HTTP edge features (TLS, HTTP/2, static files) are next. The goal is production quality; the plan is in [`.ai/roadmap.md`](.ai/roadmap.md).
+> resources. It speaks HTTP/2 (h2c) to the proxy in front of it, takes the client's address from trusted proxies,
+> terminates TLS when needed, runs filters per listener, virtual host and route (CORS, headers, gzip, the files of
+> `public/`), redirects, and streams responses from PHP. A Symfony app runs on it unchanged. Routing, filters and
+> pools come next, then a WASM sandbox. The goal is production quality; the plan is in
+> [`.ai/roadmap.md`](.ai/roadmap.md).
 
 ## Why
 
@@ -22,6 +26,11 @@ kest puts the two ideas together:
   file, validated strictly before anything starts.
 - **Many pools in one process.** Route `/api` and `/reports` to different PHP pools, keep slow endpoints
   from starving fast ones, and give each pool its own limits.
+- **Work off PHP's hands.** Filters on a listener, a virtual host or a route act before and after PHP, so that PHP
+  keeps the business logic.
+- **Behind your proxy, not instead of it.** kest stands behind nginx, an ingress or a load balancer: it speaks
+  HTTP/1.1 and h2c to it and takes the client's address from it. Certificates for the internet, CDN-grade files
+  and proxying to other services stay with the proxy.
 - **WASM sandbox (planned).** Run small, isolated WebAssembly modules for hot paths, as handlers or HTTP
   filters, with hard memory and time limits.
 - **Built to be operated.** Admin API, metrics, structured logs, graceful shutdown and rolling restarts.
@@ -49,6 +58,9 @@ listeners:
             - match: { prefix: /reports/ }
               route: { cluster: php_heavy, timeout: 120s }
             - match: { prefix: / }
+              filters:
+                - type: static            # files of public/ without PHP
+                  config: { dir: public }
               route: { cluster: php_app, timeout: 30s }
 
 clusters:
@@ -90,17 +102,20 @@ kest validate -c kest.yaml   # strict validation with precise error paths
 kest serve -c kest.yaml
 ```
 
-HTTP filters (`recovery`, `request_id`, `access_log`) run before the router, in config order.
+HTTP filters (`recovery`, `request_id`, `access_log`, `client_ip`, `headers`, `cors`, `compression`, `static`) run
+in config order: the listener's, then those of the virtual host and of the route that the router picks. Clusters:
+`php_workers`.
 
 ## Architecture at a glance
 
 ```
                 ┌──────────────────────────────── kest ─────────────────────────────────┐
                 │                                                                       │
-  client ─────▶ │  listener ──▶ HTTP filters ──▶ router ──▶ cluster                     │
+  proxy ──────▶ │  listener ──▶ HTTP filters ──▶ router ──▶ cluster                     │
                 │   :8080       request_id,      vhosts,    ├─ php_workers ─▶ pool ─────┼──▶ php worker.php × N
-                │               access_log, …    routes     ├─ wasm (planned) ─▶ wazero │
-                │                                           └─ http_proxy (planned) ────┼──▶ upstream
+                │               access_log, …    routes,    └─ wasm (planned) ─▶ wazero │
+                │                                and their                              │
+                │                                filters                                │
                 │                                                                       │
                 │  admin :9901 — /ready, /config_dump, /clusters, /metrics              │
                 └───────────────────────────────────────────────────────────────────────┘
@@ -116,9 +131,11 @@ Details: [`.ai/architecture.md`](.ai/architecture.md).
 | **M1** Worker pool ✅ | Language-agnostic process pool, supervisor, RoadRunner-compatible relay |
 | **M2** PHP HTTP — *MVP* ✅ | Serve PSR-7 apps through unmodified RoadRunner HTTP workers |
 | **M3** Operability ✅ | Metrics, admin API, rolling restarts, access logs, limits, benchmarks |
-| **M4** HTTP edge | TLS, HTTP/2, static files, compression, reverse-proxy clusters |
-| **M5** WASM sandbox | wazero runtime, `wasm` clusters and filters |
-| **M6** Dynamic config | Hot reload of the config file, config API |
+| **M4** HTTP features ✅ | TLS, HTTP/2 and h2c, trusted proxies, static files, compression, CORS, redirects, streaming |
+| **M5** Routing, filters and pools | Richer matches, per-route settings of listener filters, traffic split, auth and limits before PHP, `X-Sendfile` |
+| **M6** WASM sandbox | wazero runtime, `wasm` clusters and filters |
+| **M7** Protocols | gRPC, WebSockets and SSE, unix sockets |
+| **M8** Dynamic config | Hot reload of the config file, config API |
 
 ## Try it
 
@@ -137,7 +154,8 @@ curl localhost:9901/ready          # admin API: ready
   coming from RoadRunner.
 - [Configuration reference](docs/config.md).
 - [Metrics](docs/metrics.md): what `GET /metrics` reports, with example queries.
-- [Operations](docs/operations.md): signals, probes, deploys with rolling resets, sizing, troubleshooting.
+- [Operations](docs/operations.md): the proxy in front, TLS, signals, probes, deploys with rolling resets, sizing,
+  troubleshooting.
 - [Benchmarks](docs/benchmarks.md): kest against RoadRunner with the same PHP worker.
 
 ## Development

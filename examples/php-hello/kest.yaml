@@ -6,6 +6,7 @@
 #   curl localhost:8080/
 #   curl 'localhost:8080/?name=kest'
 #   curl -d 'a=1&b[]=2' localhost:8080/info
+#   curl localhost:8080/robots.txt      # a file of public/, served without PHP
 #
 # Set KEST_ADDRESS and KEST_ADMIN_ADDRESS to listen elsewhere.
 version: v1
@@ -31,6 +32,9 @@ listeners:
             - match: { path: /healthz }
               direct_response: { status: 200, body: "ok\n" }
             - match: { prefix: / }
+              filters:
+                - type: static      # files of public/ are served by kest; everything else goes to PHP
+                  config: { dir: public }
               route: { cluster: hello, timeout: 30s }
 
 clusters:

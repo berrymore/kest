@@ -91,11 +91,32 @@ func (v *validator) listeners(list []Listener, adminAddress string, clusters map
 			addresses[l.Address] = path + ".address"
 		}
 
+		if l.TLS != nil {
+			v.tls(path+".tls", l.TLS)
+		}
 		if l.HTTP == nil {
 			v.errorf(path+".http", "required: http is the only supported protocol")
 			continue
 		}
 		v.http(path+".http", l.HTTP, clusters)
+	}
+}
+
+func (v *validator) tls(path string, t *TLS) {
+	if len(t.Certificates) == 0 {
+		v.errorf(path+".certificates", "at least one certificate is required")
+	}
+	for i, c := range t.Certificates {
+		cpath := indexPath(path+".certificates", i)
+		if c.CertFile == "" {
+			v.errorf(cpath+".cert_file", "required")
+		}
+		if c.KeyFile == "" {
+			v.errorf(cpath+".key_file", "required")
+		}
+	}
+	if t.MinVersion != TLS12 && t.MinVersion != TLS13 {
+		v.errorf(path+".min_version", "unsupported TLS version %q; use %q or %q", t.MinVersion, TLS12, TLS13)
 	}
 }
 
@@ -112,18 +133,22 @@ func (v *validator) http(path string, h *HTTP, clusters map[string]bool) {
 			v.errorf(path+"."+name, "must not be negative")
 		}
 	}
+	if len(h.Protocols) == 0 {
+		v.errorf(path+".protocols", "at least one protocol is required: %s or %s", ProtocolHTTP1, ProtocolHTTP2)
+	}
+	for i, p := range h.Protocols {
+		switch {
+		case p != ProtocolHTTP1 && p != ProtocolHTTP2:
+			v.errorf(indexPath(path+".protocols", i), "unknown protocol %q; use %s or %s", p, ProtocolHTTP1, ProtocolHTTP2)
+		case slices.Index(h.Protocols, p) < i:
+			v.errorf(indexPath(path+".protocols", i), "duplicate protocol %q", p)
+		}
+	}
 	if h.MaxHeaderBytes < minHeaderBytes || h.MaxHeaderBytes > maxHeaderBytes {
 		v.errorf(path+".max_header_bytes", "must be between %s and %s, got %s", minHeaderBytes, maxHeaderBytes, h.MaxHeaderBytes)
 	}
 
-	for i := range h.Filters {
-		f := &h.Filters[i]
-		fpath := indexPath(path+".filters", i)
-		f.bind(v.src, fpath)
-		if f.Type == "" {
-			v.errorf(fpath+".type", "required")
-		}
-	}
+	v.filters(path, h.Filters)
 
 	if len(h.VirtualHosts) == 0 {
 		v.errorf(path+".virtual_hosts", "at least one virtual host is required")
@@ -152,6 +177,7 @@ func (v *validator) http(path string, h *HTTP, clusters map[string]bool) {
 			}
 		}
 
+		v.filters(vpath, vh.Filters)
 		if len(vh.Routes) == 0 {
 			v.errorf(vpath+".routes", "at least one route is required")
 		}
@@ -161,7 +187,20 @@ func (v *validator) http(path string, h *HTTP, clusters map[string]bool) {
 	}
 }
 
+// filters binds the filters of the block at path to their YAML paths.
+func (v *validator) filters(path string, filters []Extension) {
+	for i := range filters {
+		f := &filters[i]
+		fpath := indexPath(path+".filters", i)
+		f.bind(v.src, fpath)
+		if f.Type == "" {
+			v.errorf(fpath+".type", "required")
+		}
+	}
+}
+
 func (v *validator) route(path string, r *Route, clusters map[string]bool) {
+	v.filters(path, r.Filters)
 	m := r.Match
 	switch {
 	case m.Prefix == "" && m.Path == "":
@@ -174,11 +213,19 @@ func (v *validator) route(path string, r *Route, clusters map[string]bool) {
 		v.errorf(path+".match.path", "must start with /")
 	}
 
+	actions := 0
+	for _, set := range []bool{r.Route != nil, r.DirectResponse != nil, r.Redirect != nil} {
+		if set {
+			actions++
+		}
+	}
 	switch {
-	case r.Route == nil && r.DirectResponse == nil:
-		v.errorf(path, "an action is required: set route or direct_response")
-	case r.Route != nil && r.DirectResponse != nil:
-		v.errorf(path, "set only one action: route or direct_response")
+	case actions == 0:
+		v.errorf(path, "an action is required: set route, direct_response or redirect")
+	case actions > 1:
+		v.errorf(path, "set only one action: route, direct_response or redirect")
+	case r.Redirect != nil:
+		v.redirect(path+".redirect", r.Redirect, m.Prefix != "")
 	case r.Route != nil:
 		switch {
 		case r.Route.Cluster == "":
@@ -193,6 +240,36 @@ func (v *validator) route(path string, r *Route, clusters map[string]bool) {
 		if s := r.DirectResponse.Status; s < 100 || s > 599 {
 			v.errorf(path+".direct_response.status", "invalid HTTP status %d", s)
 		}
+	}
+}
+
+func (v *validator) redirect(path string, r *Redirect, prefixMatch bool) {
+	if r.Scheme == "" && r.Host == "" && r.Port == 0 && r.Path == "" && r.PrefixRewrite == "" && !r.StripQuery {
+		v.errorf(path, "set what changes: scheme, host, port, path, prefix_rewrite or strip_query")
+	}
+	if r.Scheme != "" && r.Scheme != "http" && r.Scheme != "https" {
+		v.errorf(path+".scheme", "unsupported scheme %q; use http or https", r.Scheme)
+	}
+	if r.Host != "" {
+		if err := checkDomain(r.Host); err != nil || strings.Contains(r.Host, "*") {
+			v.errorf(path+".host", "invalid host %q: a host name or an IP address, without a port", r.Host)
+		}
+	}
+	if r.Port < 0 || r.Port > 65535 {
+		v.errorf(path+".port", "invalid port %d", r.Port)
+	}
+	switch {
+	case r.Path != "" && r.PrefixRewrite != "":
+		v.errorf(path, "set only one of path or prefix_rewrite")
+	case r.Path != "" && !strings.HasPrefix(r.Path, "/"):
+		v.errorf(path+".path", "must start with /")
+	case r.PrefixRewrite != "" && !prefixMatch:
+		v.errorf(path+".prefix_rewrite", "needs a match.prefix to replace")
+	case r.PrefixRewrite != "" && !strings.HasPrefix(r.PrefixRewrite, "/"):
+		v.errorf(path+".prefix_rewrite", "must start with /")
+	}
+	if !slices.Contains([]int{301, 302, 303, 307, 308}, r.Status) {
+		v.errorf(path+".status", "invalid redirect status %d; use 301, 302, 303, 307 or 308", r.Status)
 	}
 }
 

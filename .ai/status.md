@@ -1,41 +1,54 @@
 # Status
 
-_Last updated: 2026-10-25 (M3 done)_
+_Last updated: 2026-10-25 (M4 merged, PR #3; M5 not started)_
 
 ## Current phase
 
-**M3 (operability) is done** and merged into `main` (PR #2). `plans/M3-operability.md` is its record: the
-decisions D1–D10, the steps, and a log of what was done and where it deviated. kest now has Prometheus metrics
-(`/metrics`, ADR-0007), `/clusters`, `/config_dump`, `/ready` per cluster, rolling resets of the workers without
-failed requests (admin API, SIGHUP, and `reload` on file changes for development), the filters `request_id`,
-`access_log` and `recovery`, configurable server limits, a drain delay, a budget for buffered request bodies, a
-benchmark against RoadRunner (`docs/benchmarks.md`) and an operations guide (`docs/operations.md`).
-
-**Next: M4 (HTTP edge features).**
+**M4 (HTTP edge features) is done and merged** (PR #3, squashed into `main`). The user delegated the milestone
+on 2026-10-25, looked at the result, and found kest drifting towards nginx and Envoy.
+ADR-0008 (accepted) draws the line: kest is an application server behind a proxy; it takes on what concerns how
+the proxy talks to the application or what makes up for a weakness of PHP. So, before the merge, the `http_proxy`
+cluster was removed (K-085), filters can be set on virtual hosts and routes (K-096), and static files are the
+`static` filter on the route to PHP instead of `php_workers.static` and the `static_files` cluster (K-082).
+`plans/M4-http-edge.md` is the record: decisions D1–D12 (D9 and D11 superseded by D12), steps 1–13 and the log.
+kest terminates TLS (certificates by SNI, reloaded on change) and HTTP/2 (h2, h2c), normalizes paths before
+routing, takes the client IP from trusted proxies (`client_ip`), sets headers (`headers`), answers CORS (`cors`),
+gzips (`compression`), redirects (`redirect` action), serves the files of `public/` (`static`) and streams
+responses from PHP (generators, `$chunkSize`, 103 Early Hints).
 
 ## In progress
 
-Nothing.
+Nothing. M5 is next, but the user asked not to start it in the session that merged M4.
 
-## Next up: how to start M4 in a fresh session
+## Next up: how to continue in a fresh session
 
-0. **Git first:** make sure the M3 PR is merged (`gh pr list --state all`); `git switch main && git pull`; delete
-   the local `feat/m3-operability`; create `feat/m4-http-edge`. One commit per backlog item; ask before every commit
-   unless the user says otherwise for M4.
-1. **Read first:** this file → `roadmap.md` § M4 → `backlog.md` § M4 (K-080…K-088) → `architecture.md` § 2–4
-   and § 10 (Q-A filter model, Q-C streaming, Q-D cluster interface) → `plans/M3-operability.md` (log).
-2. **Write `plans/M4-http-edge.md`**, a vertical slice first (for example TLS + HTTP/2 on one listener, K-080 and
-   K-081). K-085 (`http_proxy` cluster) is the second cluster type: it reopens Q-D. Path normalization (K-086) and
-   trusted proxies (K-087) are security items worth doing early.
-3. Get the user's approval of the plan before writing code.
-4. **End of M4:** the docs review (`review.md`) before `gh pr create`, and again before the merge if the branch
-   changed.
+1. **Git first:** `git checkout main && git pull`; `git status` is clean, `git log --oneline -3` shows the M4
+   squash commit on top.
+2. **M5 (Routing, filters and pools)** on a new branch `feat/m5-routing` from `main`, once the user says to start.
+   Read `roadmap.md` § M5, `backlog.md` § M5 (K-140…K-147, K-095, K-905, K-908, K-910), ADR-0008 and
+   `architecture.md` § 2–4 and § 8 (`internal/httpx`: router, filter chain, metrics). First write `plans/M5-routing.md` and
+   agree its scope with the user (vertical slice first). Research before designing: Envoy's route matching and
+   `typed_per_filter_config` ❓, RoadRunner's `sendfile` middleware ❓ (K-143).
 
 ## Open questions (need a decision from the user)
 
 None.
 
 ## Resolved decisions
+
+- 2026-10-25 — The user merged PR #3 (M4). The schema changes D1–D8 and D12 (was Q10) went in with it as proposed.
+  M6 WASM stays before M7 Protocols (was Q12).
+- 2026-10-25 — Filters stay nested (listener → virtual host → route), rather than on listeners only with
+  include/exclude paths in `static`: the router scopes every filter by host and path in one place, and a deny
+  route can't be bypassed by a filter that keeps its own path list. Turning a listener filter off on a route stays
+  K-141 (M5). The user then had the branch pushed and PR #3 opened.
+- 2026-10-25 — ADR-0008 accepted: kest is an application server behind a proxy, not an edge proxy. M4 narrowed
+  before its merge (`http_proxy` removed, static files as a filter on routes, filters on virtual hosts and routes);
+  HTTP/2 and h2c are core, TLS and gzip stay as they are; dropped K-091, K-092, K-093, K-094, K-906. New
+  milestones: M5 Routing, filters and pools; M7 Protocols (gRPC, WebSockets and SSE, unix sockets); WASM is M6,
+  dynamic configuration M8. A FastCGI listener waits in the icebox as a bonus (K-911).
+- 2026-10-25 — Q11 (add `static_files` to the glossary of `context.md`) is moot: the cluster type is gone. The
+  glossary changed with ADR-0008.
 
 - 2026-10-25 — M3: the agent committed each item itself after a green `make check`; the user then left the rest of
   M3 to the agent ("finish it to the end"), the PR included. The choices made while the user was away (K-070,
@@ -87,6 +100,20 @@ None.
 
 ## Session log (newest first, keep ~15)
 
+- **2026-10-25** — Kept filters nested after the user asked about listener-only filters with paths in `static`;
+  PR #3 opened, then merged (squash) on the user's go-ahead, WASM kept before protocols. M5 not started, as asked.
+- **2026-10-25** — The user looked at M4 and questioned the direction: kest was becoming an edge proxy. ADR-0008
+  (accepted) positions it behind a proxy; `context.md`, roadmap and backlog follow (M5 routing, filters and pools;
+  M7 protocols). M4 narrowed: K-085 `http_proxy` removed, K-096 filters on virtual hosts and routes (a filter's own
+  answer counts without a cluster), K-082 redone as the `static` filter; operations guide: running behind nginx.
+
+- **2026-10-25** — M3 merged (PR #2, squash). M4 done on `feat/m4-http-edge` while the user was away (no push, no
+  PR): the plan (D1–D11, K-084 split into K-084/K-089/K-090), then K-080 TLS with certificate reload, K-081 HTTP/2,
+  K-086 path normalization, K-087 `client_ip` (RoadRunner's `proxy_ip_parser` takes the spoofable leftmost
+  `X-Forwarded-For`), K-084 `headers`, K-089 `cors`, K-090 `redirect`, K-083 `compression`, K-082 static files
+  (`os.Root` dropped: it refuses Laravel's absolute `storage` link), K-088 streaming (checked against RR's pool
+  v2 and `roadrunner/worker` 3.8.2; a dead worker's error wraps `io.EOF`, so a stream ends with `ok == false`),
+  K-085 `http_proxy`; the docs review.
 - **2026-10-25** — M3, after the user went to bed and left the rest to the agent, PR included: K-070 body budget,
   K-072 `reload` (a baseline race found by `make test-matrix` on PHP 8.5, fixed), K-066 benchmark against
   RoadRunner 3.0.1 (K-069 dropped), K-067 operations guide; the docs review (19 findings, all fixed); PR #2.

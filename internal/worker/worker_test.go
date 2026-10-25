@@ -145,7 +145,6 @@ func TestExecute(t *testing.T) {
 		{name: "exit", req: Payload{Body: []byte("exit")}, wantErr: isErr(io.EOF)},
 		{name: "garbage", req: Payload{Body: []byte("garbage")}, wantErr: is[*relay.ProtocolError],
 			wantMsg: `exec: stdout is reserved for the RoadRunner protocol, but the worker printed "PHP Fatal er" (`},
-		{name: "stream", req: Payload{Body: []byte("stream")}, wantMsg: "streaming responses are not supported"},
 		{name: "no options", req: Payload{Body: []byte("no-options")}, wantMsg: "invalid response: options []"},
 		{name: "too large", req: Payload{Body: []byte("big 2000")}, wantErr: isErr(relay.ErrFrameTooLarge)},
 	}
@@ -161,7 +160,7 @@ func TestExecute(t *testing.T) {
 				}
 
 				start := time.Now()
-				got, err := execute(p, tt.req, tt.ttl)
+				got, _, err := execute(p, tt.req, tt.ttl)
 				if elapsed := time.Since(start); elapsed != tt.elapsed {
 					t.Errorf("took %s, want %s", elapsed, tt.elapsed)
 				}
@@ -206,7 +205,7 @@ func TestExecuteSequence(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, body := range []string{"one", "error soft", "two", "three"} {
-			resp, err := execute(p, Payload{Context: []byte("c"), Body: []byte(body)}, time.Minute)
+			resp, _, err := execute(p, Payload{Context: []byte("c"), Body: []byte(body)}, time.Minute)
 			var jobErr *JobError
 			if err != nil && !errors.As(err, &jobErr) {
 				t.Fatalf("execute %q: %v", body, err)
@@ -251,7 +250,7 @@ func TestStopProcess(t *testing.T) {
 			if _, err := handshake(t.Context(), p, discard); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := execute(p, Payload{Body: []byte("exit")}, 0); err == nil {
+			if _, _, err := execute(p, Payload{Body: []byte("exit")}, 0); err == nil {
 				t.Fatal("exit command: no error")
 			}
 			if !stopProcess(p, time.Second) {

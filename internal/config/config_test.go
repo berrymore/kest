@@ -87,9 +87,47 @@ func TestParseValid(t *testing.T) {
 		t.Errorf("default route timeout = %v", got)
 	}
 
+	if l.TLS != nil {
+		t.Errorf("tls = %+v, want none", l.TLS)
+	}
+	if got := strings.Join(l.HTTP.Protocols, ","); got != ProtocolHTTP1 {
+		t.Errorf("protocols = %s, want http1 without TLS", got)
+	}
+
 	c := cfg.Clusters[0]
 	if c.Name != "app" || c.Type != "fake" || !c.HasConfig() || c.Path() != "clusters[0]" {
 		t.Errorf("cluster = name %q type %q hasConfig %v path %q", c.Name, c.Type, c.HasConfig(), c.Path())
+	}
+}
+
+func TestParseTLS(t *testing.T) {
+	src := `version: v1
+listeners:
+  - name: secure
+    address: 127.0.0.1:8443
+    tls:
+      certificates: [{cert_file: a.pem, key_file: a.key}]
+    http: &http
+      virtual_hosts: [{name: a, domains: ["*"], routes: [{match: {prefix: /}, direct_response: {}}]}]
+  - name: modern
+    address: 127.0.0.1:8444
+    tls:
+      certificates: [{cert_file: a.pem, key_file: a.key}]
+      min_version: 1.3
+    http: *http
+`
+	cfg, err := parse(t, src, nil)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := cfg.Listeners[0].TLS; got.MinVersion != TLS12 || got.Certificates[0] != (Certificate{"a.pem", "a.key"}) {
+		t.Errorf("tls = %+v, want a.pem and the default version", got)
+	}
+	if got := cfg.Listeners[1].TLS.MinVersion; got != TLS13 {
+		t.Errorf("min_version = %q, want an unquoted 1.3 read as %q", got, TLS13)
+	}
+	if got := strings.Join(cfg.Listeners[0].HTTP.Protocols, ","); got != "http1,http2" {
+		t.Errorf("protocols = %s, want http1 and http2 with TLS", got)
 	}
 }
 
@@ -192,6 +230,86 @@ listeners:
 				`kest.yaml:14:22: listeners[0].http.virtual_hosts[0].routes[1].match: set only one of prefix or path`,
 				`kest.yaml:17:15: listeners[0].http.virtual_hosts[0].routes[2]: an action is required`,
 				`kest.yaml:17:22: listeners[0].http.virtual_hosts[0].routes[2].match: required: set prefix or path`,
+			},
+		},
+		{
+			name: "tls",
+			src: `version: v1
+listeners:
+  - name: a
+    address: 127.0.0.1:8443
+    tls: {min_version: "1.1"}
+    http: &http
+      virtual_hosts:
+        - name: a
+          domains: ["*"]
+          routes: [{match: {prefix: /}, direct_response: {}}]
+  - name: b
+    address: 127.0.0.1:8444
+    tls:
+      certificates:
+        - {cert_file: site.pem}
+        - {key_file: site.key}
+    http: *http
+`,
+			want: []string{
+				`kest.yaml:5:10: listeners[0].tls.certificates: at least one certificate is required`,
+				`kest.yaml:5:24: listeners[0].tls.min_version: unsupported TLS version "1.1"; use "1.2" or "1.3"`,
+				`kest.yaml:15:11: listeners[1].tls.certificates[0].key_file: required`,
+				`kest.yaml:16:11: listeners[1].tls.certificates[1].cert_file: required`,
+			},
+		},
+		{
+			name: "protocols",
+			src: `version: v1
+listeners:
+  - name: a
+    address: 127.0.0.1:8080
+    http:
+      protocols: []
+      virtual_hosts: &vh [{name: a, domains: ["*"], routes: [{match: {prefix: /}, direct_response: {}}]}]
+  - name: b
+    address: 127.0.0.1:8081
+    http:
+      protocols: [http2, h3, http2]
+      virtual_hosts: *vh
+`,
+			want: []string{
+				`kest.yaml:6:18: listeners[0].http.protocols: at least one protocol is required: http1 or http2`,
+				`kest.yaml:11:26: listeners[1].http.protocols[1]: unknown protocol "h3"; use http1 or http2`,
+				`kest.yaml:11:30: listeners[1].http.protocols[2]: duplicate protocol "http2"`,
+			},
+		},
+		{
+			name: "redirects",
+			src: `version: v1
+listeners:
+  - name: a
+    address: 127.0.0.1:8080
+    http:
+      virtual_hosts:
+        - name: a
+          domains: ["*"]
+          routes:
+            - match: {prefix: /a}
+              redirect: {}
+            - match: {path: /b}
+              redirect: {scheme: ftp, host: "example.com:80", port: 70000, prefix_rewrite: /x, status: 200}
+            - match: {prefix: /c}
+              redirect: {path: x, prefix_rewrite: /y}
+            - match: {prefix: /d}
+              redirect: {path: x}
+              direct_response: {}
+`,
+			want: []string{
+				`kest.yaml:11:25: listeners[0].http.virtual_hosts[0].routes[0].redirect: set what changes`,
+				`kest.yaml:13:34: listeners[0].http.virtual_hosts[0].routes[1].redirect.scheme: unsupported scheme "ftp"`,
+				`kest.yaml:13:45: listeners[0].http.virtual_hosts[0].routes[1].redirect.host: invalid host "example.com:80"`,
+				`kest.yaml:13:69: listeners[0].http.virtual_hosts[0].routes[1].redirect.port: invalid port 70000`,
+				`kest.yaml:13:92: listeners[0].http.virtual_hosts[0].routes[1].redirect.prefix_rewrite: needs a match.prefix`,
+				`kest.yaml:13:104: listeners[0].http.virtual_hosts[0].routes[1].redirect.status: invalid redirect status 200`,
+				`kest.yaml:15:25: listeners[0].http.virtual_hosts[0].routes[2].redirect: set only one of path or prefix_rewrite`,
+				`kest.yaml:16:15: listeners[0].http.virtual_hosts[0].routes[3]: set only one action`,
 			},
 		},
 		{
@@ -471,6 +589,34 @@ func TestDumpRedacted(t *testing.T) {
 	}
 	// The config itself is unchanged.
 	if plain, _ := cfg.Dump(); !strings.Contains(string(plain), "password: hunter2") {
+		t.Errorf("Dump after DumpRedacted:\n%s", plain)
+	}
+}
+
+// Secrets in the filters of virtual hosts and routes are redacted too.
+func TestDumpRedactedVirtualHostAndRouteFilters(t *testing.T) {
+	cfg, err := parse(t, `version: v1
+listeners:
+  - name: main
+    address: 127.0.0.1:0
+    http:
+      virtual_hosts:
+        - name: default
+          domains: ["*"]
+          filters: [{type: auth}]
+          routes: [{match: {prefix: /}, filters: [{type: auth}], direct_response: {status: 200}}]
+`, nil)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	vh := &cfg.Listeners[0].HTTP.VirtualHosts[0]
+	vh.Filters[0].SetDecoded(&secretConfig{Password: "hunter2-vhost"})
+	vh.Routes[0].Filters[0].SetDecoded(&secretConfig{Password: "hunter2-route"})
+	out, err := cfg.DumpRedacted()
+	if err != nil || strings.Contains(string(out), "hunter2") || strings.Count(string(out), "password: '[redacted]'") != 2 {
+		t.Errorf("DumpRedacted (%v):\n%s", err, out)
+	}
+	if plain, _ := cfg.Dump(); !strings.Contains(string(plain), "hunter2-vhost") || !strings.Contains(string(plain), "hunter2-route") {
 		t.Errorf("Dump after DumpRedacted:\n%s", plain)
 	}
 }

@@ -11,10 +11,12 @@ import (
 	"time"
 
 	"github.com/berrymore/kest/internal/config"
+	"github.com/berrymore/kest/internal/registry"
 )
 
-// Router selects a virtual host by the request's Host, then the first route
-// whose match fits the request path, and runs that route's action.
+// Router selects a virtual host by the request's Host and runs its filters,
+// then selects the first route whose match fits the request path and runs
+// the route's filters and its action.
 type Router struct {
 	exact    map[string]*virtualHost
 	suffixes []suffixHost // longest suffix first
@@ -28,15 +30,14 @@ type suffixHost struct {
 }
 
 type virtualHost struct {
-	name    string
 	routes  []route
-	noRoute http.Handler // no route matches: 404, counted
+	handler http.Handler // the virtual host's filters, then dispatch; counted
 }
 
 type route struct {
 	prefix  string
 	path    string
-	handler http.Handler
+	handler http.Handler // the route's filters, then its action
 }
 
 func (r *route) matches(path string) bool {
@@ -47,24 +48,27 @@ func (r *route) matches(path string) bool {
 }
 
 // newRouter builds a router from validated virtual hosts, counting requests
-// in m. A route to a cluster that clusters cannot resolve answers 503.
-func newRouter(vhosts []config.VirtualHost, clusters ClusterLookup, m *listenerMetrics) *Router {
+// in m and adding the configuration problems of their filters to errs. A
+// route to a cluster that clusters cannot resolve answers 503.
+func newRouter(vhosts []config.VirtualHost, clusters ClusterLookup, m *listenerMetrics, bc registry.BuildContext,
+	errs *config.Errors) *Router {
 	rt := &Router{
 		exact:  make(map[string]*virtualHost),
 		noHost: m.target("", "").instrument(http.NotFoundHandler()),
 	}
 	for i := range vhosts {
 		cfg := &vhosts[i]
-		vh := &virtualHost{name: cfg.Name, noRoute: m.target(cfg.Name, "").instrument(http.NotFoundHandler())}
+		vh := &virtualHost{}
+		filters := buildFilters(cfg.Filters, bc, errs)
 		for j := range cfg.Routes {
 			r := newRoute(&cfg.Routes[j], clusters)
-			cluster := ""
-			if cfg.Routes[j].Route != nil {
-				cluster = cfg.Routes[j].Route.Cluster
+			if a := cfg.Routes[j].Route; a != nil {
+				r.handler = m.target(cfg.Name, a.Cluster).routed(r.handler)
 			}
-			r.handler = m.target(cfg.Name, cluster).instrument(r.handler)
+			r.handler = Chain(r.handler, buildFilters(cfg.Routes[j].Filters, bc, errs)...)
 			vh.routes = append(vh.routes, r)
 		}
+		vh.handler = m.target(cfg.Name, "").instrument(Chain(http.HandlerFunc(vh.dispatch), filters...))
 		for _, d := range cfg.Domains {
 			switch {
 			case d == "*":
@@ -87,6 +91,8 @@ func newRoute(cfg *config.Route, clusters ClusterLookup) route {
 	switch {
 	case cfg.DirectResponse != nil:
 		r.handler = directResponse(cfg.DirectResponse.Status, cfg.DirectResponse.Body)
+	case cfg.Redirect != nil:
+		r.handler = redirect(cfg.Redirect, cfg.Match.Prefix)
 	case cfg.Route != nil:
 		h, ok := clusters(cfg.Route.Cluster)
 		if !ok {
@@ -108,13 +114,19 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		rt.noHost.ServeHTTP(w, r)
 		return
 	}
+	vh.handler.ServeHTTP(w, r)
+}
+
+// dispatch runs the first route that matches the request's path; 404 when
+// none does.
+func (vh *virtualHost) dispatch(w http.ResponseWriter, r *http.Request) {
 	for i := range vh.routes {
 		if vh.routes[i].matches(r.URL.Path) {
 			vh.routes[i].handler.ServeHTTP(w, r)
 			return
 		}
 	}
-	vh.noRoute.ServeHTTP(w, r)
+	http.NotFound(w, r)
 }
 
 func (rt *Router) virtualHost(host string) *virtualHost {

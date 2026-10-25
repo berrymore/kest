@@ -23,11 +23,12 @@ func newListenerMetrics(reg *metrics.Registry, listener string) *listenerMetrics
 	return &listenerMetrics{
 		listener: listener,
 		requests: reg.NewCounterVec("kest_http_requests_total",
-			"HTTP requests by listener, virtual host, cluster and status code. The cluster is empty for direct "+
-				"responses and requests that match no route; the virtual host is empty when none matches.",
+			"HTTP requests by listener, virtual host, cluster and status code. The cluster is set when the request "+
+				"reached a route's cluster: it is empty for direct responses, redirects, answers of virtual host and "+
+				"route filters, and requests that match no route; the virtual host is empty when none matches.",
 			"listener", "virtual_host", "cluster", "code"),
 		duration: reg.NewHistogramVec("kest_http_request_duration_seconds",
-			"Time from routing an HTTP request to its handler's return, in seconds.",
+			"Time from choosing an HTTP request's virtual host to its handler's return, in seconds.",
 			metrics.DurationBuckets, "listener", "virtual_host", "cluster"),
 		inFlight: reg.NewGaugeVec("kest_http_requests_in_flight",
 			"HTTP requests being served, by listener.", "listener").With(listener),
@@ -70,27 +71,46 @@ type targetMetrics struct {
 	codes    [1000]atomic.Pointer[metrics.Counter] // net/http allows status codes 100–999
 }
 
-// instrument counts and times the requests that h serves, and records the
-// target in the request's RequestInfo. A request whose handler panics counts
-// as a 500 unless it wrote another status.
+// instrument counts and times the requests that h serves: under the target
+// of the cluster they were routed to, if any, or else under t. It records
+// the virtual host in the request's RequestInfo. A request whose handler
+// panics counts as a 500 unless it wrote another status.
 func (t *targetMetrics) instrument(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		info := Info(r)
-		info.VirtualHost, info.Cluster = t.labels[1], t.labels[2]
+		info.VirtualHost, info.Cluster, info.target = t.labels[1], t.labels[2], nil
 		start := time.Now()
 		rw := NewResponseWriter(w)
+		observe := func(code int) {
+			target := t
+			if info.target != nil {
+				target = info.target
+			}
+			target.observe(code, time.Since(start))
+		}
 		defer func() {
 			if v := recover(); v != nil {
 				code := http.StatusInternalServerError
 				if rw.Written() {
 					code = rw.Status()
 				}
-				t.observe(code, time.Since(start))
+				observe(code)
 				panic(v)
 			}
 		}()
 		h.ServeHTTP(rw, r)
-		t.observe(rw.Status(), time.Since(start))
+		observe(rw.Status())
+	})
+}
+
+// routed marks the requests that reach h, a route's cluster, so that
+// instrument counts them under t and RequestInfo names the cluster. A
+// request that a filter answers before it gets here counts without one.
+func (t *targetMetrics) routed(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		info := Info(r)
+		info.Cluster, info.target = t.labels[2], t
+		h.ServeHTTP(w, r)
 	})
 }
 

@@ -70,6 +70,14 @@ func (req *Request) Close() error {
 	return req.files.remove()
 }
 
+// SetScheme changes the scheme of URI, for a client that a trusted proxy
+// says used another one than the connection to kest.
+func (req *Request) SetScheme(scheme string) {
+	if _, rest, ok := strings.Cut(req.URI, "://"); ok {
+		req.URI = scheme + "://" + rest
+	}
+}
+
 // UploadErrors returns the problems storing uploads; the files concerned
 // reach PHP with an upload error code.
 func (req *Request) UploadErrors() []error {

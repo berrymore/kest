@@ -1,7 +1,7 @@
 # Operations guide
 
-How to run kest in production: processes and signals, probes, deploys, sizing, monitoring and
-troubleshooting. Option details are in the [configuration reference](config.md), metrics in
+How to run kest in production: processes, the proxy in front, TLS, signals, probes, deploys, sizing, monitoring
+and troubleshooting. Option details are in the [configuration reference](config.md), metrics in
 [Metrics](metrics.md).
 
 ## Running kest
@@ -34,6 +34,63 @@ from stderr.
 
 Workers run as kest's user, in their own process group, with kest's environment unless `inherit_env: false`.
 On Linux they die with kest even if kest is killed with SIGKILL.
+
+## Behind a proxy
+
+kest is an application server: it runs behind nginx, a Kubernetes ingress or a load balancer, which faces the
+internet (certificates for browsers, files for CDNs, balancing over hosts). With nginx on the same host:
+
+```nginx
+upstream kest {
+    server 127.0.0.1:8080;
+    keepalive 32;                     # reuse connections to kest
+}
+
+server {
+    listen 443 ssl;
+    server_name example.com;
+    # ssl_certificate, ssl_certificate_key …
+
+    location / {
+        proxy_pass http://kest;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+- Add the `client_ip` filter with the proxy's addresses in `trusted_proxies` (here `127.0.0.1`), so that PHP, the
+  access log and your rate limits see the client instead of the proxy, and so that PHP builds `https://` URLs when
+  the proxy terminates TLS (`X-Forwarded-Proto`). Without it, PHP sees the proxy's address. Don't also configure
+  your framework's trusted proxies with the proxy's address: PHP already sees the client as the remote address.
+- Files: when the proxy can see the files of `public/` (the same host, a shared volume), let it serve them (nginx:
+  `root` and `try_files $uri @kest`, keeping `.php` files from being served as files) and leave the `static` filter
+  out. An ingress usually can't see the application's container: then set `static` on kest's route to PHP.
+- Streamed responses (server-sent events, generators): nginx buffers responses by default, so the client gets the
+  stream only at its end. Send `X-Accel-Buffering: no` from PHP for those responses, or set `proxy_buffering off`
+  on their location.
+- Load balancers that speak HTTP/2 to their backends without TLS (h2c with prior knowledge) can use it: add
+  `http2` to the listener's [`protocols`](config.md#listenershttp).
+
+## TLS
+
+The proxy in front usually terminates TLS. A listener with a `tls` block serves HTTPS itself
+([`listeners[].tls`](config.md#listenerstls)), for when nothing in front does: development, a load balancer that
+passes TCP through, traffic that must stay encrypted inside the network. With Let's Encrypt:
+
+- Point `cert_file` at `fullchain.pem` (certificate and intermediates) and `key_file` at `privkey.pem`. kest picks
+  up a renewed pair by itself within about 20 seconds: no reload hook, no restart. `kest_tls_certificate_expiry_timestamp_seconds`
+  tells you when renewal didn't happen ([Metrics](metrics.md#tls)).
+- The private key must be readable by kest's user. certbot's `live/` directory is root-only: give the group of
+  kest's user read access to `archive/` and `live/`, or copy the files elsewhere in a deploy hook.
+- Ports below 1024 need `AmbientCapabilities=CAP_NET_BIND_SERVICE` in the systemd unit when kest runs as an
+  unprivileged user.
+- Send plain HTTP to HTTPS with a second listener on port 80 whose only route is
+  `{match: {prefix: /}, redirect: {scheme: https}}`, and tell browsers to stay on HTTPS with the `headers` filter:
+  `response: {set: {Strict-Transport-Security: max-age=63072000}}`.
 
 ## Signals
 
@@ -73,7 +130,7 @@ dependency), the reset stops there and the call answers `500` with the worker's 
 reach still run the old code and keep serving, so roll the code back and reset again. `409` means a reset is
 running already.
 
-Configuration changes need a restart of kest; reloading the config is planned (M6).
+Configuration changes need a restart of kest; reloading the config is planned (M8).
 
 In development, a cluster's `reload` block resets the workers by itself when files change. Leave it off in
 production: deploys should decide when workers switch to new code.
@@ -122,7 +179,7 @@ Failed requests are logged with their status: `5xx` at error or warn level, clie
 | kest exits at start with the worker's exit status and stderr | The application fails to boot; the message shows PHP's error. |
 | `503` | No worker free in time (`no_worker`), the queue full (`queue_full`) or the body budget full (`body_budget`): see `kest_pool_rejected_total`. Or `/ready` while a cluster has no live worker. |
 | `504` | The route `timeout` expired; the worker may still be running the request (until `exec_ttl`). |
-| `502` | The worker died in the request (a fatal error, `exit`), broke the protocol, or sent a response over `max_response_size`; the log has the details. |
+| `502` | The worker died in the request (a fatal error, `exit`), broke the protocol, or sent a response over `max_response_size`; the log has the details. A streamed response that fails after its headers is cut off instead. |
 | `500` | The application reported an error (`$worker->getWorker()->error()`), or a panic in kest (with `recovery`). |
 | `408`, `413`, `431` | The body arrived too slowly, was over `max_request_body`, or the headers were over `max_header_bytes`. |
 | workers in `backoff` | They keep failing to start or die early; kest waits up to 30s between attempts. The log and `start_failed` restarts show why. |

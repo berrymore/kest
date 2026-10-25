@@ -5,8 +5,9 @@ The *why* and *what* of kest. Change this file only together with the user.
 ## One-liner
 
 kest is a Go application server that runs PHP applications in long-lived worker processes
-(RoadRunner-style), configured as an explicit Envoy-style graph in one YAML file, with a WASM sandbox
-for fast, isolated functions planned next.
+(RoadRunner-style) behind a proxy such as nginx, configured as an explicit Envoy-style graph in one YAML
+file. It takes off PHP's hands what PHP does badly, so that PHP keeps the business logic; a WASM sandbox for
+fast, isolated functions comes later.
 
 ## Problem
 
@@ -32,14 +33,21 @@ Near term (M0–M3):
 
 Longer term (M4+):
 
-6. HTTP edge features: TLS, HTTP/2, static files, compression, reverse proxy.
-7. **WASM sandbox** on wazero: `wasm` clusters (handlers), `wasm` HTTP filters, possibly functions
-   callable from PHP.
-8. Dynamic configuration: hot reload without dropping connections.
-9. More protocols and plugins (gRPC, queues/jobs, KV) once the core is solid.
+6. **A professional upstream for the proxy in front** (ADR-0008): HTTP/1.1 and HTTP/2 (h2c), the client's
+   address from trusted proxies, streamed responses, the files of `public/` that the proxy can't see (M4);
+   gRPC, WebSockets and SSE, unix sockets (M7).
+7. **Routing, filters and pools** that take work off PHP: richer matches, per-route settings of listener
+   filters, traffic split between pools, authentication and limits before PHP, `X-Sendfile`, fast rejection under overload (M5).
+8. **WASM sandbox** on wazero: `wasm` clusters (handlers), `wasm` HTTP filters, possibly functions
+   callable from PHP (M6).
+9. Dynamic configuration: hot reload without dropping connections (M8).
+10. More plugins (queues/jobs, KV) once the core is solid.
 
 ## Non-goals (for now)
 
+- **Being an edge proxy** (ADR-0008). kest stands behind nginx, an ingress or a load balancer, and takes on
+  what concerns how that proxy talks to the application or what makes up for a weakness of PHP. No ACME, no
+  brotli, no full file server, no reverse proxy or load balancing to other services.
 - Full Envoy parity, service mesh, or xDS wire compatibility.
 - Config compatibility with `.rr.yaml`. Worker-side (PHP) compatibility, yes; config compatibility, no.
 - Embedding PHP in the Go process via CGO (the FrankenPHP approach). kest uses external worker processes (ADR-0003).
@@ -77,11 +85,11 @@ Longer term (M4+):
 | Term | Meaning in kest |
 |---|---|
 | **Listener** | Named network endpoint (address and protocol) that accepts connections |
-| **HTTP filter** | Middleware step in a listener's HTTP chain (request_id, access_log, cors, …) |
+| **HTTP filter** | Middleware step in the HTTP chain of a listener, a virtual host or a route (request_id, cors, …) |
 | **Router** | Implicit last step of the HTTP chain; picks a virtual host and a route |
 | **Virtual host** | Set of routes selected by the `Host` header (`domains`) |
-| **Route** | Match rule (prefix, path, …) plus an action: `route` to a cluster, or `direct_response` |
-| **Cluster** | Named upstream that serves requests: `php_workers`, `wasm`, `http_proxy` |
+| **Route** | Match rule (prefix, path, …) plus an action: `route` to a cluster, `direct_response` or `redirect` |
+| **Cluster** | Named upstream that serves requests: `php_workers`, `wasm` (planned) |
 | **Pool** | Set of worker processes owned by a cluster |
 | **Worker** | One long-lived child process (e.g. `php worker.php`) handling one request at a time |
 | **Supervisor** | Watches workers and recycles them on limits: TTL, idle TTL, exec TTL, memory, max jobs |
@@ -90,5 +98,5 @@ Longer term (M4+):
 | **Payload** | Request/response unit sent to a worker: `context` (metadata) + `body` |
 | **Codec** | Encoding of the payload context: raw, JSON, protobuf |
 | **Extension** | Compiled-in component type registered by name in a category (filter, cluster, …) |
-| **Sandbox** | Isolated WASM instance with memory and time limits (M5) |
+| **Sandbox** | Isolated WASM instance with memory and time limits (M6) |
 | **Admin server** | Separate HTTP endpoint for readiness, config dump, cluster state, metrics |

@@ -36,12 +36,13 @@ Sources: https://www.envoyproxy.io/docs, https://github.com/envoyproxy/envoy (C+
 ## What kest does not borrow (for now)
 
 - Protobuf-first config and `@type` URLs.
-- xDS dynamic config (M6 may take ideas, not the wire protocol).
+- xDS dynamic config (M8 may take ideas, not the wire protocol).
 - Network (L4) filter chains and `filter_chain_match`; kest starts with HTTP listeners only.
 - Threading model details (Envoy is event-loop per worker thread; kest uses Go's `net/http` + goroutines).
 
 ## Questions for later
 
-- Envoy's drain sequence (`drain_timeout`, `--drain-strategy`) — details to mirror in M3/M6.
-- Retry and timeout semantics for `http_proxy` clusters (M4).
-- How the Proxy-Wasm ABI maps onto wazero, and the existing Go host implementations (M5).
+- Envoy's drain sequence (`drain_timeout`, `--drain-strategy`) — details to mirror in M3/M8.
+- The names borrowed from Envoy (`normalize_path`, `merge_slashes`, `prefix_rewrite`) are from memory ❓ and
+  describe kest's behavior only.
+- How the Proxy-Wasm ABI maps onto wazero, and the existing Go host implementations (M6).

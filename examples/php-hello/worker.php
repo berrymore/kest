@@ -55,6 +55,7 @@ function handle(ServerRequestInterface $request, string $bootedAt): ResponseInte
             'request_id' => $request->getHeaderLine('X-Request-Id'),
             'booted_at' => $bootedAt,
             'method' => $request->getMethod(),
+            'protocol' => $request->getProtocolVersion(),
             'uri' => (string) $request->getUri(),
             'client' => $request->getServerParams()['REMOTE_ADDR'] ?? null,
             'parsed_body' => $request->getParsedBody(),

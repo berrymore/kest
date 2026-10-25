@@ -33,6 +33,35 @@ func init() {
 	})
 }
 
+// seenCluster is the cluster that see_cluster saw in the last request's info.
+var seenCluster string
+
+func init() {
+	// see_cluster records the request's cluster once the rest of the chain has served it.
+	httpx.Filters.Register(registry.Factory[httpx.Filter]{
+		Type: "see_cluster",
+		Build: func(registry.BuildContext, any) (httpx.Filter, error) {
+			return func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					next.ServeHTTP(w, r)
+					seenCluster = httpx.Info(r).Cluster
+				})
+			}, nil
+		},
+	})
+	// teapot answers 418 itself.
+	httpx.Filters.Register(registry.Factory[httpx.Filter]{
+		Type: "teapot",
+		Build: func(registry.BuildContext, any) (httpx.Filter, error) {
+			return func(http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(http.StatusTeapot)
+				})
+			}, nil
+		},
+	})
+}
+
 type traceConfig struct {
 	Name string `yaml:"name"`
 }
@@ -242,6 +271,80 @@ func TestFilterChainOrder(t *testing.T) {
 	}
 }
 
+// The filters of the listener run first, then those of the virtual host,
+// then those of the route that matches; other routes' filters don't run.
+func TestVirtualHostAndRouteFilters(t *testing.T) {
+	h, err := httpx.NewHandler(loadHTTP(t, `
+  - name: main
+    address: 127.0.0.1:0
+    http:
+      filters: [{type: header_trace, config: {name: listener}}]
+      virtual_hosts:
+        - name: site
+          domains: ["site.test"]
+          filters: [{type: header_trace, config: {name: vhost}}]
+          routes:
+            - match: {prefix: /a}
+              filters:
+                - {type: header_trace, config: {name: a1}}
+                - {type: header_trace, config: {name: a2}}
+              route: {cluster: app}
+            - match: {prefix: /}
+              route: {cluster: app}
+        - name: other
+          domains: ["*"]
+          routes: [{match: {prefix: /}, route: {cluster: app}}]
+`), lookup, registry.BuildContext{Logger: logging.Discard()})
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+	for _, tt := range []struct{ host, path, want string }{
+		{"site.test", "/a", "listener,vhost,a1,a2"},
+		{"site.test", "/b", "listener,vhost"},
+		{"other.test", "/a", "listener"},
+	} {
+		if got := get(t, h, tt.host, tt.path).Header().Get("X-Trace"); got != tt.want {
+			t.Errorf("%s%s: filters %q, want %q", tt.host, tt.path, got, tt.want)
+		}
+	}
+}
+
+// A response that a filter of a virtual host or a route makes itself counts
+// without a cluster, and the request's info names none.
+func TestFilterAnswerCountsWithoutCluster(t *testing.T) {
+	reg := metrics.NewRegistry()
+	h, err := httpx.NewHandler(loadHTTP(t, `
+  - name: main
+    address: 127.0.0.1:0
+    http:
+      filters: [{type: see_cluster}]
+      virtual_hosts:
+        - name: site
+          domains: ["*"]
+          routes:
+            - match: {prefix: /tea}
+              filters: [{type: teapot}]
+              route: {cluster: app}
+            - match: {prefix: /}
+              route: {cluster: app}
+`), lookup, registry.BuildContext{Name: "main", Logger: logging.Discard(), Metrics: reg})
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+	if code := get(t, h, "localhost", "/tea").Code; code != http.StatusTeapot || seenCluster != "" {
+		t.Errorf("/tea = %d with cluster %q, want 418 without one", code, seenCluster)
+	}
+	if code := get(t, h, "localhost", "/coffee").Code; code != http.StatusOK || seenCluster != "app" {
+		t.Errorf("/coffee = %d with cluster %q, want 200 from app", code, seenCluster)
+	}
+	for _, tt := range []struct{ cluster, code string }{{"", "418"}, {"app", "200"}} {
+		if got := metricstest.Value(t, reg, "kest_http_requests_total",
+			"listener", "main", "virtual_host", "site", "cluster", tt.cluster, "code", tt.code); got != 1 {
+			t.Errorf("requests{cluster %q, %s} = %v, want 1", tt.cluster, tt.code, got)
+		}
+	}
+}
+
 func TestNewHandlerErrors(t *testing.T) {
 	_, err := httpx.NewHandler(loadHTTP(t, `
   - name: main
@@ -253,11 +356,14 @@ func TestNewHandlerErrors(t *testing.T) {
       virtual_hosts:
         - name: default
           domains: ["*"]
-          routes: [{match: {prefix: /}, direct_response: {}}]
+          filters: [{type: nope}]
+          routes: [{match: {prefix: /}, filters: [{type: header_trace, config: {title: x}}], direct_response: {}}]
 `), lookup, registry.BuildContext{Logger: logging.Discard()})
 	want := []string{
 		`kest.yaml:8:18: listeners[0].http.filters[0].type: unknown http filter type "nope"`,
 		"kest.yaml:9:41: listeners[0].http.filters[1].config.title: unknown field",
+		`kest.yaml:13:28: listeners[0].http.virtual_hosts[0].filters[0].type: unknown http filter type "nope"`,
+		"kest.yaml:14:81: listeners[0].http.virtual_hosts[0].routes[0].filters[0].config.title: unknown field",
 	}
 	for _, w := range want {
 		if err == nil || !strings.Contains(err.Error(), w) {
@@ -336,5 +442,103 @@ func TestMetrics(t *testing.T) {
 	}
 	if got := metricstest.Value(t, reg, "kest_http_requests_in_flight", "listener", "main"); got != 0 {
 		t.Errorf("requests in flight after the requests = %v, want 0", got)
+	}
+}
+
+func TestPathNormalization(t *testing.T) {
+	listener := func(options string) string {
+		return `
+  - name: main
+    address: 127.0.0.1:0
+    http:
+` + options + `
+      virtual_hosts:
+        - name: default
+          domains: ["*"]
+          routes:
+            - match: {prefix: /admin/}
+              direct_response: {status: 403, body: "denied"}
+            - match: {prefix: /}
+              route: {cluster: app}
+`
+	}
+	raw := func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "cluster "+r.URL.EscapedPath())
+	}
+	lookupRaw := func(string) (http.Handler, bool) { return http.HandlerFunc(raw), true }
+
+	on, err := httpx.NewHandler(loadHTTP(t, listener("")), lookupRaw, registry.BuildContext{Logger: logging.Discard()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	off, err := httpx.NewHandler(loadHTTP(t, listener("      normalize_path: false\n      merge_slashes: false")),
+		lookupRaw, registry.BuildContext{Logger: logging.Discard()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		path    string
+		on, off string
+	}{
+		{"/public/../admin/x", "denied", "cluster /public/../admin/x"},
+		{"/public/%2e%2e/admin/x", "denied", "cluster /public/%2e%2e/admin/x"},
+		{"/public%2F..%2Fadmin/x", "denied", "cluster /public%2F..%2Fadmin/x"},
+		{"//admin/x", "denied", "cluster //admin/x"},
+		{"/admin/./x", "denied", "denied"},
+		{"/a/./b//c", "cluster /a/b/c", "cluster /a/./b//c"},
+		// An unchanged path keeps its encoding.
+		{"/files/a%2Fb", "cluster /files/a%2Fb", "cluster /files/a%2Fb"},
+	} {
+		if got := get(t, on, "localhost", tt.path).Body.String(); got != tt.on {
+			t.Errorf("normalized: %s → %q, want %q", tt.path, got, tt.on)
+		}
+		if got := get(t, off, "localhost", tt.path).Body.String(); got != tt.off {
+			t.Errorf("not normalized: %s → %q, want %q", tt.path, got, tt.off)
+		}
+	}
+}
+
+func TestRedirect(t *testing.T) {
+	h, err := httpx.NewHandler(loadHTTP(t, `
+  - name: main
+    address: 127.0.0.1:0
+    http:
+      virtual_hosts:
+        - name: default
+          domains: ["*"]
+          routes:
+            - match: {prefix: /old/}
+              redirect: {prefix_rewrite: /new/, status: 308}
+            - match: {path: /docs}
+              redirect: {path: /documentation, strip_query: true}
+            - match: {prefix: /moved}
+              redirect: {host: www.example.com, status: 302}
+            - match: {prefix: /tls-port}
+              redirect: {scheme: https, port: 8443}
+            - match: {prefix: /keep-port}
+              redirect: {path: /x}
+            - match: {prefix: /}
+              redirect: {scheme: https}
+`), lookup, registry.BuildContext{Logger: logging.Discard()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		host, path string
+		status     int
+		location   string
+	}{
+		{"example.com", "/old/a/b?x=1", 308, "http://example.com/new/a/b?x=1"},
+		{"example.com", "/docs?page=2", 301, "http://example.com/documentation"},
+		{"example.com:8080", "/moved/here?q", 302, "http://www.example.com/moved/here?q"},
+		{"example.com:8080", "/tls-port/a", 301, "https://example.com:8443/tls-port/a"},
+		{"example.com:8080", "/keep-port/a", 301, "http://example.com:8080/x"},
+		{"example.com:8080", "/a%2Fb?q=1", 301, "https://example.com/a%2Fb?q=1"},
+		{"[::1]:8080", "/v6", 301, "https://[::1]/v6"},
+	} {
+		rec := get(t, h, tt.host, tt.path)
+		if rec.Code != tt.status || rec.Header().Get("Location") != tt.location {
+			t.Errorf("%s%s → %d %q, want %d %q", tt.host, tt.path, rec.Code, rec.Header().Get("Location"), tt.status, tt.location)
+		}
 	}
 }

@@ -81,8 +81,8 @@ internal/registry/   compiled-in extension categories and factories
 internal/server/     builds the component graph; start/stop order; drain
 internal/httpx/      HTTP filter chain and router
 internal/listener/   HTTP listeners
-internal/filters/    built-in HTTP filters, one package each: requestid/, accesslog/, recovery/
-internal/cluster/    cluster interface and registry category; phpworkers/ is the php_workers type
+internal/filters/    built-in HTTP filters, one package each: requestid/, accesslog/, recovery/, clientip/, headers/, cors/, compression/, static/
+internal/cluster/    cluster interface and registry category; types: phpworkers/
 internal/rrhttp/     HTTP ↔ RoadRunner HTTP payload (request context JSON/protobuf, forms, uploads, responses)
 internal/relay/      goridge frame codec and connection (RoadRunner worker protocol)
 internal/worker/     worker processes, pool, supervisor; workertest/ fakes, testdata/php/ for integration
@@ -146,7 +146,7 @@ Full workflow: `.ai/rules.md` § 9.
 | `.ai/context.md` | Vision, goals, non-goals, principles, glossary |
 | `.ai/rules.md` | Engineering rules and workflow conventions |
 | `.ai/architecture.md` | Living architecture: components, config model, interfaces, lifecycle |
-| `.ai/roadmap.md` | Milestones M0…M6 with exit criteria; definition of 1.0 |
+| `.ai/roadmap.md` | Milestones M0…M8 with exit criteria; definition of 1.0 |
 | `.ai/backlog.md` | All known work items (`K-NNN`), grouped by milestone |
 | `.ai/plans/` | Step-by-step plans for the active milestone/feature |
 | `.ai/decisions/` | Architecture Decision Records (`NNNN-title.md`) |

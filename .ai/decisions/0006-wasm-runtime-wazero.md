@@ -1,6 +1,6 @@
 # ADR-0006: Use wazero as the WASM runtime
 
-- **Status:** Accepted (2026-10-24); re-verify the ❓ wazero facts when M5 starts
+- **Status:** Accepted (2026-10-24); re-verify the ❓ wazero facts when M6 starts
 - **Date:** 2026-10-24
 - **Deciders:** user, agent
 
@@ -31,5 +31,5 @@ It will get its own ADR (K-100).
 ## Consequences
 
 - No CGO; the single static binary stays.
-- No component model / WASI preview 2 in wazero ❓ — limits the ABI choice; check at M5 start.
-- Follow-ups: K-100…K-104. Re-verify the wazero feature set (❓ items) when M5 starts.
+- No component model / WASI preview 2 in wazero ❓ — limits the ABI choice; check at M6 start.
+- Follow-ups: K-100…K-104. Re-verify the wazero feature set (❓ items) when M6 starts.
