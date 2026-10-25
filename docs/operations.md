@@ -1,7 +1,7 @@
 # Operations guide
 
-How to run kest in production: processes, the proxy in front, TLS, signals, probes, deploys, sizing, monitoring
-and troubleshooting. Option details are in the [configuration reference](config.md), metrics in
+How to run kest in production: processes, the proxy in front, TLS, signals, probes, deploys, sizing, isolating
+slow endpoints, monitoring and troubleshooting. Option details are in the [configuration reference](config.md), metrics in
 [Metrics](metrics.md).
 
 ## Running kest
@@ -149,8 +149,42 @@ production: deploys should decide when workers switch to new code.
   `timeout` (default 30s) answers the client `504` earlier, while the worker finishes.
 - **Memory:** about `pool.workers` × the worker's RSS, plus kest itself (about 25 MB), plus request bodies,
   which `max_buffered_bodies` bounds per cluster.
-- **Isolation:** a slow part of an application can get its own cluster (a second pool) and route, so that it
-  can't take every worker.
+- **Isolation:** see the next section.
+
+## Isolating slow endpoints
+
+One pool serves the whole application, so a slow endpoint (exports, reports, uploads to a remote store) can take
+every worker when many requests hit it at once, and the rest of the site waits behind it. Give its route a
+**lane**: a queue of its own in the pool, with a limit on the workers it takes.
+
+```yaml
+routes:
+  - name: export
+    match: {prefix: /export/}
+    route: {cluster: app, timeout: 120s, max_workers: 2, priority: low, queue_timeout: 30s}
+  - name: checkout
+    match: {prefix: /checkout/}
+    route: {cluster: app, priority: high}
+  - match: {prefix: /}
+    route: {cluster: app}
+```
+
+- **`max_workers`** keeps the export to 2 of the pool's workers however many requests come; the others wait in
+  its own queue, which doesn't fill the queue of the other routes. Measured with a pool of 4 PHP workers and 8
+  clients on a route that sleeps 500 ms: the other routes' p99 stayed under 1 ms with the lane, and went to 0.8–1 s
+  without it (`test/e2e/php_lanes_test.go`).
+- **`priority`** decides who gets a free worker first when requests wait: `high` lanes before `normal` ones (the
+  default lane is `normal`) before `low` ones. It is strict, so under sustained overload low lanes get no worker;
+  their `queue_timeout` then answers `503` quickly, with `Retry-After`, instead of letting their requests wait
+  minutes.
+- **`queue_timeout`** bounds the wait for a worker per route, in place of the pool's `allocate_timeout`: short for
+  an API whose clients give up fast, longer for a job that is worth waiting for.
+- A separate cluster (a second pool with its own `command`, `env` or limits) isolates even more: memory limits,
+  `max_jobs` and boot time of its own. It costs workers that sit idle while the other pool is busy; a lane only
+  caps what a route can take from a shared pool.
+
+Watch the lanes with `kest_pool_wait_seconds`, `kest_pool_queue_length`, `kest_pool_lane_workers` and
+`kest_pool_rejected_total`, labeled by the route's name (`route=""` is the default lane), and in `/clusters`.
 
 ## Monitoring
 

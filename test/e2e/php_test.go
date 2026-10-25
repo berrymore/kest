@@ -177,8 +177,8 @@ func TestServePHPHelloExample(t *testing.T) {
 		`kest_http_requests_total{listener="main",virtual_host="default",route="healthz",cluster="",code="200"} 1`,
 		`kest_http_requests_total{listener="main",virtual_host="default",route="app",cluster="hello",code="500"} 1`,
 		`kest_pool_workers{cluster="hello",state="ready"} 4`,
-		`kest_pool_wait_seconds_count{cluster="hello"} 504`,
-		`kest_pool_queue_length{cluster="hello"} 0`,
+		`kest_pool_wait_seconds_count{cluster="hello",route=""} 504`,
+		`kest_pool_queue_length{cluster="hello",route=""} 0`,
 	} {
 		if err != nil || !strings.Contains(metrics, want) {
 			t.Errorf("metrics don't contain %s (%v):\n%s", want, err, metrics)

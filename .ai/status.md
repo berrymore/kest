@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-10-25 (M5 on `feat/m5-pools`: steps 1–4 committed; step 5, the slice end to end, next)_
+_Last updated: 2026-10-25 (M5 on `feat/m5-pools`: steps 1–5 committed, the slice is done; step 6, overload, next)_
 
 ## Current phase
 
@@ -17,17 +17,18 @@ the milestone to the pool (2026-10-25): K-142 weighted clusters dropped, K-145�
 external authorization) to the icebox, K-141 to M6. `plans/M5-pools.md` (Active, approved) has decisions D1–D10 and steps
 1–13. Steps 1–4 are committed: the plan, K-910 route names, lanes in
 `worker.Pool` (`internal/worker/lane.go`), and route options to lanes (`route.max_workers`, `priority`,
-`queue_timeout`; `php_workers.retry_after`). Step 5 is next. The agent commits each item itself after a green `make check` until the end of
+`queue_timeout`; `php_workers.retry_after`), and the slice end to end (`test/e2e/php_lanes_test.go`, the operations
+guide). Step 6 is next. The agent commits each item itself after a green `make check` until the end of
 M5; the PR waits for the user's OK.
 
 ## Next up: how to continue in a fresh session
 
 1. **Git first:** `git checkout feat/m5-pools`; `git log --oneline -3` shows the `docs:` commit of the plan on top
    of K-148.
-2. **Step 5, the slice end to end:** an e2e test (tags `integration,e2e`) through the binary with
-   `internal/cluster/phpworkers/testdata/php/worker.php` (`/sleep/<ms>`, `/echo`): a slow route limited to 2 of 4
-   workers flooded while a fast route keeps its latency; the lane metrics. Then the operations guide section
-   "Isolating slow endpoints" (`docs/operations.md`). Then steps 6–13 of the plan, in order.
+2. **Step 6, overload (plan D4, K-144):** measure first: `test/bench` at about twice the pool's capacity, with
+   and without an adaptive queue timeout (CoDel: a lane whose queue hasn't been empty for `interval` lets new
+   requests wait at most `target`); compare goodput and p50/p99 of successful requests. The agent decides names and
+   defaults (the user delegated it) and records them in the plan for the PR review. Then steps 7–13 in order.
 
 ## Open questions (need a decision from the user)
 

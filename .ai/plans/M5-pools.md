@@ -185,7 +185,7 @@ end to end. The user can look at it before the rest.
    slower than before (K-148 numbers).
 4. [x] K-151, K-905, K-144 (D2, D3) route options to lanes: schema, validation at the route's path, `php_workers`
    lanes, `Retry-After`, lane metrics, `/clusters` — acceptance: unit tests and an e2e test with fake workers.
-5. [ ] The slice end to end — acceptance: an integration test with PHP floods a slow route limited to 2 of 4
+5. [x] The slice end to end — acceptance: an integration test with PHP floods a slow route limited to 2 of 4
    workers and checks that a fast route's latency stays low (exit criterion 1); `docs/config.md`, `docs/metrics.md`,
    and an operations guide section "Isolating slow endpoints".
 6. [ ] K-144 overload (D4): the experiment, then the proposal (names, defaults) to the user, then the code —
@@ -240,3 +240,10 @@ end to end. The user can look at it before the rest.
   serve through `php_workers`; the router, server and cluster unit tests cover the wiring, and step 5's PHP test runs
   it end to end through the binary. `config.RouteAction` now carries its YAML path (`Errorf`), like `Extension`, so
   that what a cluster finds wrong with a lane is located at the route.
+- 2026-10-25 — Step 5: `test/e2e/php_lanes_test.go` (PHP, through the binary): 4 workers, 8 clients on a route that
+  sleeps 500 ms, 2 clients on another route. With `max_workers: 2, priority: low` on the slow route the other
+  route's p99 is 0.46–0.51 ms; without the lane 0.8–1.0 s. The vertical slice is done; operations guide section
+  "Isolating slow endpoints".
+- 2026-10-25 — Step 4 was committed after `make check` alone, and two PHP tests (`TestPHPMetrics`,
+  `TestServePHPHelloExample`) still expected the pool metrics without `route`; fixed in step 5's commit. From here
+  on, steps that touch `php_workers` or the e2e tests run `make test-integration` before their commit too.

@@ -349,7 +349,7 @@ func TestPHPMetrics(t *testing.T) {
 			t.Fatalf("status %d", r.status)
 		}
 	}
-	if got := metricstest.Value(t, reg, "kest_pool_wait_seconds", "cluster", "app"); got != 5 {
+	if got := metricstest.Value(t, reg, "kest_pool_wait_seconds", "cluster", "app", "route", ""); got != 5 {
 		t.Errorf("waits = %v, want 5", got)
 	}
 	// Each process serves 2 jobs (no jitter at 2), and the live ones at most 1
