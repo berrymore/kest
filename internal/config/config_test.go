@@ -281,6 +281,32 @@ listeners:
 			},
 		},
 		{
+			name: "lanes",
+			src: `version: v1
+listeners:
+  - name: a
+    address: 127.0.0.1:8080
+    http:
+      virtual_hosts:
+        - name: a
+          domains: ["*"]
+          routes:
+            - match: {prefix: /a}
+              route: {cluster: app, priority: low}
+            - name: b
+              match: {prefix: /b}
+              route: {cluster: app, max_workers: -1, priority: urgent, queue_timeout: 0s}
+clusters:
+  - {name: app, type: fake}
+`,
+			want: []string{
+				`kest.yaml:10:15: listeners[0].http.virtual_hosts[0].routes[0].name: required: a route with max_workers`,
+				`kest.yaml:14:50: listeners[0].http.virtual_hosts[0].routes[1].route.max_workers: must be positive, got -1`,
+				`kest.yaml:14:64: listeners[0].http.virtual_hosts[0].routes[1].route.priority: unknown priority "urgent"`,
+				`kest.yaml:14:87: listeners[0].http.virtual_hosts[0].routes[1].route.queue_timeout: must be positive`,
+			},
+		},
+		{
 			name: "redirects",
 			src: `version: v1
 listeners:

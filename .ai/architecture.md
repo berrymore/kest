@@ -195,6 +195,9 @@ var Types = registry.NewCategory[Cluster]("cluster")
 // Optional: Prober { Serving() bool }; /ready fails while a cluster can't serve (php_workers: no live worker).
 // Optional: Reporter { Report() any }; its JSON is the cluster's status in /clusters.
 // Optional: Resetter { Reset(ctx) error }; POST /clusters/{name}/reset and SIGHUP (ErrResetRunning).
+// Optional: Laner { Lane(httpx.Lane) (http.Handler, error) } (M5): a route with max_workers, priority or
+// queue_timeout gets a handler of its own, in a lane of the cluster's pool; the router asks for it through
+// httpx.ClusterLookup(cluster, *Lane) while the graph is built, and locates *config.FieldError at the route action.
 ```
 
 Worker pool and relay 🟢 (M1; used by the `php_workers` cluster from M2):
@@ -398,7 +401,9 @@ test/bench/                  🟢 benchmark against RoadRunner: configs, loadgen
   route it chose and the cluster that route reached, if any (`chosen` and `routed` mark them in `RequestInfo`;
   labels: listener, virtual host, route, cluster, status code from a per-target array) and counts in-flight requests
   per listener; `php_workers`
-  observes its pool (`worker.Observer`) and reads states, queue and memory at scrape time. M4 adds
+  observes its pool (`worker.Observer`, by lane: the `route` label of `kest_pool_wait_seconds`,
+  `kest_pool_rejected_total`, `kest_pool_queue_length`, `kest_pool_lane_workers`) and reads states, queues and memory
+  at scrape time. M4 adds
   `kest_tls_*` (certificate expiry, failed handshakes) per listener.
 - **Tracing:** OpenTelemetry later; the `request_id` filter exists (M3).
 - **Admin API**, modeled on Envoy's admin interface:

@@ -74,8 +74,11 @@ func (p *Pool) Lane(cfg LaneConfig) (*Lane, error) {
 	case slices.ContainsFunc(p.lanes, func(l *Lane) bool { return l.cfg.Name == cfg.Name }):
 		add("Name", "duplicate lane %q", cfg.Name)
 	}
-	if cfg.MaxWorkers < 0 || cfg.MaxWorkers > p.cfg.Workers {
-		add("MaxWorkers", "must be between 0 and the pool's %d workers, got %d", p.cfg.Workers, cfg.MaxWorkers)
+	switch {
+	case cfg.MaxWorkers < 0:
+		add("MaxWorkers", "must not be negative, got %d", cfg.MaxWorkers)
+	case cfg.MaxWorkers > p.cfg.Workers:
+		add("MaxWorkers", "must not exceed the pool's %d workers, got %d", p.cfg.Workers, cfg.MaxWorkers)
 	}
 	if cfg.Priority < PriorityLow || cfg.Priority > PriorityHigh {
 		add("Priority", "unknown priority %d", cfg.Priority)

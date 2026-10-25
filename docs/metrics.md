@@ -24,6 +24,9 @@ stays bounded:
   virtual host or the route answers itself. `virtual_host` is empty when no virtual host matches the request's host.
   Requests that a filter of the listener answers itself (CORS preflights from `cors`) don't reach the router and
   aren't counted in `kest_http_requests_*`.
+- `route` on the `kest_pool_*` metrics: the lane of a pool. A route with `max_workers`, `priority` or `queue_timeout`
+  has a lane of its own, labeled with the route's name; the other routes to the cluster share its default lane,
+  labeled `""`.
 - `code`: the HTTP status code of the response.
 - `state`, `reason`: the fixed values listed below.
 - `cert_file`: a TLS certificate file from the config.
@@ -54,10 +57,11 @@ For each `php_workers` cluster:
 | Metric | Type | Labels | |
 |---|---|---|---|
 | `kest_pool_workers` | gauge | `cluster`, `state` | Worker slots by state: `starting`, `ready`, `working`, `stopping`, `backoff` (waiting to restart after failures), `stopped`. |
-| `kest_pool_queue_length` | gauge | `cluster` | Requests waiting for a free worker. |
+| `kest_pool_queue_length` | gauge | `cluster`, `route` | Requests waiting for a free worker, by lane. |
+| `kest_pool_lane_workers` | gauge | `cluster`, `route` | Workers running the requests of each lane now. |
 | `kest_pool_buffered_body_bytes` | gauge | `cluster` | Request body bytes reserved now, out of `max_buffered_bodies`. |
-| `kest_pool_wait_seconds` | histogram | `cluster` | How long requests waited for a free worker. |
-| `kest_pool_rejected_total` | counter | `cluster`, `reason` | Requests answered `503` without a worker: `queue_full` (`pool.max_queue_size` requests were waiting already), `no_worker` (none became free within `pool.allocate_timeout`) or `body_budget` (`max_buffered_bodies` was full). |
+| `kest_pool_wait_seconds` | histogram | `cluster`, `route` | How long requests waited for a free worker, by lane. |
+| `kest_pool_rejected_total` | counter | `cluster`, `route`, `reason` | Requests answered `503` without a worker, by lane: `queue_full` (`pool.max_queue_size` requests were waiting in the lane already), `no_worker` (none became free within the lane's `queue_timeout`, by default `pool.allocate_timeout`) or `body_budget` (`max_buffered_bodies` was full). |
 | `kest_pool_worker_restarts_total` | counter | `cluster`, `reason` | Workers replaced: `max_jobs`, `ttl`, `idle_ttl`, `memory` (over `supervisor.max_worker_memory`), `exec_ttl` (killed in a request that ran too long), `crash` (exited or broke the protocol), `stop_requested` (the worker asked for it), `start_failed` (a new worker didn't boot), `reset` (a rolling reset). |
 | `kest_pool_worker_memory_bytes` | gauge | `cluster`, `slot` | Each worker's resident memory, as last sampled. Sampled only when `supervisor.max_worker_memory` is set, every `supervisor.watch_tick`. |
 
@@ -91,6 +95,9 @@ sum by (cluster) (kest_pool_workers{state="working"})
 
 # Requests turned away because the pool was full or too slow
 sum by (cluster, reason) (rate(kest_pool_rejected_total[5m]))
+
+# 99th percentile wait for a worker, by lane
+histogram_quantile(0.99, sum by (cluster, route, le) (rate(kest_pool_wait_seconds_bucket[5m])))
 
 # Certificates that expire within 14 days (renewal didn't happen)
 kest_tls_certificate_expiry_timestamp_seconds - time() < 14 * 86400

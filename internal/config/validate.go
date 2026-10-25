@@ -13,9 +13,10 @@ import (
 var nameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 
 type validator struct {
-	src    *source
-	errs   Errors
-	routes map[string]bool // route names, unique in the whole config
+	src      *source
+	errs     Errors
+	clusters map[string]bool // cluster names
+	routes   map[string]bool // route names, unique in the whole config
 }
 
 func (v *validator) errorf(path, format string, args ...any) {
@@ -49,14 +50,14 @@ func (c *Config) validate() error {
 		v.errorf("server.drain_delay", "must not be negative")
 	}
 
-	clusters := v.clusters(c.Clusters)
-	v.listeners(c.Listeners, c.Admin.Address, clusters)
+	v.clusters = v.clusterNames(c.Clusters)
+	v.listeners(c.Listeners, c.Admin.Address)
 
 	return v.errs.Err()
 }
 
-// clusters validates cluster declarations and returns the set of their names.
-func (v *validator) clusters(list []Cluster) map[string]bool {
+// clusterNames validates cluster declarations and returns the set of their names.
+func (v *validator) clusterNames(list []Cluster) map[string]bool {
 	names := make(map[string]bool, len(list))
 	for i := range list {
 		c := &list[i]
@@ -71,7 +72,7 @@ func (v *validator) clusters(list []Cluster) map[string]bool {
 	return names
 }
 
-func (v *validator) listeners(list []Listener, adminAddress string, clusters map[string]bool) {
+func (v *validator) listeners(list []Listener, adminAddress string) {
 	if len(list) == 0 {
 		v.errorf("listeners", "at least one listener is required")
 		return
@@ -99,7 +100,7 @@ func (v *validator) listeners(list []Listener, adminAddress string, clusters map
 			v.errorf(path+".http", "required: http is the only supported protocol")
 			continue
 		}
-		v.http(path+".http", l.HTTP, clusters)
+		v.http(path+".http", l.HTTP)
 	}
 }
 
@@ -127,7 +128,7 @@ const (
 	maxHeaderBytes = ByteSize(64 << 20)
 )
 
-func (v *validator) http(path string, h *HTTP, clusters map[string]bool) {
+func (v *validator) http(path string, h *HTTP) {
 	for name, d := range map[string]*Duration{"read_header_timeout": h.ReadHeaderTimeout, "read_timeout": h.ReadTimeout,
 		"write_timeout": h.WriteTimeout, "idle_timeout": h.IdleTimeout} {
 		if d.Std() < 0 {
@@ -183,7 +184,7 @@ func (v *validator) http(path string, h *HTTP, clusters map[string]bool) {
 			v.errorf(vpath+".routes", "at least one route is required")
 		}
 		for j := range vh.Routes {
-			v.route(indexPath(vpath+".routes", j), &vh.Routes[j], clusters)
+			v.route(indexPath(vpath+".routes", j), &vh.Routes[j])
 		}
 	}
 }
@@ -200,7 +201,7 @@ func (v *validator) filters(path string, filters []Extension) {
 	}
 }
 
-func (v *validator) route(path string, r *Route, clusters map[string]bool) {
+func (v *validator) route(path string, r *Route) {
 	if r.Name != "" {
 		v.name(path, r.Name, v.routes, "route")
 	}
@@ -231,19 +232,39 @@ func (v *validator) route(path string, r *Route, clusters map[string]bool) {
 	case r.Redirect != nil:
 		v.redirect(path+".redirect", r.Redirect, m.Prefix != "")
 	case r.Route != nil:
-		switch {
-		case r.Route.Cluster == "":
-			v.errorf(path+".route.cluster", "required")
-		case !clusters[r.Route.Cluster]:
-			v.errorf(path+".route.cluster", "unknown cluster %q", r.Route.Cluster)
-		}
-		if r.Route.Timeout.Std() < 0 {
-			v.errorf(path+".route.timeout", "must not be negative")
-		}
+		v.routeAction(path, r)
 	case r.DirectResponse != nil:
 		if s := r.DirectResponse.Status; s < 100 || s > 599 {
 			v.errorf(path+".direct_response.status", "invalid HTTP status %d", s)
 		}
+	}
+}
+
+func (v *validator) routeAction(path string, r *Route) {
+	a := r.Route
+	a.src, a.path = v.src, path+".route"
+	switch {
+	case a.Cluster == "":
+		v.errorf(a.path+".cluster", "required")
+	case !v.clusters[a.Cluster]:
+		v.errorf(a.path+".cluster", "unknown cluster %q", a.Cluster)
+	}
+	if a.Timeout.Std() < 0 {
+		v.errorf(a.path+".timeout", "must not be negative")
+	}
+	if a.MaxWorkers < 0 {
+		v.errorf(a.path+".max_workers", "must be positive, got %d", a.MaxWorkers)
+	}
+	if a.Priority != "" && !slices.Contains([]string{PriorityHigh, PriorityNormal, PriorityLow}, a.Priority) {
+		v.errorf(a.path+".priority", "unknown priority %q; use %s, %s or %s", a.Priority, PriorityHigh, PriorityNormal,
+			PriorityLow)
+	}
+	if a.QueueTimeout != nil && a.QueueTimeout.Std() <= 0 {
+		v.errorf(a.path+".queue_timeout", "must be positive")
+	}
+	if a.HasLane() && r.Name == "" {
+		v.errorf(path+".name", "required: a route with max_workers, priority or queue_timeout gets a lane of its own, "+
+			"and its name labels the lane's metrics")
 	}
 }
 

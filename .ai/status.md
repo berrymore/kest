@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-10-25 (M5 on `feat/m5-pools`: steps 1–3 committed; step 4, route options to lanes, next)_
+_Last updated: 2026-10-25 (M5 on `feat/m5-pools`: steps 1–4 committed; step 5, the slice end to end, next)_
 
 ## Current phase
 
@@ -15,21 +15,19 @@ priority, a queue timeout), fast rejection under overload, a dynamic size, `X-Se
 **M5 — Worker pools and routing to them**, on `feat/m5-pools` (from `main` at the K-148 commit). The user narrowed
 the milestone to the pool (2026-10-25): K-142 weighted clusters dropped, K-145…K-147 (authentication, rate limiting,
 external authorization) to the icebox, K-141 to M6. `plans/M5-pools.md` (Active, approved) has decisions D1–D10 and steps
-1–13. Steps 1 (the plan), 2 (K-910 route names) and 3 (lanes in `worker.Pool`:
-`internal/worker/lane.go`) are committed; step 4 is next. The agent commits each item itself after a green `make check` until the end of
+1–13. Steps 1–4 are committed: the plan, K-910 route names, lanes in
+`worker.Pool` (`internal/worker/lane.go`), and route options to lanes (`route.max_workers`, `priority`,
+`queue_timeout`; `php_workers.retry_after`). Step 5 is next. The agent commits each item itself after a green `make check` until the end of
 M5; the PR waits for the user's OK.
 
 ## Next up: how to continue in a fresh session
 
 1. **Git first:** `git checkout feat/m5-pools`; `git log --oneline -3` shows the `docs:` commit of the plan on top
    of K-148.
-2. **Step 4, route options to lanes** (plan D2, D3; K-151, K-905, K-144): `route.max_workers`, `priority`,
-   `queue_timeout` in `internal/config` (validation: a route with any of them needs a `name`); the router asks the
-   cluster for a per-route handler (today `httpx.ClusterLookup func(name string) (http.Handler, bool)`; an optional
-   interface in `internal/cluster`, errors located at the route); `php_workers` makes a `worker.Lane` per such route
-   (`Pool.Lane`, before `Start`), `retry_after` on its 503s, the `route` label on `kest_pool_wait_seconds`,
-   `kest_pool_queue_length`, `kest_pool_rejected_total`, new `kest_pool_lane_workers`, lanes in `/clusters`. Unit
-   tests and an e2e test with fake workers; then step 5 (PHP integration test, docs).
+2. **Step 5, the slice end to end:** an e2e test (tags `integration,e2e`) through the binary with
+   `internal/cluster/phpworkers/testdata/php/worker.php` (`/sleep/<ms>`, `/echo`): a slow route limited to 2 of 4
+   workers flooded while a fast route keeps its latency; the lane metrics. Then the operations guide section
+   "Isolating slow endpoints" (`docs/operations.md`). Then steps 6–13 of the plan, in order.
 
 ## Open questions (need a decision from the user)
 
@@ -38,7 +36,8 @@ None. D4 (overload) will bring its names and defaults to the user after step 6's
 ## Resolved decisions
 
 - 2026-10-25 — M5: the user lets the agent commit each item itself after a green `make check`, until the end of the
-  milestone. The PR (push, `gh pr create`) still needs the user's OK.
+  milestone, then delegated all the remaining steps ("делай все шаги"): the agent decides (D4's names and defaults
+  included) and records the choices for the PR review. Push and PR only after the user's OK.
 
 - 2026-10-25 — Q14: the user approved `plans/M5-pools.md` as a whole, with its schema changes (route `name`;
   `route.max_workers`, `priority`, `queue_timeout`; `php_workers.retry_after`; `pool.max_workers`,

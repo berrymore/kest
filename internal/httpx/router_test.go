@@ -1,6 +1,8 @@
 package httpx_test
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -69,7 +71,7 @@ type traceConfig struct {
 
 func loadHTTP(t *testing.T, listener string) *config.HTTP {
 	t.Helper()
-	src := "version: v1\nlisteners:\n" + listener + "clusters:\n  - {name: app, type: fake}\n  - {name: gone, type: fake}\n"
+	src := "version: v1\nlisteners:\n" + listener + "clusters:\n  - {name: app, type: fake}\n  - {name: gone, type: fake}\n  - {name: plain, type: fake}\n"
 	cfg, err := config.Parse([]byte(src), "kest.yaml", func(string) (string, bool) { return "", false })
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
@@ -86,11 +88,28 @@ func echoCluster(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.WriteString(w, "cluster "+r.URL.Path)
 }
 
-func lookup(name string) (http.Handler, bool) {
-	if name == "app" {
-		return http.HandlerFunc(echoCluster), true
+// lookup knows the cluster "app", whose lanes add X-Lane to the response
+// and take at most 4 workers. The cluster "plain" has no lanes.
+func lookup(name string, lane *httpx.Lane) (http.Handler, error) {
+	switch {
+	case name == "plain" && lane != nil:
+		return nil, errors.New(`cluster "plain" has no lanes`)
+	case name == "plain":
+		return http.HandlerFunc(echoCluster), nil
+	case name != "app":
+		return nil, nil
+	case lane == nil:
+		return http.HandlerFunc(echoCluster), nil
+	case lane.MaxWorkers > 4:
+		return nil, errors.Join(&config.FieldError{Field: "max_workers", Msg: "more than the pool's 4 workers"},
+			&config.FieldError{Field: "priority", Msg: "also wrong"})
+	default:
+		l := *lane
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Lane", fmt.Sprintf("%s %d %s %s", l.Name, l.MaxWorkers, l.Priority, l.QueueTimeout))
+			echoCluster(w, r)
+		}), nil
 	}
-	return nil, false
 }
 
 // get serves a GET request for host and path through h.
@@ -349,6 +368,63 @@ func TestFilterAnswerCountsWithoutCluster(t *testing.T) {
 	}
 }
 
+// A route with lane settings gets a handler of its own from its cluster.
+func TestRouteLanes(t *testing.T) {
+	h, err := httpx.NewHandler(loadHTTP(t, `
+  - name: main
+    address: 127.0.0.1:0
+    http:
+      virtual_hosts:
+        - name: site
+          domains: ["*"]
+          routes:
+            - name: slow
+              match: {prefix: /slow}
+              route: {cluster: app, max_workers: 2, priority: low, queue_timeout: 5s}
+            - name: vip
+              match: {prefix: /vip}
+              route: {cluster: app, priority: high}
+            - name: named
+              match: {prefix: /}
+              route: {cluster: app}
+`), lookup, registry.BuildContext{Name: "main", Logger: logging.Discard()})
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+	for path, want := range map[string]string{"/slow": "slow 2 low 5s", "/vip": "vip 0 high 0s", "/other": ""} {
+		if got := get(t, h, "localhost", path).Header().Get("X-Lane"); got != want {
+			t.Errorf("%s: lane %q, want %q", path, got, want)
+		}
+	}
+}
+
+func TestRouteLaneErrors(t *testing.T) {
+	_, err := httpx.NewHandler(loadHTTP(t, `
+  - name: main
+    address: 127.0.0.1:0
+    http:
+      virtual_hosts:
+        - name: site
+          domains: ["*"]
+          routes:
+            - name: big
+              match: {prefix: /big}
+              route: {cluster: app, max_workers: 9}
+            - name: plain
+              match: {prefix: /}
+              route: {cluster: plain, queue_timeout: 1s}
+`), lookup, registry.BuildContext{Logger: logging.Discard()})
+	for _, w := range []string{
+		"kest.yaml:13:50: listeners[0].http.virtual_hosts[0].routes[0].route.max_workers: more than the pool's 4 workers",
+		"kest.yaml:13:22: listeners[0].http.virtual_hosts[0].routes[0].route.priority: also wrong",
+		`kest.yaml:16:22: listeners[0].http.virtual_hosts[0].routes[1].route: cluster "plain" has no lanes`,
+	} {
+		if err == nil || !strings.Contains(err.Error(), w) {
+			t.Errorf("error =\n%v\nwant it to contain %q", err, w)
+		}
+	}
+}
+
 func TestNewHandlerErrors(t *testing.T) {
 	_, err := httpx.NewHandler(loadHTTP(t, `
   - name: main
@@ -379,7 +455,10 @@ func TestNewHandlerErrors(t *testing.T) {
 func TestMetrics(t *testing.T) {
 	reg := metrics.NewRegistry()
 	var inFlight float64
-	clusters := func(name string) (http.Handler, bool) {
+	clusters := func(name string, _ *httpx.Lane) (http.Handler, error) {
+		if name != "app" {
+			return nil, nil
+		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			inFlight = metricstest.Value(t, reg, "kest_http_requests_in_flight", "listener", "main")
 			if r.URL.Path == "/api/fail" {
@@ -388,7 +467,7 @@ func TestMetrics(t *testing.T) {
 				return
 			}
 			echoCluster(w, r)
-		}), name == "app"
+		}), nil
 	}
 	h, err := httpx.NewHandler(loadHTTP(t, `
   - name: main
@@ -480,7 +559,7 @@ func TestPathNormalization(t *testing.T) {
 	raw := func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "cluster "+r.URL.EscapedPath())
 	}
-	lookupRaw := func(string) (http.Handler, bool) { return http.HandlerFunc(raw), true }
+	lookupRaw := func(string, *httpx.Lane) (http.Handler, error) { return http.HandlerFunc(raw), nil }
 
 	on, err := httpx.NewHandler(loadHTTP(t, listener("")), lookupRaw, registry.BuildContext{Logger: logging.Discard()})
 	if err != nil {

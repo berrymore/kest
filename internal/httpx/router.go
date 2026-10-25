@@ -3,6 +3,7 @@ package httpx
 import (
 	"cmp"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"slices"
@@ -63,7 +64,7 @@ func newRouter(vhosts []config.VirtualHost, clusters ClusterLookup, m *listenerM
 		filters := buildFilters(cfg.Filters, bc, errs)
 		for j := range cfg.Routes {
 			rc := &cfg.Routes[j]
-			r := newRoute(rc, clusters)
+			r := newRoute(rc, clusters, errs)
 			if rc.Route != nil {
 				r.handler = m.target(cfg.Name, rc.Name, rc.Route.Cluster).routed(r.handler)
 			}
@@ -91,7 +92,7 @@ func newRouter(vhosts []config.VirtualHost, clusters ClusterLookup, m *listenerM
 	return rt
 }
 
-func newRoute(cfg *config.Route, clusters ClusterLookup) route {
+func newRoute(cfg *config.Route, clusters ClusterLookup, errs *config.Errors) route {
 	r := route{prefix: cfg.Match.Prefix, path: cfg.Match.Path}
 	switch {
 	case cfg.DirectResponse != nil:
@@ -99,13 +100,24 @@ func newRoute(cfg *config.Route, clusters ClusterLookup) route {
 	case cfg.Redirect != nil:
 		r.handler = redirect(cfg.Redirect, cfg.Match.Prefix)
 	case cfg.Route != nil:
-		h, ok := clusters(cfg.Route.Cluster)
-		if !ok {
+		a := cfg.Route
+		var lane *Lane
+		if a.HasLane() {
+			lane = &Lane{Name: cfg.Name, MaxWorkers: a.MaxWorkers, Priority: a.Priority}
+			if a.QueueTimeout != nil {
+				lane.QueueTimeout = a.QueueTimeout.Std()
+			}
+		}
+		h, err := clusters(a.Cluster, lane)
+		if err != nil {
+			errs.Append(fieldErrors(a, err))
+		}
+		if h == nil {
 			h = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				http.Error(w, "cluster unavailable", http.StatusServiceUnavailable)
 			})
 		}
-		r.handler = withTimeout(h, cfg.Route.Timeout.Std())
+		r.handler = withTimeout(h, a.Timeout.Std())
 	default:
 		r.handler = http.NotFoundHandler()
 	}
@@ -169,6 +181,26 @@ func directResponse(status int, body string) http.Handler {
 		w.WriteHeader(status)
 		_, _ = io.WriteString(w, body)
 	})
+}
+
+// fieldErrors locates what a cluster found wrong with a route's lane:
+// *config.FieldError values (possibly joined) at their fields of the action.
+func fieldErrors(a *config.RouteAction, err error) error {
+	var list []error
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		list = joined.Unwrap()
+	} else {
+		list = []error{err}
+	}
+	var out config.Errors
+	for _, e := range list {
+		if fe, ok := errors.AsType[*config.FieldError](e); ok {
+			out.Append(a.Errorf(fe.Field, "%s", fe.Msg))
+		} else {
+			out.Append(a.Errorf("", "%v", e))
+		}
+	}
+	return out.Err()
 }
 
 // withTimeout bounds the request context; the cluster answers 504 when it expires.

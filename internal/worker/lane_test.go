@@ -240,8 +240,8 @@ func TestLaneConfig(t *testing.T) {
 		}{
 			{LaneConfig{}, "Name: must not be empty"},
 			{LaneConfig{Name: "a"}, `Name: duplicate lane "a"`},
-			{LaneConfig{Name: "b", MaxWorkers: 3}, "MaxWorkers: must be between 0 and the pool's 2 workers, got 3"},
-			{LaneConfig{Name: "b", MaxWorkers: -1}, "MaxWorkers: must be between 0"},
+			{LaneConfig{Name: "b", MaxWorkers: 3}, "MaxWorkers: must not exceed the pool's 2 workers, got 3"},
+			{LaneConfig{Name: "b", MaxWorkers: -1}, "MaxWorkers: must not be negative"},
 			{LaneConfig{Name: "b", Priority: 2}, "Priority: unknown priority 2"},
 			{LaneConfig{Name: "b", QueueTimeout: -time.Second}, "QueueTimeout: must not be negative"},
 		} {

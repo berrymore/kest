@@ -183,7 +183,7 @@ end to end. The user can look at it before the rest.
    synctest tests for ordering, limits, timeouts, the hand-over race and stop; the existing pool tests unchanged
    and green — acceptance: `go test -race ./internal/worker/...`; a Go benchmark of `Exec` and `make bench` no
    slower than before (K-148 numbers).
-4. [ ] K-151, K-905, K-144 (D2, D3) route options to lanes: schema, validation at the route's path, `php_workers`
+4. [x] K-151, K-905, K-144 (D2, D3) route options to lanes: schema, validation at the route's path, `php_workers`
    lanes, `Retry-After`, lane metrics, `/clusters` — acceptance: unit tests and an e2e test with fake workers.
 5. [ ] The slice end to end — acceptance: an integration test with PHP floods a slow route limited to 2 of 4
    workers and checks that a fast route's latency stays low (exit criterion 1); `docs/config.md`, `docs/metrics.md`,
@@ -233,3 +233,10 @@ end to end. The user can look at it before the rest.
   before, 904 → 985 bytes. `make bench`-style A/B of the binaries before and after (hello and form, 16 and 64
   clients, 6 interleaved runs each, `json`, no RoadRunner): medians −2.1 % to +1.9 %, the ranges overlap: no
   measurable difference.
+- 2026-10-25 — The user delegated the rest of M5 ("делай все шаги"); push and PR wait for their OK.
+- 2026-10-25 — Step 4: `route.max_workers`, `priority`, `queue_timeout`; `httpx.ClusterLookup(cluster, *Lane)` and
+  `cluster.Laner`; `php_workers.retry_after` (1s); lane metrics and `/clusters` lanes. Deviation: no e2e test with
+  fake workers. The fake worker echoes the request instead of answering in the RoadRunner HTTP format, so it can't
+  serve through `php_workers`; the router, server and cluster unit tests cover the wiring, and step 5's PHP test runs
+  it end to end through the binary. `config.RouteAction` now carries its YAML path (`Errorf`), like `Extension`, so
+  that what a cluster finds wrong with a lane is located at the route.

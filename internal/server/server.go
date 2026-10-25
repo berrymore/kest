@@ -94,9 +94,17 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		handlers[c.Name] = cl
 		s.clusters = append(s.clusters, component{kind: "cluster", name: c.Name, typ: c.Type, lifecycle: cl})
 	}
-	lookup := func(name string) (http.Handler, bool) {
+	lookup := func(name string, lane *httpx.Lane) (http.Handler, error) {
 		h, ok := handlers[name]
-		return h, ok
+		if !ok || lane == nil {
+			return h, nil
+		}
+		l, ok := h.(cluster.Laner)
+		if !ok {
+			return nil, fmt.Errorf("cluster %q can't give routes lanes of their own: max_workers, priority and "+
+				"queue_timeout need a php_workers cluster", name)
+		}
+		return l.Lane(*lane)
 	}
 
 	for i := range cfg.Listeners {

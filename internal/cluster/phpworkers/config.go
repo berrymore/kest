@@ -28,6 +28,9 @@ const DefaultMaxRequestBody = 16 << 20
 // DefaultMaxBufferedBodies bounds the request bodies a cluster holds at once.
 const DefaultMaxBufferedBodies = 256 << 20
 
+// DefaultRetryAfter is what the pool's 503 responses tell clients to wait.
+const DefaultRetryAfter = time.Second
+
 // Config is the config block of a php_workers cluster.
 type Config struct {
 	// Command runs one worker: the executable and its arguments.
@@ -51,6 +54,10 @@ type Config struct {
 	MaxResponseSize config.ByteSize `yaml:"max_response_size"`
 	// RawBody sends form and multipart bodies raw instead of parsed.
 	RawBody bool `yaml:"raw_body"`
+	// RetryAfter goes out as Retry-After, in whole seconds rounded up, with
+	// every 503 of the pool (queue full, no worker in time, body budget);
+	// 0 leaves the header out.
+	RetryAfter config.Duration `yaml:"retry_after"`
 
 	Uploads    Uploads    `yaml:"uploads"`
 	Pool       Pool       `yaml:"pool"`
@@ -112,6 +119,7 @@ func DefaultConfig() Config {
 		MaxRequestBody:    DefaultMaxRequestBody,
 		MaxBufferedBodies: DefaultMaxBufferedBodies,
 		MaxResponseSize:   config.ByteSize(w.MaxFrameSize),
+		RetryAfter:        config.Duration(DefaultRetryAfter),
 		Pool: Pool{
 			Workers:         w.Workers,
 			MaxJobs:         w.MaxJobs,
@@ -184,6 +192,9 @@ func (c *Config) Validate() error {
 	}
 	if c.MaxRequestBody < 1 {
 		add("max_request_body", "must be positive, got %s", c.MaxRequestBody)
+	}
+	if c.RetryAfter < 0 {
+		add("retry_after", "must not be negative, got %s", c.RetryAfter)
 	}
 	for i, p := range c.Reload.Patterns {
 		if _, err := path.Match(p, ""); err != nil || p == "" {
