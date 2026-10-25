@@ -6,7 +6,9 @@
 #
 # Each target serves the examples/php-hello worker with BENCH_WORKERS workers
 # and runs alone. Every scenario runs REPEAT times; the table shows the run
-# with the median throughput, and the server's RSS after the scenarios.
+# with the median throughput, and the server's RSS after the scenarios. First,
+# test/bench/codec.php shows what each codec costs PHP per request. To compare
+# with and without ext-protobuf, point PHPRC at a php.ini that doesn't load it.
 set -euo pipefail
 
 : "${RR:?set RR to the rr binary}"
@@ -38,6 +40,10 @@ field() {
 	sed -E "s/.*\"$1\":([0-9.]+).*/\1/"
 }
 
+echo "<!-- $(php -r 'printf("PHP %s, ext-protobuf %s", PHP_VERSION, phpversion("protobuf") ?: "off");') -->"
+for codec in json proto; do
+	echo "<!-- codec $(php test/bench/codec.php "$codec") -->"
+done
 printf '| Target | Scenario | Clients | Requests/s | p50 | p99 | Errors |\n|---|---|---|---|---|---|---|\n'
 for target in kest-json kest-proto rr; do
 	case $target in

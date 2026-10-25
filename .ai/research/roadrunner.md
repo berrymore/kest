@@ -169,8 +169,16 @@ not supported"). The PHP side detects the codec once per process, on the first r
 `CODEC_JSON` or `CODEC_PROTO`). So the current PHP library accepts both. Protobuf support arrived in
 `spiral/roadrunner-http` **3.5.0** (2024-04-01, with `roadrunner-api-dto`); 2.x–3.4 speak JSON only. Measured
 PHP-side cost per request (10 headers, `PSR7Worker` + `nyholm/psr7`, no `ext-protobuf`, pure-PHP `google/protobuf`
-5.36.2): **141 µs with protobuf, 28.5 µs with JSON**. `roadrunner/worker` documents the codec argument of
-`respond()` as "will be removed in v4.0 and `CODEC_PROTO` will be used by default".
+5.36.2): **141 µs with protobuf, 28.5 µs with JSON**. Re-measured on 2026-10-25 with `test/bench/codec.php` (the
+same kind of request through a fake relay, so no I/O; not the harness of the first measurement): JSON 14.4 µs,
+protobuf 20.1 µs with `ext-protobuf` 5.36.2 and 135 µs without. JSON stays ahead with the extension: `json_decode`
+returns the arrays `HttpWorker` needs, while a protobuf message is turned into arrays in PHP code
+(`headerValueToArray`), header by header, and responses are built from `HeaderValue` objects. The `roadrunner/http`
+README's "Without it, performance may be up to 50% lower" compares protobuf with and without the extension, not with
+JSON.
+`roadrunner/worker` documents the codec argument of `respond()` as "will be removed in v4.0 and `CODEC_PROTO` will
+be used by default". `roadrunner/goridge` 4.6 deprecates `CODEC_MSGPACK`: RoadRunner 3 drops the connection on a
+frame with it.
 
 **Request context, protobuf** (`http.v1.Request`; proto3, empty fields omitted):
 

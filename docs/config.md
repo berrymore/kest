@@ -568,9 +568,10 @@ response for a complete one.
 
 **Codec.** The request head (method, URI, headers, cookies, …) travels as JSON or protobuf. PHP's
 `roadrunner/http` reads either and answers in the same format. `json` (the default) works with every
-version of `spiral/roadrunner-http` / `roadrunner/http` from 2.0 on and costs PHP less: about 30 µs
-per request against about 140 µs for `proto` without the `protobuf` PHP extension. `proto` is what
-RoadRunner v3 sends, and needs `spiral/roadrunner-http` 3.5 or later.
+version of `spiral/roadrunner-http` / `roadrunner/http` from 2.0 on and costs PHP the least: about
+15 µs per request, against about 20 µs for `proto` with the `protobuf` PHP extension and about 135 µs
+without it ([benchmarks](benchmarks.md)). `proto` is what RoadRunner v3 sends, and needs
+`spiral/roadrunner-http` 3.5 or later; use it with the extension.
 
 **Requests.** Workers see requests as under RoadRunner: `REQUEST_URI` and the PSR-7 URI are absolute
 (`http://host/path?query`), `REMOTE_ADDR` is the client IP, cookies are URL-decoded. Form bodies
