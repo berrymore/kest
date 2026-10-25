@@ -135,7 +135,8 @@ Milestone definitions: `roadmap.md`.
 - [x] K-080 TLS listeners from cert files. `listeners[].tls` (`certificates` picked by SNI, `min_version`), loaded
   when the graph is built (located errors in `kest validate`), checked every 10s and reloaded once a change holds
   still; `kest_tls_certificate_expiry_timestamp_seconds`, `kest_tls_handshake_errors_total`.
-- [ ] K-081 HTTP/2 (h2 over TLS, h2c).
+- [x] K-081 HTTP/2 (h2 over TLS, h2c). `listeners[].http.protocols` (`http1`, `http2`; both with `tls`, `http1`
+  without); h2c is prior knowledge through `http.Protocols`; the PHP e2e test sees protocol `2` both ways.
 - [ ] K-082 Static files route action / filter.
 - [ ] K-083 Compression filter.
 - [ ] K-084 Header manipulation filter (`headers`). Split on 2026-10-25: CORS is K-089, redirects K-090.

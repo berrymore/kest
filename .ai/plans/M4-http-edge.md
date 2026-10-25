@@ -167,7 +167,7 @@ Steps 1–2 are the vertical slice: `curl --http2 -k https://localhost:8443/` ag
 
 1. [x] **TLS listeners** (K-080) — acceptance: e2e over TLS with a generated certificate; a replaced certificate is
    served without a restart; `kest validate` locates a missing file.
-2. [ ] **HTTP/2** (K-081) — acceptance: e2e with h2 over TLS and h2c; PHP sees `HTTP/2.0`.
+2. [x] **HTTP/2** (K-081) — acceptance: e2e with h2 over TLS and h2c; PHP sees `HTTP/2.0`.
 3. [ ] **Path normalization** (K-086) — acceptance: unit tests for dot segments, `%2e`, `//`; e2e: a deny route
    can't be bypassed.
 4. [ ] **`client_ip`** (K-087) — acceptance: spoofed `X-Forwarded-For` from an untrusted peer is ignored; PHP's
@@ -196,6 +196,8 @@ Steps 1–2 are the vertical slice: `curl --http2 -k https://localhost:8443/` ag
 
 ## Log
 
+- 2026-10-25 — Step 2 (K-081) done as in D2: the vertical slice runs (`php-hello` over h2 and h2c). `php-hello`'s
+  `/info` reports the protocol version.
 - 2026-10-25 — Step 1 (K-080) done as in D1. Beyond D1: the metrics `kest_tls_certificate_expiry_timestamp_seconds`
   and `kest_tls_handshake_errors_total`; failed handshakes go to the debug log. `config.Config.ErrorAt` locates
   errors found while the graph is built (unreadable certificate files).

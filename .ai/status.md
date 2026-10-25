@@ -10,7 +10,7 @@ on 2026-10-25 and asked not to open the PR before they have looked at the branch
 
 ## In progress
 
-M4, step 2 (K-081, HTTP/2).
+M4, step 3 (K-086, path normalization).
 
 ## Next up: how to continue M4 in a fresh session
 

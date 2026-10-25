@@ -151,6 +151,12 @@ type Certificate struct {
 	KeyFile  string `yaml:"key_file"`
 }
 
+// Values of HTTP.Protocols.
+const (
+	ProtocolHTTP1 = "http1"
+	ProtocolHTTP2 = "http2"
+)
+
 // TLS versions of TLS.MinVersion.
 const (
 	TLS12 = "1.2"
@@ -161,6 +167,10 @@ const (
 type HTTP struct {
 	// Filters run in order before the router, which is always last.
 	Filters []Extension `yaml:"filters,omitempty"`
+
+	// Protocols are the HTTP versions served: ProtocolHTTP1, ProtocolHTTP2.
+	// HTTP/2 without TLS is h2c with prior knowledge.
+	Protocols []string `yaml:"protocols"`
 
 	// Server limits. 0s turns a timeout off.
 	ReadHeaderTimeout *Duration `yaml:"read_header_timeout"` // reading a request's headers
@@ -234,6 +244,12 @@ func (c *Config) applyDefaults() {
 		h := c.Listeners[i].HTTP
 		if h == nil {
 			continue
+		}
+		if h.Protocols == nil {
+			h.Protocols = []string{ProtocolHTTP1}
+			if c.Listeners[i].TLS != nil {
+				h.Protocols = append(h.Protocols, ProtocolHTTP2)
+			}
 		}
 		for _, d := range []struct {
 			field **Duration

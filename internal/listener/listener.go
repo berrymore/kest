@@ -38,6 +38,10 @@ type Options struct {
 	// TLS makes the listener serve HTTPS with these certificates; nil serves
 	// plain HTTP.
 	TLS *Certificates
+	// HTTP1 and HTTP2 choose the protocol versions. HTTP/2 without TLS is h2c
+	// with prior knowledge. Both false: net/http's defaults (HTTP/1, and
+	// HTTP/2 with TLS).
+	HTTP1, HTTP2 bool
 	// Metrics gets the listener's metrics; nil: a registry nothing reads.
 	Metrics *metrics.Registry
 }
@@ -82,6 +86,16 @@ func NewHTTP(name, address string, handler http.Handler, opts Options, logger *s
 			IdleTimeout:       opts.IdleTimeout,
 			MaxHeaderBytes:    opts.MaxHeaderBytes,
 		},
+	}
+	if opts.HTTP1 || opts.HTTP2 {
+		var p http.Protocols
+		p.SetHTTP1(opts.HTTP1)
+		if l.certs != nil {
+			p.SetHTTP2(opts.HTTP2)
+		} else {
+			p.SetUnencryptedHTTP2(opts.HTTP2)
+		}
+		l.server.Protocols = &p
 	}
 	handshakeErrors := &metrics.Counter{} // nothing reads it without TLS
 	if l.certs != nil {

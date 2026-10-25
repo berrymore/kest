@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -113,6 +114,8 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 			WriteTimeout:      l.HTTP.WriteTimeout.Std(),
 			IdleTimeout:       l.HTTP.IdleTimeout.Std(),
 			MaxHeaderBytes:    int(l.HTTP.MaxHeaderBytes),
+			HTTP1:             slices.Contains(l.HTTP.Protocols, config.ProtocolHTTP1),
+			HTTP2:             slices.Contains(l.HTTP.Protocols, config.ProtocolHTTP2),
 			Metrics:           s.metrics,
 		}
 		if l.TLS != nil {

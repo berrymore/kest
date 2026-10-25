@@ -260,3 +260,72 @@ func copyFile(t *testing.T, from, to string) {
 	}
 	writeFile(t, to, data)
 }
+
+func TestProtocols(t *testing.T) {
+	dir := t.TempDir()
+	files, cert := writeCert(t, dir, "site", "site.test")
+	proto := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, r.Proto) })
+
+	h2c := func() *http.Client {
+		var p http.Protocols
+		p.SetUnencryptedHTTP2(true)
+		return &http.Client{Transport: &http.Transport{Protocols: &p}}
+	}
+	for _, tc := range []struct {
+		name         string
+		tls          bool
+		http1, http2 bool
+		client       *http.Client
+		scheme, want string // want "" means the request fails
+	}{
+		{"tls default", true, false, false, nil, "https", "HTTP/2.0"},
+		{"tls http1 only", true, true, false, nil, "https", "HTTP/1.1"},
+		{"h2c", false, true, true, h2c(), "http", "HTTP/2.0"},
+		{"h2c listener, http1 client", false, true, true, http.DefaultClient, "http", "HTTP/1.1"},
+		{"h2c client, http1 listener", false, true, false, h2c(), "http", ""},
+		{"h2c only", false, false, true, h2c(), "http", "HTTP/2.0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := Options{Limits: DefaultLimits(), HTTP1: tc.http1, HTTP2: tc.http2}
+			if tc.tls {
+				certs, err := LoadCertificates([]CertFiles{files}, tls.VersionTLS12)
+				if err != nil {
+					t.Fatal(err)
+				}
+				opts.TLS = certs
+			}
+			l := NewHTTP("test", "127.0.0.1:0", proto, opts, logging.Discard(), func(err error) { t.Errorf("fatal: %v", err) })
+			if err := l.Start(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = l.Stop(context.Background()) }()
+			c := tc.client
+			if c == nil {
+				c = client(l.Addr().String(), cert)
+			}
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, tc.scheme+"://site.test/", http.NoBody)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !tc.tls {
+				req.URL.Host = l.Addr().String()
+			}
+			resp, err := c.Do(req)
+			if tc.want == "" {
+				if err == nil {
+					resp.Body.Close()
+					t.Fatalf("got %s, want a failure", resp.Proto)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if string(body) != tc.want {
+				t.Errorf("served %s, want %s", body, tc.want)
+			}
+		})
+	}
+}

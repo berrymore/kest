@@ -133,6 +133,17 @@ func (v *validator) http(path string, h *HTTP, clusters map[string]bool) {
 			v.errorf(path+"."+name, "must not be negative")
 		}
 	}
+	if len(h.Protocols) == 0 {
+		v.errorf(path+".protocols", "at least one protocol is required: %s or %s", ProtocolHTTP1, ProtocolHTTP2)
+	}
+	for i, p := range h.Protocols {
+		switch {
+		case p != ProtocolHTTP1 && p != ProtocolHTTP2:
+			v.errorf(indexPath(path+".protocols", i), "unknown protocol %q; use %s or %s", p, ProtocolHTTP1, ProtocolHTTP2)
+		case slices.Index(h.Protocols, p) < i:
+			v.errorf(indexPath(path+".protocols", i), "duplicate protocol %q", p)
+		}
+	}
 	if h.MaxHeaderBytes < minHeaderBytes || h.MaxHeaderBytes > maxHeaderBytes {
 		v.errorf(path+".max_header_bytes", "must be between %s and %s, got %s", minHeaderBytes, maxHeaderBytes, h.MaxHeaderBytes)
 	}

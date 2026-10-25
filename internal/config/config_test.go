@@ -90,6 +90,9 @@ func TestParseValid(t *testing.T) {
 	if l.TLS != nil {
 		t.Errorf("tls = %+v, want none", l.TLS)
 	}
+	if got := strings.Join(l.HTTP.Protocols, ","); got != ProtocolHTTP1 {
+		t.Errorf("protocols = %s, want http1 without TLS", got)
+	}
 
 	c := cfg.Clusters[0]
 	if c.Name != "app" || c.Type != "fake" || !c.HasConfig() || c.Path() != "clusters[0]" {
@@ -122,6 +125,9 @@ listeners:
 	}
 	if got := cfg.Listeners[1].TLS.MinVersion; got != TLS13 {
 		t.Errorf("min_version = %q, want an unquoted 1.3 read as %q", got, TLS13)
+	}
+	if got := strings.Join(cfg.Listeners[0].HTTP.Protocols, ","); got != "http1,http2" {
+		t.Errorf("protocols = %s, want http1 and http2 with TLS", got)
 	}
 }
 
@@ -251,6 +257,27 @@ listeners:
 				`kest.yaml:5:24: listeners[0].tls.min_version: unsupported TLS version "1.1"; use "1.2" or "1.3"`,
 				`kest.yaml:15:11: listeners[1].tls.certificates[0].key_file: required`,
 				`kest.yaml:16:11: listeners[1].tls.certificates[1].cert_file: required`,
+			},
+		},
+		{
+			name: "protocols",
+			src: `version: v1
+listeners:
+  - name: a
+    address: 127.0.0.1:8080
+    http:
+      protocols: []
+      virtual_hosts: &vh [{name: a, domains: ["*"], routes: [{match: {prefix: /}, direct_response: {}}]}]
+  - name: b
+    address: 127.0.0.1:8081
+    http:
+      protocols: [http2, h3, http2]
+      virtual_hosts: *vh
+`,
+			want: []string{
+				`kest.yaml:6:18: listeners[0].http.protocols: at least one protocol is required: http1 or http2`,
+				`kest.yaml:11:26: listeners[1].http.protocols[1]: unknown protocol "h3"; use http1 or http2`,
+				`kest.yaml:11:30: listeners[1].http.protocols[2]: duplicate protocol "http2"`,
 			},
 		},
 		{

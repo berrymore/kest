@@ -12,7 +12,6 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"io"
-	"maps"
 	"math/big"
 	"net"
 	"net/http"
@@ -90,21 +89,20 @@ type response struct {
 	Body   string
 }
 
-func do(t *testing.T, c *http.Client, method, url string, header http.Header) response {
+func do(t *testing.T, c *http.Client, url string) response {
 	t.Helper()
-	req, err := http.NewRequestWithContext(t.Context(), method, url, http.NoBody)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
-	maps.Copy(req.Header, header)
 	resp, err := c.Do(req)
 	if err != nil {
-		t.Fatalf("%s %s: %v", method, url, err)
+		t.Fatalf("GET %s: %v", url, err)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		t.Fatalf("%s %s: read body: %v", method, url, err)
+		t.Fatalf("GET %s: read body: %v", url, err)
 	}
 	return response{Status: resp.StatusCode, Proto: resp.Proto, TLS: resp.TLS != nil, Header: resp.Header, Body: string(body)}
 }
@@ -132,9 +130,9 @@ listeners:
 `)
 
 	k := serve(t, configPath, adminAddr)
-	resp := do(t, tlsClient(listenAddr, cert), http.MethodGet, "https://site.test/", nil)
-	if resp.Status != http.StatusOK || resp.Body != "secure\n" || !resp.TLS {
-		t.Errorf("GET https://site.test/ = %d %q (TLS %v)", resp.Status, resp.Body, resp.TLS)
+	resp := do(t, tlsClient(listenAddr, cert), "https://site.test/")
+	if resp.Status != http.StatusOK || resp.Body != "secure\n" || !resp.TLS || resp.Proto != "HTTP/2.0" {
+		t.Errorf("GET https://site.test/ = %d %q (%s, TLS %v); want HTTP/2 over TLS", resp.Status, resp.Body, resp.Proto, resp.TLS)
 	}
 	_, metrics, err := get(t, "http://"+adminAddr+"/metrics")
 	if err != nil || !strings.Contains(metrics, `kest_tls_certificate_expiry_timestamp_seconds{listener="secure",cert_file="`+
