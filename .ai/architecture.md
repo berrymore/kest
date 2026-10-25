@@ -2,12 +2,14 @@
 
 > A living document. It describes the **target** design and marks what is implemented.
 > Legend: 🟢 implemented · 🟡 in progress · ⚪ planned.
-> **Last reviewed: 2026-10-25 (M3 done).** Implemented: config loading and validation, extension
-> registry, server lifecycle, HTTP listeners with configurable limits, router with `direct_response`; the
-> goridge relay and the worker pool with rolling resets (`internal/relay`, `internal/worker`); the RoadRunner
-> HTTP payload (`internal/rrhttp`) and the `php_workers` cluster type (body budget, `reload`); the filters
-> `request_id`, `access_log`, `recovery`; metrics (`internal/metrics`); admin `/ready`, `/server_info`,
-> `/config_dump`, `/clusters`, `POST /clusters/{name}/reset`, `/metrics`.
+> **Last reviewed: 2026-10-25 (M4 done).** Implemented: config loading and validation, extension
+> registry, server lifecycle, HTTP listeners with configurable limits, TLS (reloaded certificates) and HTTP/2/h2c,
+> path normalization, router with `direct_response` and `redirect`; the goridge relay and the worker pool with
+> rolling resets and streamed answers (`internal/relay`, `internal/worker`); the RoadRunner HTTP payload
+> (`internal/rrhttp`); the cluster types `php_workers` (body budget, `reload`, `static`), `static_files` and
+> `http_proxy`; the filters `request_id`, `access_log`, `recovery`, `client_ip`, `headers`, `cors`, `compression`;
+> metrics (`internal/metrics`); admin `/ready`, `/server_info`, `/config_dump`, `/clusters`,
+> `POST /clusters/{name}/reset`, `/metrics`.
 
 ## 1. Big picture 🟡
 
@@ -37,8 +39,10 @@ kest is a single Go binary. At startup it reads one YAML file and builds a graph
 - **Listeners** accept connections on an address and hand them to a protocol handler (HTTP first).
 - The **HTTP connection manager** runs a chain of **HTTP filters** (middleware), ending in the **router**.
 - The **router** selects a **virtual host** by `Host` and the first matching **route**, then runs its
-  action: forward to a **cluster** or return a **direct response**.
-- **Clusters** are named upstreams of different types (`php_workers`, `wasm`, `http_proxy`).
+  action: forward to a **cluster**, return a **direct response** or a **redirect**. Paths are normalized before
+  the filters (`normalize_path`, `merge_slashes`).
+- **Clusters** are named upstreams of different types (`php_workers`, `static_files`, `http_proxy`; `wasm` later).
+- **Listeners** may terminate TLS (certificates by SNI, reloaded when their files change) and speak HTTP/2.
 - A `php_workers` cluster owns a **pool** of processes, talks to each one through a **relay**
   using a framed protocol (ADR-0003), and is watched by a **supervisor**.
 - The **admin server** exposes readiness, effective config, cluster and worker state, and metrics.
@@ -180,7 +184,9 @@ type Filter func(next http.Handler) http.Handler
 var Filters = registry.NewCategory[Filter]("http filter")
 // Every request carries an *httpx.RequestInfo (RequestID, VirtualHost, Cluster), set by the listener entry,
 // the router and request_id; filters read it after the inner handler returns (access_log), whatever their
-// order. httpx.ResponseWriter records the status and body size. Built in: request_id, access_log, recovery.
+// order. httpx.ResponseWriter records the status and body size; httpx.BeforeHeader edits a response header just
+// before it goes out (headers, cors, compression). RequestInfo.ClientIP/Scheme come from client_ip
+// (httpx.ClientIP, httpx.Scheme). Built in: request_id, access_log, recovery, client_ip, headers, cors, compression.
 
 // internal/cluster: the name lives in config/BuildContext, not on the interface.
 type Cluster interface {
@@ -374,7 +380,9 @@ test/bench/                  🟢 benchmark against RoadRunner: configs, loadgen
   the Prometheus text format 0.0.4 (ADR-0007). `server.New` creates the registry (with Go and process metrics)
   and hands it to components in `BuildContext`. `httpx` wraps each route (labels: listener, virtual host,
   cluster, status code from a per-target array) and counts in-flight requests per listener; `php_workers`
-  observes its pool (`worker.Observer`) and reads states, queue and memory at scrape time.
+  observes its pool (`worker.Observer`) and reads states, queue and memory at scrape time. M4 adds
+  `kest_tls_*` (certificate expiry, failed handshakes) per listener and `kest_upstream_*` per `http_proxy`
+  endpoint.
 - **Tracing:** OpenTelemetry later; the `request_id` filter exists (M3).
 - **Admin API**, modeled on Envoy's admin interface:
 

@@ -1,25 +1,31 @@
 # Status
 
-_Last updated: 2026-10-25 (M4 started)_
+_Last updated: 2026-10-25 (M4 done, waiting for the user's local review)_
 
 ## Current phase
 
-**M4 (HTTP edge features) is in progress** on `feat/m4-http-edge`, autonomously: the user delegated the milestone
-on 2026-10-25 and asked not to open the PR before they have looked at the branch locally. Active plan:
-`plans/M4-http-edge.md` (decisions D1–D11, steps 1–12). M3 is merged (PR #2).
+**M4 (HTTP edge features) is done** on `feat/m4-http-edge`, not pushed and without a PR: the user delegated the
+milestone on 2026-10-25 and asked to look at the result locally before a PR is opened. `plans/M4-http-edge.md` is
+its record: decisions D1–D11, steps 1–12 and a log of the deviations. kest now terminates TLS (certificates by
+SNI, reloaded on change) and HTTP/2 (h2, h2c), normalizes paths before routing, takes the client IP from trusted
+proxies (`client_ip`), sets headers (`headers`), answers CORS (`cors`), gzips (`compression`), redirects
+(`redirect` action), serves static files (`php_workers.static`, `static_files`), streams responses from PHP
+(generators, `$chunkSize`, 103 Early Hints) and proxies to remote endpoints (`http_proxy`).
 
 ## In progress
 
-M4, step 12 (docs and the docs review).
+Nothing: the branch waits for the user.
 
-## Next up: how to continue M4 in a fresh session
+## Next up: how to continue in a fresh session
 
-1. **Read first:** this file → `plans/M4-http-edge.md` (design notes and the log: where the work stopped) →
-   `backlog.md` § M4 → `architecture.md` § 2–4 and § 10.
-2. Continue with the first open step of the plan. One commit per backlog item after a green `make check`; the
-   user allowed the agent to commit on `feat/m4-http-edge` without asking during M4.
-3. **End of M4:** the docs review (`review.md`); then stop and tell the user: **no push and no PR** until the user
-   has looked at the branch locally.
+1. **Git first:** `git status` on `feat/m4-http-edge`; `git log --oneline main..HEAD` shows one commit per item
+   (K-080…K-090) and the `docs:` commits.
+2. **When the user has looked at the branch and agrees:** push it (`git push -u origin feat/m4-http-edge`; if SSH
+   fails, see the memory note on HTTPS with `gh auth git-credential`), `gh pr create` with the milestone summary,
+   the items, the decisions to review (Q10 below), how it was tested, and that the docs review ran. Merge only on
+   the user's go-ahead (`rules.md` § 9); run the docs review again if the branch changed.
+3. **After the merge: M5 (WASM sandbox).** Read `roadmap.md` § M5, `backlog.md` § M5 (K-100…), ADR-0006 and
+   `architecture.md` § 9; K-100 (the guest ABI ADR) comes first and needs research (Proxy-Wasm, http-wasm, WASI).
 
 ## Open questions (need a decision from the user)
 
@@ -80,10 +86,13 @@ M4, step 12 (docs and the docs review).
 
 ## Session log (newest first, keep ~15)
 
-- **2026-10-25** — M3 merged (PR #2, squash). M4 started on `feat/m4-http-edge` while the user was away: the plan
-  (D1–D11), K-084 split into K-084/K-089/K-090; RoadRunner's `proxy_ip_parser` v6.0.0 (leftmost
-  `X-Forwarded-For`, replaces the remote address) and the streaming protocol (pool v2.0.0-beta.1,
-  `roadrunner/worker` 3.8.2) read in the sources.
+- **2026-10-25** — M3 merged (PR #2, squash). M4 done on `feat/m4-http-edge` while the user was away (no push, no
+  PR): the plan (D1–D11, K-084 split into K-084/K-089/K-090), then K-080 TLS with certificate reload, K-081 HTTP/2,
+  K-086 path normalization, K-087 `client_ip` (RoadRunner's `proxy_ip_parser` takes the spoofable leftmost
+  `X-Forwarded-For`), K-084 `headers`, K-089 `cors`, K-090 `redirect`, K-083 `compression`, K-082 static files
+  (`os.Root` dropped: it refuses Laravel's absolute `storage` link), K-088 streaming (checked against RR's pool
+  v2 and `roadrunner/worker` 3.8.2; a dead worker's error wraps `io.EOF`, so a stream ends with `ok == false`),
+  K-085 `http_proxy`; the docs review.
 - **2026-10-25** — M3, after the user went to bed and left the rest to the agent, PR included: K-070 body budget,
   K-072 `reload` (a baseline race found by `make test-matrix` on PHP 8.5, fixed), K-066 benchmark against
   RoadRunner 3.0.1 (K-069 dropped), K-067 operations guide; the docs review (19 findings, all fixed); PR #2.
