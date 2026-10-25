@@ -98,7 +98,7 @@ Exit criteria:
 
 ## M4 — HTTP edge features
 
-Scope [K-080…K-096]: TLS from files, HTTP/2 (h2, h2c), static files (the `static` filter), gzip compression,
+Scope [K-080…K-094, K-096; K-095 moved to M5]: TLS from files, HTTP/2 (h2, h2c), static files (the `static` filter), gzip compression,
 CORS, header manipulation, redirects, path normalization, trusted proxies, streaming responses from PHP, filters on
 virtual hosts and routes. Plan: `plans/M4-http-edge.md`. Narrowed before the merge by ADR-0008: the `http_proxy`
 cluster was built and removed, static files moved out of `php_workers` into a filter.

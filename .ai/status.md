@@ -26,7 +26,7 @@ Nothing. M5 is next, but the user asked not to start it in the session that merg
    squash commit on top.
 2. **M5 (Routing, filters and pools)** on a new branch `feat/m5-routing` from `main`, once the user says to start.
    Read `roadmap.md` § M5, `backlog.md` § M5 (K-140…K-147, K-095, K-905, K-908, K-910), ADR-0008 and
-   `architecture.md` § 2–4 (`internal/httpx`: router, filter chain, metrics). First write `plans/M5-routing.md` and
+   `architecture.md` § 2–4 and § 8 (`internal/httpx`: router, filter chain, metrics). First write `plans/M5-routing.md` and
    agree its scope with the user (vertical slice first). Research before designing: Envoy's route matching and
    `typed_per_filter_config` ❓, RoadRunner's `sendfile` middleware ❓ (K-143).
 
