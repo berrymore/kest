@@ -172,12 +172,13 @@ func TestServePHPHelloExample(t *testing.T) {
 	_, metrics, err := get(t, "http://"+adminAddr+"/metrics")
 	// /robots.txt and /healthz were answered by kest: they count without a cluster.
 	for _, want := range []string{
-		`kest_http_requests_total{listener="main",virtual_host="default",cluster="hello",code="200"} 503`,
-		`kest_http_requests_total{listener="main",virtual_host="default",cluster="",code="200"} 2`,
-		`kest_http_requests_total{listener="main",virtual_host="default",cluster="hello",code="500"} 1`,
+		`kest_http_requests_total{listener="main",virtual_host="default",route="app",cluster="hello",code="200"} 503`,
+		`kest_http_requests_total{listener="main",virtual_host="default",route="app",cluster="",code="200"} 1`,
+		`kest_http_requests_total{listener="main",virtual_host="default",route="healthz",cluster="",code="200"} 1`,
+		`kest_http_requests_total{listener="main",virtual_host="default",route="app",cluster="hello",code="500"} 1`,
 		`kest_pool_workers{cluster="hello",state="ready"} 4`,
-		`kest_pool_wait_seconds_count{cluster="hello"} 504`,
-		`kest_pool_queue_length{cluster="hello"} 0`,
+		`kest_pool_wait_seconds_count{cluster="hello",route=""} 504`,
+		`kest_pool_queue_length{cluster="hello",route=""} 0`,
 	} {
 		if err != nil || !strings.Contains(metrics, want) {
 			t.Errorf("metrics don't contain %s (%v):\n%s", want, err, metrics)
@@ -187,7 +188,7 @@ func TestServePHPHelloExample(t *testing.T) {
 	k.stop(t)
 	for _, want := range []string{"workers started", "kest is ready", `msg="request failed" cluster=hello method=GET path=/fail status=500`,
 		`msg=request listener=main component=access method=GET path=/info proto=HTTP/1.1 status=200`,
-		"request_id=" + resp.Header.Get("X-Request-Id") + " virtual_host=default cluster=hello", "kest stopped"} {
+		"request_id=" + resp.Header.Get("X-Request-Id") + " virtual_host=default route=app cluster=hello", "kest stopped"} {
 		if !strings.Contains(k.logs.String(), want) {
 			t.Errorf("logs do not contain %q:\n%s", want, k.logs.String())
 		}

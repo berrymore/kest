@@ -13,6 +13,11 @@ listeners:
         - name: default
           domains: ["*"]
           routes:
+            - match: { path: /download }
+              filters:
+                - type: sendfile      # BinaryFileResponse answers with X-Sendfile; kest sends the file
+                  config: { dirs: [files] }
+              route: { cluster: symfony }
             - match: { prefix: / }
               route: { cluster: symfony }
 

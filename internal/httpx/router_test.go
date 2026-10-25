@@ -1,7 +1,10 @@
 package httpx_test
 
 import (
+	"errors"
+	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -33,18 +36,19 @@ func init() {
 	})
 }
 
-// seenCluster is the cluster that see_cluster saw in the last request's info.
-var seenCluster string
+// seenRoute and seenCluster are the route and cluster that see_cluster saw in
+// the last request's info.
+var seenRoute, seenCluster string
 
 func init() {
-	// see_cluster records the request's cluster once the rest of the chain has served it.
+	// see_cluster records the request's route and cluster once the rest of the chain has served it.
 	httpx.Filters.Register(registry.Factory[httpx.Filter]{
 		Type: "see_cluster",
 		Build: func(registry.BuildContext, any) (httpx.Filter, error) {
 			return func(next http.Handler) http.Handler {
 				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					next.ServeHTTP(w, r)
-					seenCluster = httpx.Info(r).Cluster
+					seenRoute, seenCluster = httpx.Info(r).Route, httpx.Info(r).Cluster
 				})
 			}, nil
 		},
@@ -68,7 +72,7 @@ type traceConfig struct {
 
 func loadHTTP(t *testing.T, listener string) *config.HTTP {
 	t.Helper()
-	src := "version: v1\nlisteners:\n" + listener + "clusters:\n  - {name: app, type: fake}\n  - {name: gone, type: fake}\n"
+	src := "version: v1\nlisteners:\n" + listener + "clusters:\n  - {name: app, type: fake}\n  - {name: gone, type: fake}\n  - {name: plain, type: fake}\n"
 	cfg, err := config.Parse([]byte(src), "kest.yaml", func(string) (string, bool) { return "", false })
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
@@ -85,11 +89,28 @@ func echoCluster(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.WriteString(w, "cluster "+r.URL.Path)
 }
 
-func lookup(name string) (http.Handler, bool) {
-	if name == "app" {
-		return http.HandlerFunc(echoCluster), true
+// lookup knows the cluster "app", whose lanes add X-Lane to the response
+// and take at most 4 workers. The cluster "plain" has no lanes.
+func lookup(name string, lane *httpx.Lane) (http.Handler, error) {
+	switch {
+	case name == "plain" && lane != nil:
+		return nil, errors.New(`cluster "plain" has no lanes`)
+	case name == "plain":
+		return http.HandlerFunc(echoCluster), nil
+	case name != "app":
+		return nil, nil
+	case lane == nil:
+		return http.HandlerFunc(echoCluster), nil
+	case lane.MaxWorkers > 4:
+		return nil, errors.Join(&config.FieldError{Field: "max_workers", Msg: "more than the pool's 4 workers"},
+			&config.FieldError{Field: "priority", Msg: "also wrong"})
+	default:
+		l := *lane
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Lane", fmt.Sprintf("%s %d %s %s", l.Name, l.MaxWorkers, l.Priority, l.QueueTimeout))
+			echoCluster(w, r)
+		}), nil
 	}
-	return nil, false
 }
 
 // get serves a GET request for host and path through h.
@@ -310,7 +331,7 @@ func TestVirtualHostAndRouteFilters(t *testing.T) {
 }
 
 // A response that a filter of a virtual host or a route makes itself counts
-// without a cluster, and the request's info names none.
+// without a cluster, and the request's info names none; it names the route.
 func TestFilterAnswerCountsWithoutCluster(t *testing.T) {
 	reg := metrics.NewRegistry()
 	h, err := httpx.NewHandler(loadHTTP(t, `
@@ -322,7 +343,8 @@ func TestFilterAnswerCountsWithoutCluster(t *testing.T) {
         - name: site
           domains: ["*"]
           routes:
-            - match: {prefix: /tea}
+            - name: tea
+              match: {prefix: /tea}
               filters: [{type: teapot}]
               route: {cluster: app}
             - match: {prefix: /}
@@ -331,16 +353,173 @@ func TestFilterAnswerCountsWithoutCluster(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHandler: %v", err)
 	}
-	if code := get(t, h, "localhost", "/tea").Code; code != http.StatusTeapot || seenCluster != "" {
-		t.Errorf("/tea = %d with cluster %q, want 418 without one", code, seenCluster)
+	if code := get(t, h, "localhost", "/tea").Code; code != http.StatusTeapot || seenRoute != "tea" || seenCluster != "" {
+		t.Errorf("/tea = %d with route %q, cluster %q; want 418 from route tea without a cluster", code, seenRoute,
+			seenCluster)
 	}
-	if code := get(t, h, "localhost", "/coffee").Code; code != http.StatusOK || seenCluster != "app" {
-		t.Errorf("/coffee = %d with cluster %q, want 200 from app", code, seenCluster)
+	if code := get(t, h, "localhost", "/coffee").Code; code != http.StatusOK || seenRoute != "" || seenCluster != "app" {
+		t.Errorf("/coffee = %d with route %q, cluster %q; want 200 from app, no route name", code, seenRoute,
+			seenCluster)
 	}
-	for _, tt := range []struct{ cluster, code string }{{"", "418"}, {"app", "200"}} {
-		if got := metricstest.Value(t, reg, "kest_http_requests_total",
-			"listener", "main", "virtual_host", "site", "cluster", tt.cluster, "code", tt.code); got != 1 {
-			t.Errorf("requests{cluster %q, %s} = %v, want 1", tt.cluster, tt.code, got)
+	for _, tt := range []struct{ route, cluster, code string }{{"tea", "", "418"}, {"", "app", "200"}} {
+		if got := metricstest.Value(t, reg, "kest_http_requests_total", "listener", "main", "virtual_host", "site",
+			"route", tt.route, "cluster", tt.cluster, "code", tt.code); got != 1 {
+			t.Errorf("requests{route %q, cluster %q, %s} = %v, want 1", tt.route, tt.cluster, tt.code, got)
+		}
+	}
+}
+
+// Routes match on regular expressions, methods, headers and query parameters;
+// the first route whose conditions all hold wins.
+func TestRouteMatchers(t *testing.T) {
+	h, err := httpx.NewHandler(loadHTTP(t, `
+  - name: main
+    address: 127.0.0.1:0
+    http:
+      virtual_hosts:
+        - name: site
+          domains: ["*"]
+          routes:
+            - match: {regex: "/(export|reports)/[0-9]+"}
+              direct_response: {body: "regex"}
+            - match: {prefix: /api/, methods: [POST, PUT]}
+              direct_response: {body: "write"}
+            - match: {prefix: /api/, headers: [{name: x-requested-with, exact: XMLHttpRequest}]}
+              direct_response: {body: "ajax"}
+            - match: {prefix: /api/, headers: [{name: Authorization, present: false}]}
+              direct_response: {body: "anonymous"}
+            - match: {prefix: /api/, query: [{name: format, exact: csv}]}
+              direct_response: {body: "csv"}
+            - match:
+                prefix: /api/
+                headers: [{name: Accept, regex: "application/(json|xml)"}, {name: X-Tenant, prefix: eu-}]
+                query: [{name: v, present: true}]
+              direct_response: {body: "eu"}
+            - match: {prefix: /}
+              direct_response: {body: "fallback"}
+`), lookup, registry.BuildContext{Name: "main", Logger: logging.Discard()})
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+	auth := http.Header{"Authorization": {"Bearer x"}}
+	for _, tt := range []struct {
+		method, target string
+		header         http.Header
+		want           string
+	}{
+		{http.MethodGet, "/export/12", nil, "regex"},
+		{http.MethodGet, "/reports/7", nil, "regex"},
+		{http.MethodGet, "/export/12/x", nil, "fallback"}, // the whole path must match
+		{http.MethodPost, "/api/x", nil, "write"},
+		{http.MethodDelete, "/api/x", auth, "fallback"},
+		{http.MethodGet, "/api/x", http.Header{"X-Requested-With": {"XMLHttpRequest"}}, "ajax"},
+		{http.MethodGet, "/api/x", nil, "anonymous"},
+		{http.MethodGet, "/api/x?format=csv&format=tsv", auth, "csv"}, // the first value
+		{http.MethodGet, "/api/x?format=tsv&format=csv", auth, "fallback"},
+		{http.MethodGet, "/api/x?v", http.Header{"Authorization": {"x"}, "Accept": {"application/xml"},
+			"X-Tenant": {"eu-1"}}, "eu"},
+		{http.MethodGet, "/api/x?v", http.Header{"Authorization": {"x"}, "Accept": {"application/xml"},
+			"X-Tenant": {"us-1"}}, "fallback"},
+		// Two Accept lines are matched as "text/html, application/json": not the whole value.
+		{http.MethodGet, "/api/x?v", http.Header{"Authorization": {"x"}, "Accept": {"text/html", "application/json"},
+			"X-Tenant": {"eu-1"}}, "fallback"},
+	} {
+		req := httptest.NewRequestWithContext(t.Context(), tt.method, "http://localhost"+tt.target, http.NoBody)
+		maps.Copy(req.Header, tt.header)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if got := rec.Body.String(); got != tt.want {
+			t.Errorf("%s %s %v: %q, want %q", tt.method, tt.target, tt.header, got, tt.want)
+		}
+	}
+}
+
+// A route with lane settings gets a handler of its own from its cluster.
+func TestRouteLanes(t *testing.T) {
+	h, err := httpx.NewHandler(loadHTTP(t, `
+  - name: main
+    address: 127.0.0.1:0
+    http:
+      virtual_hosts:
+        - name: site
+          domains: ["*"]
+          routes:
+            - name: slow
+              match: {prefix: /slow}
+              route: {cluster: app, max_workers: 2, priority: low, queue_timeout: 5s}
+            - name: vip
+              match: {prefix: /vip}
+              route: {cluster: app, priority: high}
+            - name: named
+              match: {prefix: /}
+              route: {cluster: app}
+`), lookup, registry.BuildContext{Name: "main", Logger: logging.Discard()})
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+	for path, want := range map[string]string{"/slow": "slow 2 low 5s", "/vip": "vip 0 high 0s", "/other": ""} {
+		if got := get(t, h, "localhost", path).Header().Get("X-Lane"); got != want {
+			t.Errorf("%s: lane %q, want %q", path, got, want)
+		}
+	}
+}
+
+func TestRouteLaneErrors(t *testing.T) {
+	_, err := httpx.NewHandler(loadHTTP(t, `
+  - name: main
+    address: 127.0.0.1:0
+    http:
+      virtual_hosts:
+        - name: site
+          domains: ["*"]
+          routes:
+            - name: big
+              match: {prefix: /big}
+              route: {cluster: app, max_workers: 9}
+            - name: plain
+              match: {prefix: /}
+              route: {cluster: plain, queue_timeout: 1s}
+`), lookup, registry.BuildContext{Logger: logging.Discard()})
+	for _, w := range []string{
+		"kest.yaml:13:50: listeners[0].http.virtual_hosts[0].routes[0].route.max_workers: more than the pool's 4 workers",
+		"kest.yaml:13:22: listeners[0].http.virtual_hosts[0].routes[0].route.priority: also wrong",
+		`kest.yaml:16:22: listeners[0].http.virtual_hosts[0].routes[1].route: cluster "plain" has no lanes`,
+	} {
+		if err == nil || !strings.Contains(err.Error(), w) {
+			t.Errorf("error =\n%v\nwant it to contain %q", err, w)
+		}
+	}
+}
+
+// A request that a listener filter answers itself is counted without a
+// virtual host, route or cluster; one that goes on is counted once, by the
+// router.
+func TestListenerFilterAnswerCounted(t *testing.T) {
+	for _, tt := range []struct {
+		filter, vhost, code string
+	}{{"teapot", "", "418"}, {"header_trace", "site", "200"}} {
+		reg := metrics.NewRegistry()
+		h, err := httpx.NewHandler(loadHTTP(t, `
+  - name: main
+    address: 127.0.0.1:0
+    http:
+      filters: [{type: `+tt.filter+`}]
+      virtual_hosts:
+        - name: site
+          domains: ["*"]
+          routes: [{match: {prefix: /}, direct_response: {}}]
+`), lookup, registry.BuildContext{Name: "main", Logger: logging.Discard(), Metrics: reg})
+		if err != nil {
+			t.Fatalf("NewHandler: %v", err)
+		}
+		get(t, h, "localhost", "/")
+		fams := metricstest.Scrape(t, reg)
+		if n := len(fams["kest_http_requests_total"].Metric); n != 1 {
+			t.Errorf("%s: %d series, want 1", tt.filter, n)
+		}
+		if got := metricstest.Value(t, reg, "kest_http_requests_total", "listener", "main", "virtual_host", tt.vhost,
+			"route", "", "cluster", "", "code", tt.code); got != 1 {
+			t.Errorf("%s: requests{virtual_host %q, %s} = %v, want 1", tt.filter, tt.vhost, tt.code, got)
 		}
 	}
 }
@@ -375,7 +554,10 @@ func TestNewHandlerErrors(t *testing.T) {
 func TestMetrics(t *testing.T) {
 	reg := metrics.NewRegistry()
 	var inFlight float64
-	clusters := func(name string) (http.Handler, bool) {
+	clusters := func(name string, _ *httpx.Lane) (http.Handler, error) {
+		if name != "app" {
+			return nil, nil
+		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			inFlight = metricstest.Value(t, reg, "kest_http_requests_in_flight", "listener", "main")
 			if r.URL.Path == "/api/fail" {
@@ -384,7 +566,7 @@ func TestMetrics(t *testing.T) {
 				return
 			}
 			echoCluster(w, r)
-		}), name == "app"
+		}), nil
 	}
 	h, err := httpx.NewHandler(loadHTTP(t, `
   - name: main
@@ -394,8 +576,12 @@ func TestMetrics(t *testing.T) {
         - name: site
           domains: ["localhost"]
           routes:
-            - match: {path: /ping}
+            - name: ping
+              match: {path: /ping}
               direct_response: {status: 202}
+            - name: admin
+              match: {prefix: /api/admin/}
+              route: {cluster: app}
             - match: {prefix: /api/}
               route: {cluster: app}
             - match: {prefix: /gone}
@@ -409,6 +595,7 @@ func TestMetrics(t *testing.T) {
 		{"localhost", "/api/a"},
 		{"localhost", "/api/b"},
 		{"localhost", "/api/fail"},
+		{"localhost", "/api/admin/x"},
 		{"localhost", "/gone"},
 		{"localhost", "/nothing"},
 		{"other.org", "/"},
@@ -420,25 +607,31 @@ func TestMetrics(t *testing.T) {
 	}
 
 	for _, tt := range []struct {
-		vhost, cluster, code string
-		want                 float64
+		vhost, route, cluster, code string
+		want                        float64
 	}{
-		{"site", "", "202", 1},     // direct_response
-		{"site", "app", "200", 2},  // two requests to /api/
-		{"site", "app", "502", 1},  // after a 103
-		{"site", "gone", "503", 1}, // unknown cluster
-		{"site", "", "404", 1},     // no route in the virtual host
-		{"", "", "404", 1},         // no virtual host
+		{"site", "ping", "", "202", 1},     // direct_response
+		{"site", "", "app", "200", 2},      // two requests to /api/
+		{"site", "", "app", "502", 1},      // after a 103
+		{"site", "admin", "app", "200", 1}, // a named route to the same cluster: a series of its own
+		{"site", "", "gone", "503", 1},     // unknown cluster
+		{"site", "", "", "404", 1},         // no route in the virtual host
+		{"", "", "", "404", 1},             // no virtual host
 	} {
-		got := metricstest.Value(t, reg, "kest_http_requests_total",
-			"listener", "main", "virtual_host", tt.vhost, "cluster", tt.cluster, "code", tt.code)
+		got := metricstest.Value(t, reg, "kest_http_requests_total", "listener", "main", "virtual_host", tt.vhost,
+			"route", tt.route, "cluster", tt.cluster, "code", tt.code)
 		if got != tt.want {
-			t.Errorf("requests{%s, %s, %s} = %v, want %v", tt.vhost, tt.cluster, tt.code, got, tt.want)
+			t.Errorf("requests{%s, %s, %s, %s} = %v, want %v", tt.vhost, tt.route, tt.cluster, tt.code, got, tt.want)
 		}
 	}
-	if got := metricstest.Value(t, reg, "kest_http_request_duration_seconds",
-		"listener", "main", "virtual_host", "site", "cluster", "app"); got != 3 {
-		t.Errorf("duration observations = %v, want 3", got)
+	for _, tt := range []struct {
+		route string
+		want  float64
+	}{{"", 3}, {"admin", 1}} {
+		if got := metricstest.Value(t, reg, "kest_http_request_duration_seconds",
+			"listener", "main", "virtual_host", "site", "route", tt.route, "cluster", "app"); got != tt.want {
+			t.Errorf("duration observations of route %q = %v, want %v", tt.route, got, tt.want)
+		}
 	}
 	if got := metricstest.Value(t, reg, "kest_http_requests_in_flight", "listener", "main"); got != 0 {
 		t.Errorf("requests in flight after the requests = %v, want 0", got)
@@ -465,7 +658,7 @@ func TestPathNormalization(t *testing.T) {
 	raw := func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "cluster "+r.URL.EscapedPath())
 	}
-	lookupRaw := func(string) (http.Handler, bool) { return http.HandlerFunc(raw), true }
+	lookupRaw := func(string, *httpx.Lane) (http.Handler, error) { return http.HandlerFunc(raw), nil }
 
 	on, err := httpx.NewHandler(loadHTTP(t, listener("")), lookupRaw, registry.BuildContext{Logger: logging.Discard()})
 	if err != nil {

@@ -13,8 +13,10 @@ import (
 var nameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 
 type validator struct {
-	src  *source
-	errs Errors
+	src      *source
+	errs     Errors
+	clusters map[string]bool // cluster names
+	routes   map[string]bool // route names, unique in the whole config
 }
 
 func (v *validator) errorf(path, format string, args ...any) {
@@ -22,7 +24,7 @@ func (v *validator) errorf(path, format string, args ...any) {
 }
 
 func (c *Config) validate() error {
-	v := &validator{src: c.src}
+	v := &validator{src: c.src, routes: make(map[string]bool)}
 
 	switch c.Version {
 	case SchemaVersion:
@@ -48,14 +50,14 @@ func (c *Config) validate() error {
 		v.errorf("server.drain_delay", "must not be negative")
 	}
 
-	clusters := v.clusters(c.Clusters)
-	v.listeners(c.Listeners, c.Admin.Address, clusters)
+	v.clusters = v.clusterNames(c.Clusters)
+	v.listeners(c.Listeners, c.Admin.Address)
 
 	return v.errs.Err()
 }
 
-// clusters validates cluster declarations and returns the set of their names.
-func (v *validator) clusters(list []Cluster) map[string]bool {
+// clusterNames validates cluster declarations and returns the set of their names.
+func (v *validator) clusterNames(list []Cluster) map[string]bool {
 	names := make(map[string]bool, len(list))
 	for i := range list {
 		c := &list[i]
@@ -70,7 +72,7 @@ func (v *validator) clusters(list []Cluster) map[string]bool {
 	return names
 }
 
-func (v *validator) listeners(list []Listener, adminAddress string, clusters map[string]bool) {
+func (v *validator) listeners(list []Listener, adminAddress string) {
 	if len(list) == 0 {
 		v.errorf("listeners", "at least one listener is required")
 		return
@@ -98,7 +100,7 @@ func (v *validator) listeners(list []Listener, adminAddress string, clusters map
 			v.errorf(path+".http", "required: http is the only supported protocol")
 			continue
 		}
-		v.http(path+".http", l.HTTP, clusters)
+		v.http(path+".http", l.HTTP)
 	}
 }
 
@@ -126,7 +128,7 @@ const (
 	maxHeaderBytes = ByteSize(64 << 20)
 )
 
-func (v *validator) http(path string, h *HTTP, clusters map[string]bool) {
+func (v *validator) http(path string, h *HTTP) {
 	for name, d := range map[string]*Duration{"read_header_timeout": h.ReadHeaderTimeout, "read_timeout": h.ReadTimeout,
 		"write_timeout": h.WriteTimeout, "idle_timeout": h.IdleTimeout} {
 		if d.Std() < 0 {
@@ -182,7 +184,7 @@ func (v *validator) http(path string, h *HTTP, clusters map[string]bool) {
 			v.errorf(vpath+".routes", "at least one route is required")
 		}
 		for j := range vh.Routes {
-			v.route(indexPath(vpath+".routes", j), &vh.Routes[j], clusters)
+			v.route(indexPath(vpath+".routes", j), &vh.Routes[j])
 		}
 	}
 }
@@ -199,19 +201,13 @@ func (v *validator) filters(path string, filters []Extension) {
 	}
 }
 
-func (v *validator) route(path string, r *Route, clusters map[string]bool) {
+func (v *validator) route(path string, r *Route) {
+	if r.Name != "" {
+		v.name(path, r.Name, v.routes, "route")
+	}
 	v.filters(path, r.Filters)
 	m := r.Match
-	switch {
-	case m.Prefix == "" && m.Path == "":
-		v.errorf(path+".match", "required: set prefix or path")
-	case m.Prefix != "" && m.Path != "":
-		v.errorf(path+".match", "set only one of prefix or path")
-	case m.Prefix != "" && !strings.HasPrefix(m.Prefix, "/"):
-		v.errorf(path+".match.prefix", "must start with /")
-	case m.Path != "" && !strings.HasPrefix(m.Path, "/"):
-		v.errorf(path+".match.path", "must start with /")
-	}
+	v.routeMatch(path+".match", &m)
 
 	actions := 0
 	for _, set := range []bool{r.Route != nil, r.DirectResponse != nil, r.Redirect != nil} {
@@ -227,19 +223,124 @@ func (v *validator) route(path string, r *Route, clusters map[string]bool) {
 	case r.Redirect != nil:
 		v.redirect(path+".redirect", r.Redirect, m.Prefix != "")
 	case r.Route != nil:
-		switch {
-		case r.Route.Cluster == "":
-			v.errorf(path+".route.cluster", "required")
-		case !clusters[r.Route.Cluster]:
-			v.errorf(path+".route.cluster", "unknown cluster %q", r.Route.Cluster)
-		}
-		if r.Route.Timeout.Std() < 0 {
-			v.errorf(path+".route.timeout", "must not be negative")
-		}
+		v.routeAction(path, r)
 	case r.DirectResponse != nil:
 		if s := r.DirectResponse.Status; s < 100 || s > 599 {
 			v.errorf(path+".direct_response.status", "invalid HTTP status %d", s)
 		}
+	}
+}
+
+func (v *validator) routeMatch(path string, m *RouteMatch) {
+	set := 0
+	for _, s := range []string{m.Prefix, m.Path, m.Regex} {
+		if s != "" {
+			set++
+		}
+	}
+	switch {
+	case set == 0:
+		v.errorf(path, "required: set prefix, path or regex")
+	case set > 1:
+		v.errorf(path, "set only one of prefix, path or regex")
+	case m.Prefix != "" && !strings.HasPrefix(m.Prefix, "/"):
+		v.errorf(path+".prefix", "must start with /")
+	case m.Path != "" && !strings.HasPrefix(m.Path, "/"):
+		v.errorf(path+".path", "must start with /")
+	case m.Regex != "":
+		if _, err := WholeMatch(m.Regex); err != nil {
+			v.errorf(path+".regex", "%v", err)
+		}
+	}
+	for i, method := range m.Methods {
+		if !isToken(method) {
+			v.errorf(indexPath(path+".methods", i), "invalid method %q", method)
+		}
+	}
+	for i := range m.Headers {
+		hpath := indexPath(path+".headers", i)
+		if h := &m.Headers[i]; !isToken(h.Name) {
+			v.errorf(hpath+".name", "invalid header name %q", h.Name)
+		}
+		v.valueMatch(hpath, &m.Headers[i])
+	}
+	for i := range m.Query {
+		qpath := indexPath(path+".query", i)
+		if m.Query[i].Name == "" {
+			v.errorf(qpath+".name", "required")
+		}
+		v.valueMatch(qpath, &m.Query[i])
+	}
+}
+
+func (v *validator) valueMatch(path string, m *ValueMatch) {
+	set := 0
+	for _, s := range []string{m.Exact, m.Prefix, m.Regex} {
+		if s != "" {
+			set++
+		}
+	}
+	if m.Present != nil {
+		set++
+	}
+	switch {
+	case set != 1:
+		v.errorf(path, "set exactly one of exact, prefix, regex or present")
+	case m.Regex != "":
+		if _, err := WholeMatch(m.Regex); err != nil {
+			v.errorf(path+".regex", "%v", err)
+		}
+	}
+}
+
+// WholeMatch compiles an RE2 expression that must match a whole string.
+func WholeMatch(expr string) (*regexp.Regexp, error) {
+	if _, err := regexp.Compile(expr); err != nil {
+		return nil, err // the message of the expression as written
+	}
+	return regexp.Compile(`^(?:` + expr + `)$`)
+}
+
+// isToken reports whether s is an HTTP token (RFC 9110), as method and
+// header names are.
+func isToken(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := range len(s) {
+		c := s[i]
+		if c <= ' ' || c >= 0x7f || strings.IndexByte(`"(),/:;<=>?@[\]{}`, c) >= 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func (v *validator) routeAction(path string, r *Route) {
+	a := r.Route
+	a.src, a.path = v.src, path+".route"
+	switch {
+	case a.Cluster == "":
+		v.errorf(a.path+".cluster", "required")
+	case !v.clusters[a.Cluster]:
+		v.errorf(a.path+".cluster", "unknown cluster %q", a.Cluster)
+	}
+	if a.Timeout.Std() < 0 {
+		v.errorf(a.path+".timeout", "must not be negative")
+	}
+	if a.MaxWorkers < 0 {
+		v.errorf(a.path+".max_workers", "must be positive, got %d", a.MaxWorkers)
+	}
+	if a.Priority != "" && !slices.Contains([]string{PriorityHigh, PriorityNormal, PriorityLow}, a.Priority) {
+		v.errorf(a.path+".priority", "unknown priority %q; use %s, %s or %s", a.Priority, PriorityHigh, PriorityNormal,
+			PriorityLow)
+	}
+	if a.QueueTimeout != nil && a.QueueTimeout.Std() <= 0 {
+		v.errorf(a.path+".queue_timeout", "must be positive")
+	}
+	if a.HasLane() && r.Name == "" {
+		v.errorf(path+".name", "required: a route with max_workers, priority or queue_timeout gets a lane of its own, "+
+			"and its name labels the lane's metrics")
 	}
 }
 

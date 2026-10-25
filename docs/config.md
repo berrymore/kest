@@ -49,8 +49,8 @@ clusters:
   kest.yaml:13:32: listeners[0].http.virtual_hosts[0].routes[0].route.cluster: unknown cluster "nope"
   ```
 
-- **Names** (listeners, virtual hosts, clusters) are 1–64 characters: letters, digits, `_`, `.`, `-`,
-  starting with a letter or digit. They must be unique within their kind.
+- **Names** (listeners, virtual hosts, clusters, routes) are 1–64 characters: letters, digits, `_`, `.`, `-`,
+  starting with a letter or digit. They must be unique within their kind; route names in the whole config.
 - **Durations** are Go duration strings: `500ms`, `30s`, `1m30s`. A bare number such as `30` is
   rejected, since the unit would be ambiguous.
 - **Sizes** are integers with an optional unit: `512`, `64KB`, `128MB`, `1GiB`. Every unit is a power
@@ -110,7 +110,7 @@ Endpoints:
 | `GET /ready` | `200 ready` while serving traffic; `503 starting` / `503 draining` otherwise, and `503 not serving: <clusters>` while a cluster has no live worker (a pool whose workers are only being replaced still counts as serving) |
 | `GET /server_info` | JSON: version, commit, Go version, state, start time, uptime, config file |
 | `GET /config_dump` | The effective configuration as YAML, with every default filled in, like `kest validate -dump`, but with the values of every `env` map shown as `[redacted]` (`validate -dump` shows them) |
-| `GET /clusters` | JSON: every cluster with its `name`, `type`, whether it is `serving` (only for types that can be down: `php_workers`), and its `status`: for `php_workers` the pool's `health` (`healthy`, `degraded`, `unhealthy`), `queue_length`, and each worker's `slot`, `state`, `pid`, `jobs`, `started_at`, `age_seconds` and `memory_bytes` (when sampled) |
+| `GET /clusters` | JSON: every cluster with its `name`, `type`, whether it is `serving` (only for types that can be down: `php_workers`), and its `status`: for `php_workers` the pool's `health` (`healthy`, `degraded`, `unhealthy`), `queue_length` (all lanes), its `lanes` (the default one first, with `route` empty: `route`, `priority`, `max_workers`, `queue_timeout`, `queue_length`, `busy_workers`), and each worker's `slot`, `state`, `pid`, `jobs`, `started_at`, `age_seconds` and `memory_bytes` (when sampled) |
 | `POST /clusters/{name}/reset` | Replace the cluster's workers one by one (a rolling restart, to deploy new code), and answer when done: `200 reset done`; `404` for an unknown cluster, `409` while a reset runs, `501` for a cluster type that can't, `503` while starting or draining, `500` with the reason when a new worker failed to boot (the reset stops there; the workers it didn't reach keep serving). A client that disconnects doesn't stop the reset. |
 | `GET /metrics` | Metrics in the Prometheus text format; see [Metrics](metrics.md) |
 
@@ -190,9 +190,10 @@ request; those of the virtual host the router chose (`virtual_hosts[].filters`);
 (`routes[].filters`); then the route's action. A filter may answer a request itself instead of passing it on (CORS
 preflights, files of `static`): the rest of the chain and the action don't run. In the [metrics](metrics.md), such
 an answer from a virtual host's or a route's filter counts with an empty `cluster`; one from a listener's filter
-isn't counted (it never reaches the router).
+counts with an empty `virtual_host`, `route` and `cluster`, timed from the listener.
 
-Built-in types: `request_id`, `access_log`, `recovery`, `client_ip`, `headers`, `cors`, `compression`, `static`. Put
+Built-in types: `request_id`, `access_log`, `recovery`, `client_ip`, `headers`, `cors`, `compression`, `static`,
+`sendfile`. Put
 `recovery` first so that it covers the other filters too:
 
 ```yaml
@@ -226,7 +227,7 @@ Every filter works in any of the three places. Each place builds its own instanc
 **`access_log`** writes one line per request to kest's log (stderr, in `log.format`), with `component=access`
 and the listener's name: `method`, `path` (without the query string, which may hold secrets), `proto`, `status`,
 `bytes` (of the body), `duration`, `remote` (the client's IP, from `client_ip` when a trusted proxy reported it),
-`request_id`, `virtual_host`, `cluster` and `user_agent`. It takes no config.
+`request_id`, `virtual_host`, `route` (the route's `name`), `cluster` and `user_agent`. It takes no config.
 
 **`recovery`** turns a panic in kest below it into a `500` with the stack in the log, instead of a dropped
 connection. If the response had started, the connection is cut, so that the client doesn't mistake a partial
@@ -360,6 +361,37 @@ except under `/.well-known/`. Symbolic links are followed, so Laravel's `public/
 `Content-Type` comes from the extension. On a route, a file counts in the metrics without a cluster, so the PHP
 cluster's latency is PHP's. When the proxy in front of kest can see the files, let it serve them instead.
 
+**`sendfile`** lets PHP hand a file to kest: when the route's cluster answers `200` with an `X-Sendfile` header
+naming a file, kest sends that file instead of the response's body. PHP doesn't read the file (its size isn't
+bounded by `max_response_size`), and ranges and conditional requests work.
+
+```yaml
+routes:
+  - match: {prefix: /download/}
+    filters:
+      - type: sendfile
+        config: {dirs: [storage/app/exports]}
+    route: {cluster: app}
+```
+
+| Field | Default | |
+|---|---|---|
+| `dirs` | — | Required. The directories files may be sent from; relative to the config file. `kest validate` fails if one isn't a directory. |
+
+- The path in `X-Sendfile` must be absolute and, symbolic links resolved, inside one of `dirs`; a missing file (or
+  a directory) is `404`, a path elsewhere `403`, and both are logged as errors.
+- kest keeps the response's headers (`Content-Type`, `Content-Disposition`, `Cache-Control`, `ETag`), drops
+  `X-Sendfile` and the body, and answers with `http.ServeContent`: `Content-Length` of the file, `Last-Modified`,
+  `Range` (`206`), `If-Modified-Since`, `If-None-Match`, `If-Range`. A response with another status passes through
+  without `X-Sendfile`.
+- The filter sets `X-Sendfile-Type: X-Sendfile` on the requests it sees, replacing one the client sent. Symfony's
+  `BinaryFileResponse` (Laravel's `download()` and `file()` use it) then answers with `X-Sendfile` and no body,
+  once the application calls `BinaryFileResponse::trustXSendfileTypeHeader()`. Without the filter, don't trust
+  that header: a client could set it.
+- RoadRunner's `sendfile` middleware reads the same header, but sends any file whose path has no `..`, always as
+  `application/octet-stream`, without ranges. `X-Accel-Redirect` names a location of nginx: kest passes it on to
+  the nginx in front.
+
 ### `virtual_hosts[]`
 
 | Field | Required | |
@@ -386,15 +418,44 @@ Every route has a `match` and exactly one action.
 
 | Field | |
 |---|---|
+| `name` | Optional. Up to 64 letters, digits, `_`, `.` or `-`, starting with a letter or digit, unique in the whole config. Labels the route's requests in the metrics (`route`) and the access log. |
 | `match.prefix` | The path starts with this value; must start with `/` |
 | `match.path` | The path equals this value; must start with `/` |
+| `match.regex` | An [RE2](https://github.com/google/re2/wiki/Syntax) expression that must match the whole path, like `/(export\|reports)/[0-9]+` |
+| `match.methods` | Any of these methods, like `[GET, HEAD]`, in capitals: methods are case-sensitive; any method if unset |
+| `match.headers` | Headers that must all match; see below |
+| `match.query` | Query parameters that must all match; see below |
 | `filters` | Filters for the requests of this route, after the virtual host's, before the action; see [Filters](#filters) |
 | `route` | Forward to a cluster |
 | `direct_response` | Answer without an upstream |
 | `redirect` | Answer with a redirect |
 
-Set exactly one of `match.prefix` and `match.path`. The match runs against the decoded URL path, after
-`normalize_path` and `merge_slashes`, without the query string. If no route matches → `404`.
+Set exactly one of `match.prefix`, `match.path` and `match.regex`. They match the decoded URL path, after
+`normalize_path` and `merge_slashes`, without the query string. A route matches when all its conditions hold; the
+first one that matches wins. If no route matches → `404`.
+
+Each entry of `match.headers` and `match.query` has a `name` and exactly one of:
+
+| Field | Matches |
+|---|---|
+| `exact` | the value equals this |
+| `prefix` | the value starts with this |
+| `regex` | an RE2 expression matches the whole value |
+| `present` | `true`: any value; `false`: the header or parameter is missing |
+
+Header names don't depend on case, values do. A header sent several times is matched as its values joined with
+`", "`; a query parameter sent several times, by its first value.
+
+```yaml
+routes:
+  - name: uploads                   # POSTs to /files go to a pool with large body limits
+    match: {prefix: /files, methods: [POST, PUT]}
+    route: {cluster: uploads}
+  - match: {prefix: /api/, headers: [{name: Authorization, present: false}]}
+    direct_response: {status: 401}
+  - match: {prefix: /api/, query: [{name: format, exact: csv}]}
+    route: {cluster: app, timeout: 120s}
+```
 
 **`route`**
 
@@ -402,6 +463,31 @@ Set exactly one of `match.prefix` and `match.path`. The match runs against the d
 |---|---|---|
 | `cluster` | — | Name of a cluster in `clusters`; required |
 | `timeout` | `30s` | Bounds the whole request. The cluster answers `504` when it expires; `php_workers` answers `408` if the request body is still arriving then. `0s` disables it. |
+| `max_workers` | none | At most this many of the cluster's workers serve the route at once; more requests wait in the route's queue. Up to the pool's `max_workers` (or `workers`). |
+| `priority` | `normal` | `high`, `normal` or `low`: a free worker takes the oldest request of the highest-priority lane that may take one. |
+| `queue_timeout` | the cluster's `pool.allocate_timeout` | How long a request of the route waits for a worker before it gets `503`. |
+
+A route with any of `max_workers`, `priority` or `queue_timeout` gets a **lane** of its own in its cluster's pool: a
+queue bounded by the pool's `max_queue_size`, so that a flood on one route doesn't fill the queue of the others. Such
+a route needs a `name`, which labels its lane in the pool's metrics (`route`) and in `/clusters`. The other routes to
+the cluster share its default lane. Only `php_workers` clusters have lanes.
+
+```yaml
+routes:
+  - name: export                 # slow: at most 2 workers, the rest of the pool serves the site
+    match: {prefix: /export/}
+    route: {cluster: app, timeout: 120s, max_workers: 2, priority: low, queue_timeout: 30s}
+  - name: checkout               # served first when the pool is overloaded
+    match: {prefix: /checkout/}
+    route: {cluster: app, priority: high}
+  - match: {prefix: /}
+    route: {cluster: app}
+```
+
+Priority is strict: while higher lanes keep every worker busy, a lower lane gets none, and its requests get `503`
+after their `queue_timeout`. Under overload, that turns away the less important requests first. Lanes share the
+cluster's `max_buffered_bodies`. A lane with `max_workers` or `queue_timeout` is left out of the pool's overload
+control: its waits are what the route asks for.
 
 **`direct_response`**
 
@@ -479,6 +565,7 @@ clusters:
 | `max_buffered_bodies` | `256MB` | The request body bytes the cluster holds at once, at least `max_request_body`. Each request reserves its `Content-Length` (or `max_request_body` when the length is unknown) before its body is read, until its response is written; one that doesn't fit gets `503` at once. Bodies count once, though a body can be in memory twice while it goes to a worker. |
 | `max_response_size` | `64MB` | A worker that sends a larger response (headers and body) is replaced, and the request gets `502`. At most `4GB`. |
 | `raw_body` | `false` | Send `application/x-www-form-urlencoded` and `multipart/form-data` bodies as they are instead of parsing them (RoadRunner's `http.raw_body`). |
+| `retry_after` | `1s` | The `Retry-After` header of every `503` the pool answers (queue full, no worker in time, overload control, `max_buffered_bodies` full, the pool stopping), in whole seconds rounded up. `0s` leaves it out. |
 
 Every worker also gets `RR_MODE=http` and `RR_RELAY=pipes`; they override the same names from `env` or
 the inherited environment.
@@ -502,10 +589,14 @@ Uploads count towards `max_request_body`.
 
 | Field | Default | |
 |---|---|---|
-| `workers` | number of CPUs | Worker processes, 1–1024. |
+| `workers` | number of CPUs | Worker processes that always run, 1–1024. |
+| `max_workers` | `0` (= `workers`) | Up to this many while requests wait, at most 1024: an extra worker starts as soon as a request finds no free worker (one its route's lane would let through), at most `workers`/4 (at least 1) booting at once. `0` keeps the pool at `workers`. |
+| `scale_down_after` | `1m` | An extra worker idle this long stops. Requests go to the `workers` first, so the extra ones go idle when the load drops. |
 | `max_jobs` | `0` (unlimited) | Requests per worker before it is replaced; each worker's limit gets up to 14 % extra, so workers don't restart together. |
-| `max_queue_size` | `1000` | Requests that may wait for a free worker; more get `503` at once. |
-| `allocate_timeout` | `60s` | How long a request waits for a free worker before it gets `503`. |
+| `max_queue_size` | `1000` | Requests that may wait for a free worker in each lane (see [`route`](#routes)); more get `503` at once. |
+| `allocate_timeout` | `60s` | How long a request waits for a free worker before it gets `503`, unless its route sets `queue_timeout`. |
+| `overload.queue_timeout` | `500ms` | In an overloaded lane, the longest wait for a worker; `0s` turns overload control off. |
+| `overload.interval` | `5s` | A lane is overloaded once requests have waited in it without a break for this long: until then, they wait up to `allocate_timeout`. |
 | `start_timeout` | `60s` | How long a new worker may take to start, including the application's boot. |
 | `destroy_timeout` | `10s` | How long a worker may take to exit after it is asked to stop; then it is killed. |
 
@@ -544,8 +635,8 @@ makes one reset. Directories whose names start with a dot are skipped.
 A rewrite that keeps a file's size and lands within one tick of the file system's clock after a scan (a few
 milliseconds on Linux) isn't noticed until the next change.
 
-**Startup and shutdown.** kest starts every worker before it opens the listeners, and fails to start
-if one of them can't boot (the error shows the worker's exit status and the end of its stderr).
+**Startup and shutdown.** kest starts every worker (the `workers`, not the extra ones of `max_workers`) before it
+opens the listeners, and fails to start if one of them can't boot (the error shows the worker's exit status and the end of its stderr).
 Workers that crash later are replaced, with a growing delay (up to 30s) if they keep failing. A rolling
 reset (`POST /clusters/{name}/reset`, SIGHUP) boots each replacement while the old worker keeps serving, so the
 pool keeps its capacity and runs one extra process at a time. On

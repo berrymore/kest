@@ -14,11 +14,14 @@ import (
 	"github.com/berrymore/kest/internal/worker/workertest"
 )
 
-// testConfig returns the defaults with n workers and a placeholder command.
+// testConfig returns the defaults with n workers and a placeholder command,
+// without overload control, which the tests of other features keep queues
+// long enough to set off (lane_test.go tests it).
 func testConfig(n int) Config {
 	cfg := DefaultConfig()
 	cfg.Command = []string{"fake-worker"}
 	cfg.Workers = n
+	cfg.OverloadQueueTimeout = 0
 	return cfg
 }
 
@@ -652,7 +655,7 @@ func TestConfigValidate(t *testing.T) {
 	}
 
 	bad := Config{
-		Workers:         MaxWorkers + 1,
+		Workers:         WorkerLimit + 1,
 		MaxQueueSize:    0,
 		MaxFrameSize:    0,
 		AllocateTimeout: 0,

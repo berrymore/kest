@@ -99,7 +99,7 @@ so rough):
   RoadRunner is about 8 % ahead, which a second run that took turns between the targets (5 times 15 s each)
   confirmed. kest's server spends more CPU per request than RoadRunner's, on forms most (95–105 µs against 79 µs),
   and on one laptop the load generator, the server and PHP share the cores, so the server's CPU likely comes out of
-  PHP's. Finding and trimming kest's share is K-149.
+  PHP's. Most of it is the Go runtime spinning on idle cores: see [kest's own CPU](#kests-own-cpu).
 - **64 clients add latency, not throughput:** four workers are busy, and requests wait in the queue.
 - **Large bodies:** the codec makes no difference beyond the noise, and kest's memory stays at half of
   RoadRunner's. The 61 ms p99 of kest's `proto` at 64 clients is one run's tail; the control run had 28 ms.
@@ -108,3 +108,78 @@ so rough):
   and also works with `roadrunner/http` 2.x–3.4. With `proto`, install `ext-protobuf`.
 - These are numbers for one laptop and a minimal worker; run `make bench` on your hardware with your
   worker's typical requests before drawing conclusions for production.
+
+## kest's own CPU
+
+K-148 measured kest's server at 77–105 µs of CPU per request against RoadRunner's 72–79 µs. Profiled on
+2026-10-25 for M5 (K-149) with `examples/php-hello`, 4 workers, 16 clients, `json`:
+
+- **kest's own code is small:** the cluster's work per request (encoding the request, decoding and writing the
+  answer) takes 3 µs for `hello` and 5 µs for `form` (`BenchmarkServeHTTP` in `internal/cluster/phpworkers`), the
+  pool's hand-over 1.8 µs (`BenchmarkPoolExec`).
+- **The rest is the Go runtime and the kernel:** in a CPU profile of the binary under load, system calls (sockets
+  and pipes) take 40 %, the scheduler 45 % (finding work, parking and waking threads), kest's handlers 5 %. A
+  request takes two goroutine hand-overs more than in RoadRunner (to the worker's slot and back), and each wakes a
+  thread.
+- **Buffered relay reads:** a frame from a worker took three reads from its pipe (header, options, payload); with a
+  buffer it takes one. Server CPU per `hello` went from 84–85 µs to 82–84 µs, `form` stayed at 98–101 µs, and the
+  throughput didn't change (the 4 PHP workers are the bottleneck).
+- **`GOMAXPROCS`:** Go runs as many threads as there are cores, and the idle ones spin looking for work. On a host
+  that kest shares with its PHP workers (and here with the load generator), that CPU comes out of PHP's:
+
+| `GOMAXPROCS` | CPU per `hello` | CPU per `form` | `hello` requests/s | `form` requests/s |
+|---|---|---|---|---|
+| 12 (the default here) | 78–80 µs | 90–95 µs | 48 477–49 187 | 41 473–42 775 |
+| 4 | 43–45 µs | 51–52 µs | 60 608–63 314 | 52 112–52 557 |
+| 2 | 26 µs | 30–31 µs | 65 014–66 012 | 55 173–56 475 |
+
+  Two runs each, CPU measured as the server's user and system time over 10 s. RoadRunner was not run with a
+  smaller `GOMAXPROCS`; it would likely gain too. See [Operations](operations.md#sizing) for the advice.
+
+## Overload control
+
+What `pool.overload` does when more requests come than the pool can serve, measured on 2026-10-25 for M5 (plan
+`.ai/plans/M5-pools.md`, D4). Two ways:
+
+- **In virtual time:** [`TestOverloadExperiment`](../internal/worker/overload_experiment_test.go)
+  (`KEST_EXPERIMENT=1 go test -run OverloadExperiment -v ./internal/worker/`): a pool of 4 fake workers, requests
+  arriving at random (Poisson) at a share of the pool's capacity, random (exponential) service times, clients that
+  give up after 5 s; 50 s measured after 10 s. No machine noise, and the same arrivals for every setting.
+- **With PHP:** the worker of `internal/cluster/phpworkers/testdata/php`, 4 workers, `GET /sleep/20`, and
+  `loadgen -rate`, which sends requests at a fixed rate whatever the answers take (as users do), each giving up
+  after 5 s; 20 s measured after 5 s.
+
+In virtual time, the share of requests served, the latency of the served ones (p50 / p99), and the share that got
+`503` (the rest gave up waiting):
+
+| Mean service | Load | Off | `queue_timeout: 1s` | 100ms / 1s | 500ms / 5s (default) |
+|---|---|---|---|---|---|
+| 20 ms | 80 % | 100 %, 26 / 142 ms | 100 %, 26 / 142 ms | 100 %, 26 / 142 ms | 100 %, 26 / 142 ms |
+| 20 ms | 95 % | 100 %, 69 / 437 ms | 100 %, 69 / 437 ms | 98 %, 54 / 189 ms, 2 % 503 | 100 %, 69 / 437 ms |
+| 20 ms | 120 % | 87 %, 4.9 / 5.0 s, 9 % 503 | 85 %, 1.0 / 1.1 s | 85 %, 97 / 277 ms | 85 %, 493 / 573 ms |
+| 20 ms | 200 % | 45 %, 4.9 / 5.0 s, 49 % 503 | 50 %, 1.0 / 1.1 s | 50 %, 110 / 188 ms | 50 %, 509 / 587 ms |
+| 100 ms | 80 % | 100 %, 112 / 586 ms | 100 %, 112 / 586 ms | 99 %, 107 / 577 ms, 1 % 503 | 100 %, 112 / 586 ms |
+| 100 ms | 95 % | 100 %, 208 / 772 ms | 100 %, 208 / 772 ms | 95 %, 142 / 617 ms, 5 % 503 | 100 %, 208 / 772 ms |
+| 100 ms | 120 % | 71 %, 3.6 / 5.0 s, 29 % gave up | 88 %, 0.96 / 1.4 s | 84 %, 180 / 699 ms | 87 %, 483 ms / 1.3 s |
+| 100 ms | 200 % | **9 %**, 5.0 / 5.0 s, 91 % gave up | 52 %, 1.0 / 1.4 s | 51 %, 172 / 742 ms | 52 %, 546 / 940 ms |
+
+With PHP at 400 requests/s (about twice what 4 workers sleeping 20 ms serve), two runs each:
+
+| `pool.overload` | Served/s | p50 | p99 | `503` | Gave up |
+|---|---|---|---|---|---|
+| default (500ms / 5s) | 174 | 0.52 s | 2.7 s | 55 % | 0 |
+| off (`queue_timeout: 0s`) | 88–104 | 3.7–4.3 s | 5.0 s | 39 % | 28–33 % |
+
+At 170 requests/s (about 94 % of the pool) both served everything (p99 175 ms with the default, 252 ms off).
+
+- **Without overload control, overload ends in a collapse:** with 100 ms requests at twice the capacity, the pool
+  served 7 requests per second of the 40 it can. Requests wait in a queue as long as clients wait, so the worker
+  takes the oldest, whose clients give up while it serves them; the work is lost. With PHP the pool served half of
+  what it can, and a third of the clients gave up.
+- **500ms / 5s, the default, doesn't act below the pool's capacity** in any run (80 % and 95 % load, 20 ms and
+  100 ms requests, PHP at 94 %), and above it keeps the wait of served requests near 0.5 s, the rest getting
+  `503` with `Retry-After` within 0.5 s. The p99 of 2.7 s with PHP is the first 5 s of the overload, before it is
+  seen.
+- **Smaller values** (100ms / 1s) answer faster under overload but turn away up to 5 % of the requests at 95 % load,
+  and more when requests are slow. Choose them only for an application whose requests are fast and even.
+- **A static `queue_timeout`** also avoids the collapse, but every served request waits about that long.

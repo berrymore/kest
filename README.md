@@ -2,14 +2,15 @@
 
 An Envoy-inspired application server for PHP (and, later, WebAssembly), written in Go.
 
-> **Status: experimental.** Milestones M0–M4 are done: kest serves PHP applications through pools of
+> **Status: experimental.** Milestones M0–M5 are done: kest serves PHP applications through pools of
 > unmodified RoadRunner PSR-7 workers (`roadrunner/http`), behind strictly validated Envoy-style routing, with
 > Prometheus metrics, rolling restarts without failed requests, access logs and request IDs, and bounded
 > resources. It speaks HTTP/2 (h2c) to the proxy in front of it, takes the client's address from trusted proxies,
 > terminates TLS when needed, runs filters per listener, virtual host and route (CORS, headers, gzip, the files of
-> `public/`), redirects, and streams responses from PHP. A Symfony app runs on it unchanged. Routing, filters and
-> pools come next, then a WASM sandbox. The goal is production quality; the plan is in
-> [`.ai/roadmap.md`](.ai/roadmap.md).
+> `public/`, `X-Sendfile`), redirects, and streams responses from PHP. A pool keeps a slow endpoint to a few of its
+> workers in a lane of its own, serves important routes first, turns requests away fast under overload instead of
+> letting them pile up, and grows under load. A Symfony app runs on it unchanged. A WASM sandbox comes next. The
+> goal is production quality; the plan is in [`.ai/roadmap.md`](.ai/roadmap.md).
 
 ## Why
 
@@ -102,7 +103,7 @@ kest validate -c kest.yaml   # strict validation with precise error paths
 kest serve -c kest.yaml
 ```
 
-HTTP filters (`recovery`, `request_id`, `access_log`, `client_ip`, `headers`, `cors`, `compression`, `static`) run
+HTTP filters (`recovery`, `request_id`, `access_log`, `client_ip`, `headers`, `cors`, `compression`, `static`, `sendfile`) run
 in config order: the listener's, then those of the virtual host and of the route that the router picks. Clusters:
 `php_workers`.
 
@@ -132,7 +133,7 @@ Details: [`.ai/architecture.md`](.ai/architecture.md).
 | **M2** PHP HTTP — *MVP* ✅ | Serve PSR-7 apps through unmodified RoadRunner HTTP workers |
 | **M3** Operability ✅ | Metrics, admin API, rolling restarts, access logs, limits, benchmarks |
 | **M4** HTTP features ✅ | TLS, HTTP/2 and h2c, trusted proxies, static files, compression, CORS, redirects, streaming |
-| **M5** Routing, filters and pools | Richer matches, per-route settings of listener filters, traffic split, auth and limits before PHP, `X-Sendfile` |
+| **M5** Worker pools and routing ✅ | Lanes per route (worker limits, priorities, queue timeouts), overload control, dynamic pool size, `X-Sendfile`, richer matches |
 | **M6** WASM sandbox | wazero runtime, `wasm` clusters and filters |
 | **M7** Protocols | gRPC, WebSockets and SSE, unix sockets |
 | **M8** Dynamic config | Hot reload of the config file, config API |

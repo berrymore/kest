@@ -14,6 +14,7 @@ import (
 type RequestInfo struct {
 	RequestID   string // set by the request_id filter
 	VirtualHost string // set by the router; empty if none matched
+	Route       string // the name of the route the router chose; empty if it has none or none matched
 	Cluster     string // set by the router when the request reaches a route's cluster; empty otherwise
 	// ClientIP and Scheme are what a trusted proxy said about the client
 	// (the client_ip filter); empty when nothing did. Read them through
@@ -21,7 +22,8 @@ type RequestInfo struct {
 	ClientIP string
 	Scheme   string // "http" or "https"
 
-	target *targetMetrics // the routed cluster's metrics; nil until a route's cluster is reached
+	target  *targetMetrics // the metrics of the chosen route, then of its cluster; nil until a route is chosen
+	counted bool           // the router counts the request: it reached a virtual host, or none matched
 }
 
 type infoKey struct{}

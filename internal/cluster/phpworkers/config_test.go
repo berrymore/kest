@@ -95,11 +95,14 @@ func TestConfigFull(t *testing.T) {
         allow: [.jpg]
       pool:
         workers: 3
+        max_workers: 6
+        scale_down_after: 30s
         max_jobs: 500
         max_queue_size: 20
         allocate_timeout: 2s
         start_timeout: 30s
         destroy_timeout: 5s
+        overload: {queue_timeout: 200ms, interval: 2s}
       supervisor:
         ttl: 1h
         idle_ttl: 10m
@@ -113,12 +116,18 @@ func TestConfigFull(t *testing.T) {
 		Env:             []string{"APP_ENV=prod", "DEBUG=false", "WORKERS=4", "RR_MODE=http"},
 		Dir:             "/srv/app",
 		Workers:         3,
+		MaxWorkers:      6,
+		ScaleDownAfter:  30 * time.Second,
 		MaxJobs:         500,
 		MaxQueueSize:    20,
 		AllocateTimeout: 2 * time.Second,
 		StartTimeout:    30 * time.Second,
 		DestroyTimeout:  5 * time.Second,
 		MaxFrameSize:    8 << 20,
+
+		OverloadQueueTimeout: 200 * time.Millisecond,
+		OverloadInterval:     2 * time.Second,
+
 		TTL:             time.Hour,
 		IdleTTL:         10 * time.Minute,
 		ExecTTL:         90 * time.Second,
@@ -154,12 +163,14 @@ func TestConfigErrors(t *testing.T) {
         allocate_timeout: 0s
         start_timeout: 0s
         destroy_timeout: -1s
+        overload: {queue_timeout: 1s, interval: 0s}
       supervisor:
         ttl: -1s
         idle_ttl: -1s
         exec_ttl: -1s
         max_worker_memory: 1MB
         watch_tick: 0s
+      retry_after: -1s
 `)
 	if err == nil {
 		t.Fatal("Build accepted an invalid config")
@@ -179,10 +190,12 @@ func TestConfigErrors(t *testing.T) {
 		`kest.yaml:23:27: clusters[0].config.pool.allocate_timeout: must be positive, got 0s`,
 		`kest.yaml:24:24: clusters[0].config.pool.start_timeout: must be positive, got 0s`,
 		`kest.yaml:25:26: clusters[0].config.pool.destroy_timeout: must be positive, got -1s`,
-		`kest.yaml:27:14: clusters[0].config.supervisor.ttl: must not be negative, got -1s`,
-		`kest.yaml:28:19: clusters[0].config.supervisor.idle_ttl: must not be negative, got -1s`,
-		`kest.yaml:29:19: clusters[0].config.supervisor.exec_ttl: must not be negative, got -1s`,
-		`kest.yaml:31:21: clusters[0].config.supervisor.watch_tick: must be positive when MaxWorkerMemory is set, got 0s`,
+		`kest.yaml:26:49: clusters[0].config.pool.overload.interval: must be positive while overload control is on, got 0s`,
+		`kest.yaml:28:14: clusters[0].config.supervisor.ttl: must not be negative, got -1s`,
+		`kest.yaml:29:19: clusters[0].config.supervisor.idle_ttl: must not be negative, got -1s`,
+		`kest.yaml:30:19: clusters[0].config.supervisor.exec_ttl: must not be negative, got -1s`,
+		`kest.yaml:32:21: clusters[0].config.supervisor.watch_tick: must be positive when MaxWorkerMemory is set, got 0s`,
+		`kest.yaml:33:20: clusters[0].config.retry_after: must not be negative, got -1s`,
 	}
 	for _, w := range want {
 		if !strings.Contains(err.Error(), w) {

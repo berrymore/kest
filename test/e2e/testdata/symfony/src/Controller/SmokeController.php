@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Controller;
 
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -46,6 +47,19 @@ final class SmokeController
     {
         $response = new Response('', Response::HTTP_FOUND, ['Location' => '/hello/redirected']);
         $response->headers->setCookie(new \Symfony\Component\HttpFoundation\Cookie('visited', 'yes'));
+
+        return $response;
+    }
+
+    #[Route('/download', methods: ['GET', 'HEAD'])]
+    public function download(Request $request): BinaryFileResponse
+    {
+        // With kest's sendfile filter, Symfony answers with X-Sendfile and no body.
+        BinaryFileResponse::trustXSendfileTypeHeader();
+        $response = new BinaryFileResponse(__DIR__ . '/../../files/report.txt');
+        $response->setContentDisposition('attachment', 'report.txt');
+        $response->headers->set('Content-Type', 'text/plain'); // or Symfony guesses it, which needs symfony/mime
+        $response->headers->set('X-Asked-Sendfile-Type', $request->headers->get('X-Sendfile-Type', ''));
 
         return $response;
     }

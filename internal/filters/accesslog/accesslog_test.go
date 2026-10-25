@@ -32,14 +32,15 @@ func TestAccessLog(t *testing.T) {
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Later filters and the router fill in RequestInfo.
 		info := httpx.Info(r)
-		info.RequestID, info.VirtualHost, info.Cluster = "abc", "shop", "php"
+		info.RequestID, info.VirtualHost, info.Route, info.Cluster = "abc", "shop", "orders", "php"
 		w.WriteHeader(http.StatusCreated)
 		_, _ = io.WriteString(w, "created")
 	})
 	line := logged(t, h, req)
 	for k, want := range map[string]any{
 		"msg": "request", "method": "POST", "path": "/orders", "proto": "HTTP/1.1", "status": 201.0, "bytes": 7.0,
-		"remote": "192.0.2.7", "request_id": "abc", "virtual_host": "shop", "cluster": "php", "user_agent": "curl/8",
+		"remote": "192.0.2.7", "request_id": "abc", "virtual_host": "shop", "route": "orders", "cluster": "php",
+		"user_agent": "curl/8",
 	} {
 		if line[k] != want {
 			t.Errorf("%s = %v, want %v", k, line[k], want)

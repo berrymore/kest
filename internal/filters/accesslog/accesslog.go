@@ -48,6 +48,7 @@ func New(logger *slog.Logger) httpx.Filter {
 					slog.String("remote", httpx.ClientIP(r)),
 					slog.String("request_id", info.RequestID),
 					slog.String("virtual_host", info.VirtualHost),
+					slog.String("route", info.Route),
 					slog.String("cluster", info.Cluster),
 					slog.String("user_agent", r.UserAgent()),
 				)

@@ -275,10 +275,13 @@ listeners:
       virtual_hosts:
         - name: default
           domains: ["*"]
-          routes: [{match: {prefix: /}, route: {cluster: a}}]
+          routes:
+            - {match: {prefix: /}, route: {cluster: a}}
+            - {name: vip, match: {prefix: /vip}, route: {cluster: c, priority: high}}
 clusters:
   - {name: a, type: test_gate, config: {fail_start: maybe}}
   - {name: b, type: missing}
+  - {name: c, type: test_gate}
 `
 	cfg, err := config.Parse([]byte(src), "kest.yaml", func(string) (string, bool) { return "", false })
 	if err != nil {
@@ -287,8 +290,9 @@ clusters:
 	_, err = server.New(cfg, logging.Discard())
 	want := []string{
 		`kest.yaml:6:24: listeners[0].http.filters[0].type: unknown http filter type "nope"`,
-		"kest.yaml:12:53: clusters[0].config.fail_start: cannot construct !!str `maybe` into bool",
-		`kest.yaml:13:21: clusters[1].type: unknown cluster type "missing"`,
+		`kest.yaml:12:57: listeners[0].http.virtual_hosts[0].routes[1].route: cluster "c" can't give routes lanes of `,
+		"kest.yaml:14:53: clusters[0].config.fail_start: cannot construct !!str `maybe` into bool",
+		`kest.yaml:15:21: clusters[1].type: unknown cluster type "missing"`,
 	}
 	for _, w := range want {
 		if err == nil || !strings.Contains(err.Error(), w) {
@@ -352,7 +356,7 @@ func TestMetrics(t *testing.T) {
 		t.Fatalf("GET /ping: %d", code)
 	}
 	if got := metricstest.Value(t, s.Metrics(), "kest_http_requests_total",
-		"listener", "main", "virtual_host", "default", "cluster", "", "code", "200"); got != 1 {
+		"listener", "main", "virtual_host", "default", "route", "", "cluster", "", "code", "200"); got != 1 {
 		t.Errorf("requests = %v, want 1", got)
 	}
 	if got := metricstest.Value(t, s.Metrics(), "go_goroutines"); got <= 0 {

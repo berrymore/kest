@@ -28,6 +28,9 @@ const DefaultMaxRequestBody = 16 << 20
 // DefaultMaxBufferedBodies bounds the request bodies a cluster holds at once.
 const DefaultMaxBufferedBodies = 256 << 20
 
+// DefaultRetryAfter is what the pool's 503 responses tell clients to wait.
+const DefaultRetryAfter = time.Second
+
 // Config is the config block of a php_workers cluster.
 type Config struct {
 	// Command runs one worker: the executable and its arguments.
@@ -51,6 +54,10 @@ type Config struct {
 	MaxResponseSize config.ByteSize `yaml:"max_response_size"`
 	// RawBody sends form and multipart bodies raw instead of parsed.
 	RawBody bool `yaml:"raw_body"`
+	// RetryAfter goes out as Retry-After, in whole seconds rounded up, with
+	// every 503 of the pool (queue full, no worker in time, overload, body
+	// budget, stopping); 0 leaves the header out.
+	RetryAfter config.Duration `yaml:"retry_after"`
 
 	Uploads    Uploads    `yaml:"uploads"`
 	Pool       Pool       `yaml:"pool"`
@@ -86,11 +93,21 @@ type Uploads struct {
 // Pool sizes the pool and bounds waiting for workers.
 type Pool struct {
 	Workers         int             `yaml:"workers"`
+	MaxWorkers      int             `yaml:"max_workers"` // 0: workers, a fixed size
+	ScaleDownAfter  config.Duration `yaml:"scale_down_after"`
 	MaxJobs         uint64          `yaml:"max_jobs"`
 	MaxQueueSize    int             `yaml:"max_queue_size"`
 	AllocateTimeout config.Duration `yaml:"allocate_timeout"`
 	StartTimeout    config.Duration `yaml:"start_timeout"`
 	DestroyTimeout  config.Duration `yaml:"destroy_timeout"`
+	Overload        Overload        `yaml:"overload"`
+}
+
+// Overload bounds waiting in a lane whose queue hasn't been empty for a
+// while (CoDel): its new requests wait at most QueueTimeout.
+type Overload struct {
+	QueueTimeout config.Duration `yaml:"queue_timeout"` // 0s turns it off
+	Interval     config.Duration `yaml:"interval"`
 }
 
 // Supervisor limits the lifetime and resources of workers.
@@ -112,13 +129,19 @@ func DefaultConfig() Config {
 		MaxRequestBody:    DefaultMaxRequestBody,
 		MaxBufferedBodies: DefaultMaxBufferedBodies,
 		MaxResponseSize:   config.ByteSize(w.MaxFrameSize),
+		RetryAfter:        config.Duration(DefaultRetryAfter),
 		Pool: Pool{
 			Workers:         w.Workers,
+			ScaleDownAfter:  config.Duration(w.ScaleDownAfter),
 			MaxJobs:         w.MaxJobs,
 			MaxQueueSize:    w.MaxQueueSize,
 			AllocateTimeout: config.Duration(w.AllocateTimeout),
 			StartTimeout:    config.Duration(w.StartTimeout),
 			DestroyTimeout:  config.Duration(w.DestroyTimeout),
+			Overload: Overload{
+				QueueTimeout: config.Duration(w.OverloadQueueTimeout),
+				Interval:     config.Duration(w.OverloadInterval),
+			},
 		},
 		Reload: Reload{Patterns: []string{"*.php"}, Interval: config.Duration(time.Second), MaxFiles: 20000},
 		Supervisor: Supervisor{
@@ -133,18 +156,22 @@ func DefaultConfig() Config {
 
 // yamlFields maps worker.Config fields to their YAML paths.
 var yamlFields = map[string]string{
-	"Command":         "command",
-	"Workers":         "pool.workers",
-	"MaxQueueSize":    "pool.max_queue_size",
-	"AllocateTimeout": "pool.allocate_timeout",
-	"StartTimeout":    "pool.start_timeout",
-	"DestroyTimeout":  "pool.destroy_timeout",
-	"MaxFrameSize":    "max_response_size",
-	"TTL":             "supervisor.ttl",
-	"IdleTTL":         "supervisor.idle_ttl",
-	"ExecTTL":         "supervisor.exec_ttl",
-	"MaxWorkerMemory": "supervisor.max_worker_memory",
-	"WatchTick":       "supervisor.watch_tick",
+	"Command":              "command",
+	"Workers":              "pool.workers",
+	"MaxWorkers":           "pool.max_workers",
+	"ScaleDownAfter":       "pool.scale_down_after",
+	"MaxQueueSize":         "pool.max_queue_size",
+	"AllocateTimeout":      "pool.allocate_timeout",
+	"StartTimeout":         "pool.start_timeout",
+	"DestroyTimeout":       "pool.destroy_timeout",
+	"OverloadQueueTimeout": "pool.overload.queue_timeout",
+	"OverloadInterval":     "pool.overload.interval",
+	"MaxFrameSize":         "max_response_size",
+	"TTL":                  "supervisor.ttl",
+	"IdleTTL":              "supervisor.idle_ttl",
+	"ExecTTL":              "supervisor.exec_ttl",
+	"MaxWorkerMemory":      "supervisor.max_worker_memory",
+	"WatchTick":            "supervisor.watch_tick",
 }
 
 // Redacted implements config.Redactor: values in env may be secrets.
@@ -184,6 +211,9 @@ func (c *Config) Validate() error {
 	}
 	if c.MaxRequestBody < 1 {
 		add("max_request_body", "must be positive, got %s", c.MaxRequestBody)
+	}
+	if c.RetryAfter < 0 {
+		add("retry_after", "must not be negative, got %s", c.RetryAfter)
 	}
 	for i, p := range c.Reload.Patterns {
 		if _, err := path.Match(p, ""); err != nil || p == "" {
@@ -275,17 +305,22 @@ func (c *Config) worker(configDir string, environ []string) worker.Config {
 		Env:             c.environment(environ),
 		Dir:             resolve(configDir, c.Dir),
 		Workers:         c.Pool.Workers,
+		MaxWorkers:      c.Pool.MaxWorkers,
+		ScaleDownAfter:  c.Pool.ScaleDownAfter.Std(),
 		MaxJobs:         c.Pool.MaxJobs,
 		MaxQueueSize:    c.Pool.MaxQueueSize,
 		AllocateTimeout: c.Pool.AllocateTimeout.Std(),
 		StartTimeout:    c.Pool.StartTimeout.Std(),
 		DestroyTimeout:  c.Pool.DestroyTimeout.Std(),
 		MaxFrameSize:    clampInt(int64(c.MaxResponseSize)),
-		TTL:             c.Supervisor.TTL.Std(),
-		IdleTTL:         c.Supervisor.IdleTTL.Std(),
-		ExecTTL:         c.Supervisor.ExecTTL.Std(),
-		MaxWorkerMemory: int64(c.Supervisor.MaxWorkerMemory),
-		WatchTick:       c.Supervisor.WatchTick.Std(),
+
+		OverloadQueueTimeout: c.Pool.Overload.QueueTimeout.Std(),
+		OverloadInterval:     c.Pool.Overload.Interval.Std(),
+		TTL:                  c.Supervisor.TTL.Std(),
+		IdleTTL:              c.Supervisor.IdleTTL.Std(),
+		ExecTTL:              c.Supervisor.ExecTTL.Std(),
+		MaxWorkerMemory:      int64(c.Supervisor.MaxWorkerMemory),
+		WatchTick:            c.Supervisor.WatchTick.Std(),
 	}
 }
 

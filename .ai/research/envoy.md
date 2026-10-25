@@ -18,6 +18,22 @@ Sources: https://www.envoyproxy.io/docs, https://github.com/envoyproxy/envoy (C+
   health checks, circuit breakers, outlier detection, timeouts, retries.
 - **Typed extensions:** `name` + `typed_config` with an `@type` URL pointing to a protobuf message.
 
+## Route matching ✅ (checked 2026-10-25 for M5)
+
+Source: [`api/envoy/config/route/v3/route_components.proto`](https://github.com/envoyproxy/envoy/blob/86af01fdec40c31d025c495a4aa303c4126b2fd0/api/envoy/config/route/v3/route_components.proto)
+at v1.40.1.
+
+- `RouteMatch.path_specifier`: `prefix`, `path` (exact, query removed), `safe_regex` (RE2; the **whole** path
+  without the query must match), `path_separated_prefix` (`/api` matches `/api`, `/api/…`, not `/apix`),
+  `connect_matcher`, `path_match_policy` (extension). `case_sensitive` (default true, ignored for regexes).
+- `headers`: all must match. `HeaderMatcher`: `name` plus one of `string_match` (`StringMatcher`: `exact`, `prefix`,
+  `suffix`, `contains`, `safe_regex`, with `ignore_case`), `present_match`, `range_match`; `invert_match`,
+  `treat_missing_header_as_empty`. The older `exact_match`, `safe_regex_match`, … are deprecated. Methods are matched
+  as the `:method` pseudo-header; there is no `methods` field.
+- `query_parameters`: all must match; `QueryParameterMatcher`: `name` plus `string_match` or `present_match`; a
+  repeated parameter is matched by its first value.
+- Also `runtime_fraction`, `grpc`, `tls_context`, dynamic metadata and filter state matchers.
+
 ## What kest borrows
 
 | Envoy | kest |

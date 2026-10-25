@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/berrymore/kest/internal/cluster"
+	"github.com/berrymore/kest/internal/config"
 	"github.com/berrymore/kest/internal/httpx"
 	"github.com/berrymore/kest/internal/leaktest"
 	"github.com/berrymore/kest/internal/logging"
@@ -40,7 +41,10 @@ type fakePool struct {
 	workers  []worker.Info
 	waiting  int
 	resetErr error
+	laneErr  error
+	lanes    []worker.LaneConfig // added with Lane
 	last     worker.Payload
+	lastLane string // the lane of the last request, "" for the default one
 	calls    int
 	started  bool
 	stopped  bool
@@ -53,9 +57,39 @@ func (p *fakePool) Workers() []worker.Info      { return p.workers }
 func (p *fakePool) Waiting() int                { return p.waiting }
 func (p *fakePool) Reset(context.Context) error { return p.resetErr }
 
+func (p *fakePool) Lane(cfg worker.LaneConfig) (lane, error) {
+	if p.laneErr != nil {
+		return nil, p.laneErr
+	}
+	p.lanes = append(p.lanes, cfg)
+	return fakeLane{p: p, name: cfg.Name}, nil
+}
+
+func (p *fakePool) Lanes() []worker.LaneInfo {
+	out := []worker.LaneInfo{{Queued: p.waiting}}
+	for _, cfg := range p.lanes {
+		out = append(out, worker.LaneInfo{LaneConfig: cfg, Busy: 1})
+	}
+	return out
+}
+
 func (p *fakePool) ExecStream(ctx context.Context, req worker.Payload) (worker.Payload, frames, error) {
+	return p.execIn(ctx, "", req)
+}
+
+// fakeLane runs its requests on its pool, marked with its name.
+type fakeLane struct {
+	p    *fakePool
+	name string
+}
+
+func (l fakeLane) ExecStream(ctx context.Context, req worker.Payload) (worker.Payload, frames, error) {
+	return l.p.execIn(ctx, l.name, req)
+}
+
+func (p *fakePool) execIn(ctx context.Context, lane string, req worker.Payload) (worker.Payload, frames, error) {
 	p.calls++
-	p.last = req
+	p.last, p.lastLane = req, lane
 	if p.stream != nil {
 		return p.stream.first, p.stream, nil
 	}
@@ -92,15 +126,15 @@ func fail(err error) func(context.Context, worker.Payload) (worker.Payload, erro
 	return func(context.Context, worker.Payload) (worker.Payload, error) { return worker.Payload{}, err }
 }
 
-func newTestCluster(t *testing.T, mutate func(*Config), p *fakePool) *Cluster {
-	t.Helper()
+func newTestCluster(tb testing.TB, mutate func(*Config), p *fakePool) *Cluster {
+	tb.Helper()
 	cfg := DefaultConfig()
 	cfg.Command = []string{"php"}
 	if mutate != nil {
 		mutate(&cfg)
 	}
 	if err := cfg.Validate(); err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	return newCluster(&cfg, "", p, logging.Discard())
 }
@@ -400,7 +434,7 @@ func TestReport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"health":"degraded","queue_length":3,"workers":[` +
+	want := `{"health":"degraded","queue_length":3,"lanes":[{"route":"","priority":"normal","queue_length":3,"busy_workers":0}],"workers":[` +
 		`{"slot":0,"state":"working","pid":4242,"jobs":7,"started_at":"` + started.UTC().Format(time.RFC3339) +
 		`","age_seconds":90,"memory_bytes":31457280},{"slot":1,"state":"backoff","jobs":0}]}`
 	if string(b) != want {
@@ -498,8 +532,10 @@ func TestBodyBudget(t *testing.T) {
 	first, second := send(strings.NewReader(strings.Repeat("a", 100))), send(strings.NewReader(strings.Repeat("b", 100)))
 	<-p.entered
 	<-p.entered
-	if code := <-send(strings.NewReader(strings.Repeat("c", 100))); code != http.StatusServiceUnavailable {
-		t.Errorf("a third 100-byte body = %d, want 503", code)
+	third := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", strings.NewReader(strings.Repeat("c", 100)))
+	if rec := serve(c, third); rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") != "1" {
+		t.Errorf("a third 100-byte body = %d with Retry-After %q, want 503 with 1", rec.Code,
+			rec.Header().Get("Retry-After"))
 	}
 	if code := <-send(io.MultiReader(strings.NewReader("unknown length"))); code != http.StatusServiceUnavailable {
 		t.Errorf("a body of unknown length (reserves max_request_body) = %d, want 503", code)
@@ -515,8 +551,82 @@ func TestBodyBudget(t *testing.T) {
 			t.Errorf("a request within the budget = %d, want 200", code)
 		}
 	}
-	if used, rejected := c.bodies.used.Load(), c.bodyRejected.Value(); used != 0 || rejected != 2 {
+	if used, rejected := c.bodies.used.Load(), c.metrics.lanes[""].rejected[reasonBodyBudget].Value(); used != 0 ||
+		rejected != 2 {
 		t.Errorf("after the requests: %d bytes reserved, %d rejected; want 0 and 2", used, rejected)
+	}
+}
+
+// A route with lane settings gets a handler that serves it in its own lane.
+func TestLane(t *testing.T) {
+	p := &fakePool{exec: respond(relay.CodecJSON, `{"status":200}`, "ok")}
+	c := newTestCluster(t, nil, p)
+	h, err := c.Lane(httpx.Lane{Name: "slow", MaxWorkers: 2, Priority: "low", QueueTimeout: 5 * time.Second})
+	if err != nil {
+		t.Fatalf("Lane: %v", err)
+	}
+	want := worker.LaneConfig{Name: "slow", MaxWorkers: 2, Priority: worker.PriorityLow, QueueTimeout: 5 * time.Second}
+	if len(p.lanes) != 1 || p.lanes[0] != want {
+		t.Errorf("lanes %+v, want %+v", p.lanes, want)
+	}
+	if _, err := c.Lane(httpx.Lane{Name: "vip", Priority: "high"}); err != nil || p.lanes[1].Priority != worker.PriorityHigh {
+		t.Errorf("Lane(vip) = %v, priority %s", err, p.lanes[1].Priority)
+	}
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/export", http.NoBody))
+	if rec.Code != http.StatusOK || p.lastLane != "slow" {
+		t.Errorf("lane handler: %d in lane %q, want 200 in slow", rec.Code, p.lastLane)
+	}
+	serve(c, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody))
+	if p.lastLane != "" {
+		t.Errorf("ServeHTTP ran in lane %q, want the default one", p.lastLane)
+	}
+
+	var r report
+	if err := json.Unmarshal(mustJSON(t, c.Report()), &r); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Lanes) != 3 || r.Lanes[1] != (laneReport{Route: "slow", Priority: "low", MaxWorkers: 2, QueueTimeout: "5s",
+		BusyWorkers: 1}) || r.Lanes[0].Priority != "normal" {
+		t.Errorf("lanes in the report: %+v", r.Lanes)
+	}
+
+	p.laneErr = errors.Join(&worker.FieldError{Field: "MaxWorkers", Msg: "must not exceed the pool's 4 workers, got 9"},
+		errors.New("worker pool already started"))
+	_, err = c.Lane(httpx.Lane{Name: "big", MaxWorkers: 9})
+	if fe, ok := errors.AsType[*config.FieldError](err); !ok || fe.Field != "max_workers" ||
+		!strings.Contains(err.Error(), "already started") {
+		t.Errorf("Lane error = %v, want a config.FieldError for max_workers and the other error", err)
+	}
+}
+
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// The pool's 503s tell the client when to try again.
+func TestRetryAfter(t *testing.T) {
+	for _, tt := range []struct {
+		retryAfter time.Duration
+		err        error
+		want       string
+	}{
+		{time.Second, worker.ErrQueueFull, "1"},
+		{1500 * time.Millisecond, worker.ErrNoWorker, "2"},
+		{0, worker.ErrQueueFull, ""},
+		{time.Second, worker.ErrExecTimeout, ""}, // 504: no
+	} {
+		c := newTestCluster(t, func(c *Config) { c.RetryAfter = config.Duration(tt.retryAfter) }, &fakePool{exec: fail(tt.err)})
+		rec := serve(c, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody))
+		if got := rec.Header().Get("Retry-After"); got != tt.want {
+			t.Errorf("retry_after %s, %v: %d with Retry-After %q, want %q", tt.retryAfter, tt.err, rec.Code, got, tt.want)
+		}
 	}
 }
 
@@ -536,34 +646,45 @@ func TestPoolMetrics(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := New(&cfg, registry.BuildContext{Name: "app", Logger: logging.Discard(), Metrics: reg}, nil); err != nil {
+	c, err := New(&cfg, registry.BuildContext{Name: "app", Logger: logging.Discard(), Metrics: reg}, nil)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if _, err := c.Lane(httpx.Lane{Name: "slow", MaxWorkers: 2, Priority: "low"}); err != nil {
+		t.Fatalf("Lane: %v", err)
 	}
 	// Before Start, every slot is stopped; every reason has a series at 0.
 	if got := metricstest.Value(t, reg, "kest_pool_workers", "cluster", "app", "state", "stopped"); got != 3 {
 		t.Errorf("stopped workers = %v, want 3", got)
 	}
-	if got := metricstest.Value(t, reg, "kest_pool_queue_length", "cluster", "app"); got != 0 {
-		t.Errorf("queue length = %v, want 0", got)
-	}
 	fams := metricstest.Scrape(t, reg)
 	if n := len(fams["kest_pool_worker_restarts_total"].Metric); n != len(worker.ReplaceReasons) {
 		t.Errorf("%d restart reasons exposed, want %d", n, len(worker.ReplaceReasons))
 	}
+	for name, want := range map[string]int{"kest_pool_queue_length": 2, "kest_pool_lane_workers": 2,
+		"kest_pool_wait_seconds": 2, "kest_pool_rejected_total": 2 * len(rejectReasons)} {
+		if n := len(fams[name].Metric); n != want {
+			t.Errorf("%s: %d series, want %d (the default lane and slow)", name, n, want)
+		}
+	}
 
-	m := newPoolMetrics(reg, "app") // the same series as the cluster's
-	m.Waited(20 * time.Millisecond)
-	m.Rejected(worker.ReasonQueueFull)
-	m.Replaced(worker.ReasonMaxJobs)
-	m.Replaced(worker.ReasonMaxJobs)
+	c.metrics.Waited("", 20*time.Millisecond)
+	c.metrics.Waited("slow", 20*time.Millisecond)
+	c.metrics.Waited("slow", 20*time.Millisecond)
+	c.metrics.Rejected("slow", worker.ReasonQueueFull)
+	c.metrics.Rejected("unknown", worker.ReasonQueueFull) // ignored
+	c.metrics.Replaced(worker.ReasonMaxJobs)
+	c.metrics.Replaced(worker.ReasonMaxJobs)
 	for _, tt := range []struct {
 		name   string
 		labels []string
 		want   float64
 	}{
-		{"kest_pool_wait_seconds", []string{"cluster", "app"}, 1},
-		{"kest_pool_rejected_total", []string{"cluster", "app", "reason", "queue_full"}, 1},
-		{"kest_pool_rejected_total", []string{"cluster", "app", "reason", "no_worker"}, 0},
+		{"kest_pool_wait_seconds", []string{"cluster", "app", "route", ""}, 1},
+		{"kest_pool_wait_seconds", []string{"cluster", "app", "route", "slow"}, 2},
+		{"kest_pool_rejected_total", []string{"cluster", "app", "route", "slow", "reason", "queue_full"}, 1},
+		{"kest_pool_rejected_total", []string{"cluster", "app", "route", "", "reason", "queue_full"}, 0},
+		{"kest_pool_queue_length", []string{"cluster", "app", "route", "slow"}, 0},
 		{"kest_pool_worker_restarts_total", []string{"cluster", "app", "reason", "max_jobs"}, 2},
 	} {
 		if got := metricstest.Value(t, reg, tt.name, tt.labels...); got != tt.want {

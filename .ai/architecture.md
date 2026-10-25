@@ -2,12 +2,14 @@
 
 > A living document. It describes the **target** design and marks what is implemented.
 > Legend: 🟢 implemented · 🟡 in progress · ⚪ planned.
-> **Last reviewed: 2026-10-25 (M4 done, narrowed by ADR-0008).** Implemented: config loading and validation, extension
+> **Last reviewed: 2026-10-25 (M5 done, merged).** Implemented: config loading and validation, extension
 > registry, server lifecycle, HTTP listeners with configurable limits, TLS (reloaded certificates) and HTTP/2/h2c,
-> path normalization, router with `direct_response` and `redirect`; the goridge relay and the worker pool with
-> rolling resets and streamed answers (`internal/relay`, `internal/worker`); the RoadRunner HTTP payload
+> path normalization, router with `direct_response` and `redirect`, route names and matches on regex, method,
+> headers and query; the goridge relay and the worker pool with rolling resets, streamed answers, lanes (worker
+> limits, priorities, queue timeouts), overload control and a dynamic size (`internal/relay`, `internal/worker`);
+> the RoadRunner HTTP payload
 > (`internal/rrhttp`); the cluster type `php_workers` (body budget, `reload`); the filters `request_id`,
-> `access_log`, `recovery`, `client_ip`, `headers`, `cors`, `compression`, `static`, on listeners, virtual hosts and
+> `access_log`, `recovery`, `client_ip`, `headers`, `cors`, `compression`, `static`, `sendfile`, on listeners, virtual hosts and
 > routes;
 > metrics (`internal/metrics`); admin `/ready`, `/server_info`, `/config_dump`, `/clusters`,
 > `POST /clusters/{name}/reset`, `/metrics`.
@@ -59,8 +61,9 @@ kest is a single Go binary. At startup it reads one YAML file and builds a graph
    `body` = the raw body or, for forms, a JSON tree of fields in PHP's bracket syntax; bounded by
    `max_request_body`. Before reading it, the request reserves its size in the cluster's `max_buffered_bodies`
    budget (`503` when full), and the read gets a deadline from the route timeout (`408` for a slow sender).
-6. The **pool** takes a free worker, waiting at most `allocate_timeout` in a bounded queue, and sends
-   the payload over the relay.
+6. The **pool** takes a free worker, waiting in its route's lane (a bounded queue) at most the lane's
+   `queue_timeout` (the pool's `allocate_timeout` by default, `pool.overload.queue_timeout` in an overloaded lane),
+   and sends the payload over the relay.
 7. The PHP worker (`$worker->waitRequest()` … `$worker->respond()`) answers; kest decodes status,
    headers and body (`rrhttp.DecodeResponse`) and writes the response with its own framing
    (`rrhttp.WriteResponse`). Pool and worker errors become 5xx (`rrhttp.ErrorStatus`). A streamed answer is
@@ -95,7 +98,8 @@ listeners:
           routes:
             - match: { prefix: /healthz }
               direct_response: { status: 200, body: "ok" }
-            - match: { prefix: /reports/ }
+            - name: reports      # optional, unique: labels metrics and access log lines
+              match: { prefix: /reports/ }
               route: { cluster: php_heavy, timeout: 120s }
             - match: { prefix: / }
               filters:       # after the router chose this route: files of public/ without PHP
@@ -177,12 +181,12 @@ func Build[T any](c *Category[T], ext *config.Extension, bc BuildContext) (T, er
 // internal/httpx: filters are plain middleware for now (open question Q-A).
 type Filter func(next http.Handler) http.Handler
 var Filters = registry.NewCategory[Filter]("http filter")
-// Every request carries an *httpx.RequestInfo (RequestID, VirtualHost, Cluster), set by the listener entry,
+// Every request carries an *httpx.RequestInfo (RequestID, VirtualHost, Route, Cluster), set by the listener entry,
 // the router and request_id; filters read it after the inner handler returns (access_log), whatever their
 // order. httpx.ResponseWriter records the status and body size; httpx.BeforeHeader edits a response header just
 // before it goes out (headers, cors, compression). RequestInfo.ClientIP/Scheme come from client_ip
 // (httpx.ClientIP, httpx.Scheme). Built in: request_id, access_log, recovery, client_ip, headers, cors, compression,
-// static.
+// static, sendfile.
 
 // internal/cluster: the name lives in config/BuildContext, not on the interface.
 type Cluster interface {
@@ -194,6 +198,9 @@ var Types = registry.NewCategory[Cluster]("cluster")
 // Optional: Prober { Serving() bool }; /ready fails while a cluster can't serve (php_workers: no live worker).
 // Optional: Reporter { Report() any }; its JSON is the cluster's status in /clusters.
 // Optional: Resetter { Reset(ctx) error }; POST /clusters/{name}/reset and SIGHUP (ErrResetRunning).
+// Optional: Laner { Lane(httpx.Lane) (http.Handler, error) } (M5): a route with max_workers, priority or
+// queue_timeout gets a handler of its own, in a lane of the cluster's pool; the router asks for it through
+// httpx.ClusterLookup(cluster, *Lane) while the graph is built, and locates *config.FieldError at the route action.
 ```
 
 Worker pool and relay 🟢 (M1; used by the `php_workers` cluster from M2):
@@ -211,14 +218,22 @@ func (p *Pool) Start(ctx context.Context) error   // all workers handshaked, or 
 func (p *Pool) Stop(ctx context.Context) error    // jobs finish, stop frames, kill at the deadline
 func (p *Pool) Exec(ctx context.Context, req Payload) (Payload, error)          // a stream joined, up to MaxFrameSize
 func (p *Pool) ExecStream(ctx context.Context, req Payload) (Payload, *Stream, error)
+// Lanes (M5): queues of their own, added before Start; Exec and ExecStream above use the default lane.
+func (p *Pool) Lane(cfg LaneConfig) (*Lane, error) // Name, MaxWorkers (0 = no limit), Priority, QueueTimeout
+func (l *Lane) Exec / ExecStream                   // as the pool's, in the lane
+func (p *Pool) Lanes() []LaneInfo                  // the default lane first: config, queued, busy
+// A free worker takes the oldest job of the highest-priority lane under its MaxWorkers; MaxQueueSize bounds each
+// lane's queue.
 // A streamed answer (STREAM bit): the first frame, then Stream.Next(ctx) (Payload, ok, error) until ok is false;
 // Stream.Close sends STOP and drops the rest. The slot goroutine answers PING with PONG; ExecTTL bounds each frame.
 func (p *Pool) Workers() []Info                   // per slot: state, pid, jobs, started, memory
 func (p *Pool) Health() Health                    // healthy / degraded / unhealthy
 func (p *Pool) Waiting() int                      // callers waiting for a free worker
 func (p *Pool) Reset(ctx context.Context) error   // rolling replacement, one slot at a time; ErrResetRunning
-// Config.Observer (optional) hears Waited(d), Rejected(reason) and Replaced(reason); reasons are metric labels.
-// Errors: ErrQueueFull, ErrNoWorker, ErrStopped, ErrStopRequested, ErrStreamTooLarge (Exec only),
+// Config.Observer (optional) hears Waited(lane, d), Rejected(lane, reason) and Replaced(reason); reasons are
+// metric labels.
+// Errors: ErrQueueFull, ErrNoWorker, ErrOverloaded (overload control), ErrStopped, ErrStopRequested,
+// ErrStreamTooLarge (Exec only),
 // *JobError (soft, worker kept),
 // *ProcessError (worker gone; wraps ErrExecTimeout or ErrStartTimeout on timeouts, *StdoutError
 // with the start of the output when the worker printed to stdout outside the protocol).
@@ -239,7 +254,7 @@ Layering (dependencies point down only):
 cmd/kest ─▶ server ─▶ config, registry ─▶ metrics
                   ─▶ listener
                   ─▶ httpx (filter chain, router, RequestInfo) ◀─ filters/*
-                  ─▶ cluster/* ─▶ httpx (RequestInfo, ClientIP, Scheme)
+                  ─▶ cluster/* ─▶ httpx (RequestInfo, ClientIP, Scheme, Lane)
                                ─▶ rrhttp ─▶ worker ─▶ relay
                   ─▶ admin ─▶ metrics, cluster
 ```
@@ -274,6 +289,8 @@ Each pool slot is owned by one goroutine for the pool's lifetime. Slot states (`
 Stopped ──▶ Starting ──▶ Ready ⇄ Working ──▶ Stopping ──▶ (released) ──▶ Starting …
                 │           │        │                                     ▲
                 └───────────┴────────┴──── failure ──▶ (released) ──▶ Backoff
+
+Extra slots (beyond Workers, M5): Parked ──▶ Starting ──▶ Ready ⇄ Working ──▶ Stopping ──▶ Parked
 ```
 
 | From | Event | To |
@@ -287,9 +304,26 @@ Stopped ──▶ Starting ──▶ Ready ⇄ Working ──▶ Stopping ──
 | Working | job done, `max_jobs` / `ttl` / memory limit reached, or the worker asked to be replaced | Stopping |
 | Working | crash, protocol error, `exec_ttl` exceeded | killed, then Backoff or Starting |
 | Stopping | process exited after the stop frame, or SIGKILL after `destroy_timeout` | Starting (or done if the pool stops) |
-| Backoff | 100 ms … 30 s elapsed (exponential, jitter) | Starting |
+| Backoff | 100 ms … 30 s elapsed (exponential, jitter) | Starting (Parked for an extra slot) |
+| Parked | an extra slot (beyond `Workers`) is woken: a job waits that its lane would let through (M5) | Starting |
+| Ready | an extra worker idle for `ScaleDownAfter`, or its process ends | Stopping, then Parked |
 | Ready | `Pool.Reset` hands over a booted process | Ready with the new process; the old one stops in the background |
 
+- Dispatch (`lane.go`): a ready slot parks: under the pool's mutex it takes the next job a lane may hand out, or joins
+  the idle list (longest idle first); a new job goes straight to an idle slot. Jobs reach a slot on its own channel
+  (capacity 1), so a parked slot that leaves for another event (a limit, a reset, stop) takes itself off the idle
+  list and gives back a job handed to it meanwhile, to the head of its lane (failed instead if its queue timeout has
+  passed or the pool stops, dropped if its caller is gone). A lane's busy count drops when the slot is done with the
+  job, the last stream frame included.
+- Growing (`grow.go`, M5): slots `Workers`…`MaxWorkers-1` are extra. Their goroutine (`runExtra`) parks them without a
+  process until `growLocked` wakes one: when a queued job that its lane would let through finds no free worker, at
+  most `max(1, Workers/4)` booting at once, and no more than such jobs wait. A boot counts until the new worker first
+  parks (and takes a job). Idle extra workers stop after `ScaleDownAfter`; base slots get jobs first (`idle` before
+  `idleExtra`), so the extra ones go idle. `Health` counts the base slots only.
+- Overload control (CoDel, `OverloadQueueTimeout`/`OverloadInterval`, 500ms/5s by default): a lane is overloaded
+  once jobs have waited in it without a break for the interval (`backlogSince`, reset only when a worker takes the
+  last waiting job). Its new jobs then wait at most the overload timeout (`ErrOverloaded`), and `nextLocked` sheds
+  the heads that waited longer. Lanes with `MaxWorkers` or `QueueTimeout` are left out.
 - A worker is never recycled mid-request, except on `exec_ttl` or a crash: that request fails.
 - A caller that gives up (client gone, route timeout) doesn't kill the worker: the job finishes within
   `exec_ttl` and the result is dropped.
@@ -357,7 +391,7 @@ internal/admin/              🟢 admin HTTP API
 internal/logging/            🟢 slog setup
 internal/cluster/            🟢 Cluster interface and registry category
 internal/leaktest/           🟢 goroutine-leak check for test binaries (goleak)
-internal/filters/            🟢 built-in HTTP filters, one package each: requestid/, accesslog/, recovery/, clientip/, headers/, cors/, compression/, static/
+internal/filters/            🟢 built-in HTTP filters, one package each: requestid/, accesslog/, recovery/, clientip/, headers/, cors/, compression/, static/, sendfile/
 internal/cluster/phpworkers/ 🟢 php_workers: config, worker environment, pool lifecycle, HTTP handler
 internal/rrhttp/             🟢 HTTP ↔ RoadRunner HTTP payload (request context JSON/protobuf, form trees, responses)
 internal/worker/             🟢 process, pool, supervisor (language-agnostic); workertest/ has fake workers
@@ -376,15 +410,18 @@ test/bench/                  🟢 benchmark against RoadRunner: configs, loadgen
 
 - **Logs:** `log/slog`, text or JSON, level set in config. Worker stderr goes to logs line by line, tagged
   with `cluster` and `worker_pid` (🟢).
-- **Metrics (M3):** requests (count, latency, status) per listener, virtual host and cluster (routes have no
-  names); pool queue length
-  and wait time; workers by state; restarts by reason; worker memory. A hand-written core in
+- **Metrics (M3):** requests (count, latency, status) per listener, virtual host, route name (M5) and cluster;
+  pool queue length and wait time; workers by state; restarts by reason; worker memory. A hand-written core in
   `internal/metrics` with lock-free updates and series resolved when the graph is built; `GET /metrics` serves
   the Prometheus text format 0.0.4 (ADR-0007). `server.New` creates the registry (with Go and process metrics)
-  and hands it to components in `BuildContext`. `httpx` wraps each virtual host and counts a request under the cluster
-  its route reached, if any (`routed` marks it in `RequestInfo`; labels: listener, virtual host, cluster, status
-  code from a per-target array) and counts in-flight requests per listener; `php_workers`
-  observes its pool (`worker.Observer`) and reads states, queue and memory at scrape time. M4 adds
+  and hands it to components in `BuildContext`. `httpx` wraps each virtual host and counts a request under the named
+  route it chose and the cluster that route reached, if any (`chosen` and `routed` mark them in `RequestInfo`;
+  labels: listener, virtual host, route, cluster, status code from a per-target array) and counts in-flight requests
+  per listener; with listener filters, the listener's entry counts the requests they answer before the router
+  (`RequestInfo.counted` unset) without a virtual host; `php_workers`
+  observes its pool (`worker.Observer`, by lane: the `route` label of `kest_pool_wait_seconds`,
+  `kest_pool_rejected_total`, `kest_pool_queue_length`, `kest_pool_lane_workers`) and reads states, queues and memory
+  at scrape time. M4 adds
   `kest_tls_*` (certificate expiry, failed handshakes) per listener.
 - **Tracing:** OpenTelemetry later; the `request_id` filter exists (M3).
 - **Admin API**, modeled on Envoy's admin interface:
@@ -394,7 +431,7 @@ test/bench/                  🟢 benchmark against RoadRunner: configs, loadgen
 | `GET /ready` | 200 when serving; 503 while starting, draining, or a cluster can't serve (`cluster.Prober`) | 🟢 M0, M3 |
 | `GET /server_info` | version, uptime, config path | 🟢 M0 |
 | `GET /config_dump` | effective config, defaults applied; extension configs that implement `config.Redactor` (php_workers: `env` values) redacted | 🟢 M3 |
-| `GET /clusters` | clusters with `cluster.Reporter`'s status: php_workers pools and workers (pid, state, jobs, memory, age) | 🟢 M3 |
+| `GET /clusters` | clusters with `cluster.Reporter`'s status: php_workers pools, their lanes (M5) and workers (pid, state, jobs, memory, age) | 🟢 M3 |
 | `POST /clusters/{name}/reset` | rolling restart of a pool; returns when done | 🟢 M3 |
 | `GET /metrics` | Prometheus text format (`docs/metrics.md`) | 🟢 M3 |
 
@@ -420,5 +457,5 @@ at the start of M6.
 | Q-C | Streaming responses from PHP (SSE, large downloads) | ✅ M4 (K-088): `worker.Pool.ExecStream`; `php_workers` writes chunks as they come, 1xx as informational responses, STOP when the client goes away |
 | Q-D | Cluster interface: `http.Handler`, or a kest request/response type shared by php, wasm and proxy? | ✅ M4: `http.Handler` stays |
 | Q-E | Metrics: `prometheus/client_golang`, OpenTelemetry metrics, or a minimal custom exposition? | ✅ ADR-0007 (2026-10-25): a hand-written core with the Prometheus text format |
-| Q-F | Per-route priority and queueing inside one pool, on top of pool isolation | M5 (K-905) |
+| Q-F | Per-route priority and queueing inside one pool, on top of pool isolation | ✅ M5: lanes with a worker limit, strict priority and a queue timeout per route (`plans/M5-pools.md` D2) |
 | Q-G | PHP → kest RPC (RoadRunner's `rpc` plugin equivalent): needed for which PHP libraries? | Not for HTTP: `roadrunner/http` and `roadrunner/worker` don't use it (K-040); libraries for RR's KV, jobs, metrics, lock plugins do |

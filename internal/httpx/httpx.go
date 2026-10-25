@@ -6,6 +6,7 @@ package httpx
 import (
 	"net/http"
 	"slices"
+	"time"
 
 	"github.com/berrymore/kest/internal/config"
 	"github.com/berrymore/kest/internal/registry"
@@ -17,8 +18,21 @@ type Filter func(next http.Handler) http.Handler
 // Filters is the registry of HTTP filter implementations, keyed by config type.
 var Filters = registry.NewCategory[Filter]("http filter")
 
-// ClusterLookup resolves a cluster name to the handler that serves it.
-type ClusterLookup func(name string) (http.Handler, bool)
+// ClusterLookup returns the handler of a route's cluster. lane is nil unless
+// the route asks for a lane of its own; then the cluster gives the route a
+// handler of its own, or an error (a *config.FieldError for a field of the
+// route action). A nil handler without an error means there is no such
+// cluster: it failed to build, which is reported already.
+type ClusterLookup func(cluster string, lane *Lane) (http.Handler, error)
+
+// Lane is what a route asks of its cluster's pool: a queue of its own, with a
+// limit on the workers it takes, a priority and a queue timeout.
+type Lane struct {
+	Name         string        // the route's name
+	MaxWorkers   int           // 0: no limit
+	Priority     string        // config.PriorityHigh, PriorityNormal (or empty) or PriorityLow
+	QueueTimeout time.Duration // 0: the cluster's own
+}
 
 // NewHandler builds the handler for a listener's http block: the configured
 // filters in order, then the router. bc.Name is the listener's name, which
@@ -32,7 +46,7 @@ func NewHandler(cfg *config.HTTP, clusters ClusterLookup, bc registry.BuildConte
 		return nil, err
 	}
 	h := Chain(rt, filters...)
-	return m.entry(normalizer(h, isTrue(cfg.NormalizePath), isTrue(cfg.MergeSlashes))), nil
+	return m.entry(normalizer(h, isTrue(cfg.NormalizePath), isTrue(cfg.MergeSlashes)), len(filters) > 0), nil
 }
 
 // buildFilters builds the filters that exts configure, adding their

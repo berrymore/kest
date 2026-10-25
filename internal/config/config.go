@@ -10,6 +10,7 @@
 package config
 
 import (
+	"fmt"
 	"slices"
 	"time"
 
@@ -220,6 +221,9 @@ type VirtualHost struct {
 
 // Route is a match rule and exactly one action.
 type Route struct {
+	// Name is optional and unique in the config; it labels the route's
+	// metrics and access log lines.
+	Name  string     `yaml:"name,omitempty"`
 	Match RouteMatch `yaml:"match"`
 	// Filters run after the virtual host's, before the action.
 	Filters        []Extension     `yaml:"filters,omitempty"`
@@ -228,10 +232,30 @@ type Route struct {
 	Redirect       *Redirect       `yaml:"redirect,omitempty"`
 }
 
-// RouteMatch selects requests by path. Exactly one field must be set.
+// RouteMatch selects requests by path, and optionally by method, headers and
+// query parameters; all that are set must match. Exactly one of Prefix, Path
+// and Regex must be set.
 type RouteMatch struct {
 	Prefix string `yaml:"prefix,omitempty"`
 	Path   string `yaml:"path,omitempty"`
+	// Regex is an RE2 expression that must match the whole path.
+	Regex   string       `yaml:"regex,omitempty"`
+	Methods []string     `yaml:"methods,omitempty"` // any of them
+	Headers []ValueMatch `yaml:"headers,omitempty"` // all of them
+	Query   []ValueMatch `yaml:"query,omitempty"`   // all of them
+}
+
+// ValueMatch matches a header or a query parameter by name. Exactly one of
+// Exact, Prefix, Regex and Present must be set. A header sent several times
+// is matched as its values joined with ", "; a query parameter sent several
+// times, by its first value.
+type ValueMatch struct {
+	Name   string `yaml:"name"`
+	Exact  string `yaml:"exact,omitempty"`
+	Prefix string `yaml:"prefix,omitempty"`
+	Regex  string `yaml:"regex,omitempty"` // RE2, matching the whole value
+	// Present: true matches any value, false a missing header or parameter.
+	Present *bool `yaml:"present,omitempty"`
 }
 
 // RouteAction forwards the request to a cluster.
@@ -239,6 +263,42 @@ type RouteAction struct {
 	Cluster string `yaml:"cluster"`
 	// Timeout bounds the whole request; "0s" disables it.
 	Timeout *Duration `yaml:"timeout"`
+
+	// A route with any of these gets a lane of its own in its cluster: a
+	// queue with a limit on the workers it takes, a priority and a queue
+	// timeout. Unset, the route shares the cluster's default lane.
+	MaxWorkers   int       `yaml:"max_workers,omitempty"`   // 0: no limit
+	Priority     string    `yaml:"priority,omitempty"`      // high, normal or low
+	QueueTimeout *Duration `yaml:"queue_timeout,omitempty"` // nil: the cluster's own
+
+	src  *source
+	path string
+}
+
+// Route priorities.
+const (
+	PriorityHigh   = "high"
+	PriorityNormal = "normal"
+	PriorityLow    = "low"
+)
+
+// HasLane reports whether the route asks for a lane of its own.
+func (a *RouteAction) HasLane() bool {
+	return a.MaxWorkers != 0 || a.Priority != "" || a.QueueTimeout != nil
+}
+
+// Errorf returns a located error for field, relative to the action:
+// "max_workers", "priority". An empty field means the action itself.
+func (a *RouteAction) Errorf(field, format string, args ...any) error {
+	path := a.path
+	if field != "" {
+		path = joinPath(path, field)
+	}
+	src := a.src
+	if src == nil {
+		src = newSource("")
+	}
+	return src.errorAt(path, fmt.Sprintf(format, args...))
 }
 
 // DirectResponse answers the request without an upstream.

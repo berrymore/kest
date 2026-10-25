@@ -7,12 +7,15 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
+	"strconv"
 	"sync/atomic"
 	"time"
 
 	"github.com/berrymore/kest/internal/cluster"
+	"github.com/berrymore/kest/internal/config"
 	"github.com/berrymore/kest/internal/httpx"
 	"github.com/berrymore/kest/internal/metrics"
 	"github.com/berrymore/kest/internal/registry"
@@ -49,6 +52,14 @@ type pool interface {
 	Workers() []worker.Info
 	Waiting() int
 	Reset(ctx context.Context) error
+	Lane(cfg worker.LaneConfig) (lane, error)
+	Lanes() []worker.LaneInfo
+}
+
+// lane is what the cluster needs from *worker.Lane (and from the pool, for
+// its default lane).
+type lane interface {
+	ExecStream(ctx context.Context, req worker.Payload) (worker.Payload, frames, error)
 }
 
 // frames is what the cluster needs from *worker.Stream.
@@ -63,22 +74,44 @@ type workerPool struct {
 }
 
 func (p workerPool) ExecStream(ctx context.Context, req worker.Payload) (worker.Payload, frames, error) {
-	resp, stream, err := p.Pool.ExecStream(ctx, req)
+	return withFrames(p.Pool.ExecStream(ctx, req))
+}
+
+func (p workerPool) Lane(cfg worker.LaneConfig) (lane, error) {
+	l, err := p.Pool.Lane(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return workerLane{l}, nil
+}
+
+// workerLane adapts *worker.Lane to lane.
+type workerLane struct {
+	*worker.Lane
+}
+
+func (l workerLane) ExecStream(ctx context.Context, req worker.Payload) (worker.Payload, frames, error) {
+	return withFrames(l.Lane.ExecStream(ctx, req))
+}
+
+func withFrames(resp worker.Payload, stream *worker.Stream, err error) (worker.Payload, frames, error) {
 	if stream == nil {
 		return resp, nil, err // not a nil *worker.Stream in a non-nil interface
 	}
 	return resp, stream, err
 }
 
-// Cluster serves HTTP requests with a pool of PHP workers.
+// Cluster serves HTTP requests with a pool of PHP workers. Routes with lane
+// settings get handlers of their own (Lane); the rest share the pool's
+// default lane through ServeHTTP.
 type Cluster struct {
-	pool    pool
-	opts    rrhttp.Options
-	maxBody int64
-	bodies  bodyBudget
-	logger  *slog.Logger
-
-	bodyRejected *metrics.Counter // requests turned away by the body budget
+	pool       pool
+	opts       rrhttp.Options
+	maxBody    int64
+	bodies     bodyBudget
+	retryAfter string // the Retry-After value of the pool's 503s; empty for none
+	logger     *slog.Logger
+	metrics    *poolMetrics
 
 	watcher   *watcher // nil without reload.dirs
 	stopWatch context.CancelFunc
@@ -122,7 +155,7 @@ func New(cfg *Config, bc registry.BuildContext, environ []string) (*Cluster, err
 		return nil, err
 	}
 	c := newCluster(cfg, bc.ConfigDir, workerPool{p}, bc.Logger)
-	c.bodyRejected = pm.rejected[reasonBodyBudget]
+	c.metrics = pm
 	collectPool(reg, bc.Name, p)
 	reg.NewCollector("kest_pool_buffered_body_bytes",
 		"Request body bytes the cluster holds now, out of max_buffered_bodies.", metrics.TypeGauge,
@@ -132,15 +165,61 @@ func New(cfg *Config, bc registry.BuildContext, environ []string) (*Cluster, err
 
 func newCluster(cfg *Config, configDir string, p pool, logger *slog.Logger) *Cluster {
 	c := &Cluster{
-		pool:         p,
-		opts:         cfg.requestOptions(configDir),
-		maxBody:      int64(cfg.MaxRequestBody),
-		bodies:       bodyBudget{limit: int64(cfg.MaxBufferedBodies)},
-		logger:       logger,
-		bodyRejected: &metrics.Counter{},
+		pool:    p,
+		opts:    cfg.requestOptions(configDir),
+		maxBody: int64(cfg.MaxRequestBody),
+		bodies:  bodyBudget{limit: int64(cfg.MaxBufferedBodies)},
+		logger:  logger,
+		metrics: newPoolMetrics(metrics.NewRegistry(), ""),
+	}
+	if d := cfg.RetryAfter.Std(); d > 0 {
+		c.retryAfter = strconv.FormatInt(int64(math.Ceil(d.Seconds())), 10)
 	}
 	c.watcher = newWatcher(cfg.Reload, configDir, c.Reset, logger)
 	return c
+}
+
+// Lane implements cluster.Laner: a lane of the pool for a route with lane
+// settings, and the handler that serves the route's requests in it.
+func (c *Cluster) Lane(l httpx.Lane) (http.Handler, error) {
+	cfg := worker.LaneConfig{Name: l.Name, MaxWorkers: l.MaxWorkers, QueueTimeout: l.QueueTimeout}
+	switch l.Priority {
+	case config.PriorityHigh:
+		cfg.Priority = worker.PriorityHigh
+	case config.PriorityLow:
+		cfg.Priority = worker.PriorityLow
+	}
+	wl, err := c.pool.Lane(cfg)
+	if err != nil {
+		return nil, laneFieldErrors(err)
+	}
+	lm := c.metrics.addLane(l.Name)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c.serve(w, r, wl, lm)
+	}), nil
+}
+
+// laneFields maps worker.LaneConfig fields to the fields of a route action.
+var laneFields = map[string]string{"MaxWorkers": "max_workers", "Priority": "priority", "QueueTimeout": "queue_timeout"}
+
+// laneFieldErrors turns the errors of worker.Pool.Lane into
+// *config.FieldError values for the fields of the route action.
+func laneFieldErrors(err error) error {
+	var list []error
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		list = joined.Unwrap()
+	} else {
+		list = []error{err}
+	}
+	out := make([]error, 0, len(list))
+	for _, e := range list {
+		if fe, ok := errors.AsType[*worker.FieldError](e); ok {
+			out = append(out, &config.FieldError{Field: laneFields[fe.Field], Msg: fe.Msg})
+		} else {
+			out = append(out, e)
+		}
+	}
+	return errors.Join(out...)
 }
 
 // Start starts the workers and returns once every one of them has booted,
@@ -201,6 +280,14 @@ func (c *Cluster) Report() any {
 	now := time.Now()
 	workers := c.pool.Workers()
 	r := report{Health: c.pool.Health().String(), QueueLength: c.pool.Waiting(), Workers: make([]workerReport, len(workers))}
+	for _, l := range c.pool.Lanes() {
+		lr := laneReport{Route: l.Name, Priority: l.Priority.String(), MaxWorkers: l.MaxWorkers, QueueLength: l.Queued,
+			BusyWorkers: l.Busy}
+		if l.QueueTimeout > 0 {
+			lr.QueueTimeout = l.QueueTimeout.String()
+		}
+		r.Lanes = append(r.Lanes, lr)
+	}
 	for i, w := range workers {
 		wr := workerReport{Slot: w.Slot, State: w.State.String(), Pid: w.Pid, Jobs: w.Jobs, MemoryBytes: w.Memory}
 		if w.Pid != 0 && !w.Started.IsZero() {
@@ -215,7 +302,17 @@ func (c *Cluster) Report() any {
 type report struct {
 	Health      string         `json:"health"` // healthy, degraded or unhealthy
 	QueueLength int            `json:"queue_length"`
+	Lanes       []laneReport   `json:"lanes"` // the default lane first
 	Workers     []workerReport `json:"workers"`
+}
+
+type laneReport struct {
+	Route        string `json:"route"` // empty for the default lane
+	Priority     string `json:"priority"`
+	MaxWorkers   int    `json:"max_workers,omitempty"`
+	QueueTimeout string `json:"queue_timeout,omitempty"` // empty: the pool's allocate_timeout
+	QueueLength  int    `json:"queue_length"`
+	BusyWorkers  int    `json:"busy_workers"`
 }
 
 type workerReport struct {
@@ -238,8 +335,14 @@ func (c *Cluster) Stop(ctx context.Context) error {
 	return c.pool.Stop(ctx)
 }
 
-// ServeHTTP passes the request to a worker and writes its response.
+// ServeHTTP passes the request to a worker of the pool's default lane and
+// writes its response.
 func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	c.serve(w, r, c.pool, c.metrics.lanes[""])
+}
+
+// serve passes the request to a worker of the lane and writes its response.
+func (c *Cluster) serve(w http.ResponseWriter, r *http.Request, l lane, lm *laneMetrics) {
 	// Reserve the body's memory before reading it: its length, or the
 	// largest allowed body when the length is unknown.
 	n := c.maxBody
@@ -247,9 +350,10 @@ func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		n = min(r.ContentLength, c.maxBody)
 	}
 	if !c.bodies.reserve(n) {
-		c.bodyRejected.Inc()
+		lm.rejected[reasonBodyBudget].Inc()
 		c.logger.Warn("request turned away: max_buffered_bodies is full", "method", r.Method, "path", r.URL.Path,
 			"body_bytes", n)
+		c.setRetryAfter(w)
 		http.Error(w, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
 		return
 	}
@@ -284,7 +388,7 @@ func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		c.fail(w, r, err)
 		return
 	}
-	out, stream, err := c.pool.ExecStream(r.Context(), payload)
+	out, stream, err := l.ExecStream(r.Context(), payload)
 	if err != nil {
 		c.fail(w, r, err)
 		return
@@ -370,6 +474,13 @@ func (c *Cluster) writeStream(w http.ResponseWriter, r *http.Request, first work
 	}
 }
 
+// setRetryAfter tells the client of a 503 when to try again (retry_after).
+func (c *Cluster) setRetryAfter(w http.ResponseWriter) {
+	if c.retryAfter != "" {
+		w.Header().Set("Retry-After", c.retryAfter)
+	}
+}
+
 // cleanup removes the request's upload temp files. If the caller gave up
 // while the worker still runs the job, they go away under it; its answer is
 // dropped anyway.
@@ -388,6 +499,9 @@ func (c *Cluster) fail(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(r.Context().Err(), context.Canceled) && !timedOut {
 		c.logger.Debug("client went away", "method", r.Method, "path", r.URL.Path, "err", err)
 		return
+	}
+	if rrhttp.ErrorStatus(err) == http.StatusServiceUnavailable {
+		c.setRetryAfter(w)
 	}
 	status := rrhttp.WriteError(w, err)
 	level := slog.LevelError

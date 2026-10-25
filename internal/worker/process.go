@@ -133,12 +133,16 @@ func (p *execProcess) Done() <-chan struct{} { return p.done }
 func (p *execProcess) Stderr() string        { return p.stderr.tail() }
 
 func (p *execProcess) UnreadStdout(n int) []byte {
-	if n <= 0 || p.stdout.SetReadDeadline(time.Now().Add(unreadWait)) != nil {
-		return nil
+	out := p.conn.Buffered() // the relay reads ahead: those bytes come first
+	if len(out) >= n {
+		return out[:max(n, 0)]
 	}
-	b := make([]byte, n)
-	n, _ = io.ReadFull(p.stdout, b) // the pipe holds what the process wrote before it died
-	return b[:n]
+	if p.stdout.SetReadDeadline(time.Now().Add(unreadWait)) != nil {
+		return out
+	}
+	b := make([]byte, n-len(out))
+	m, _ := io.ReadFull(p.stdout, b) // the pipe holds what the process wrote before it died
+	return append(out, b[:m]...)
 }
 
 func (p *execProcess) Err() error {

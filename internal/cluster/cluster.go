@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/berrymore/kest/internal/httpx"
 	"github.com/berrymore/kest/internal/registry"
 )
 
@@ -45,6 +46,16 @@ type Resetter interface {
 	// Reset replaces the workers and returns once done, or with the reason
 	// it stopped; ErrResetRunning while another reset runs.
 	Reset(ctx context.Context) error
+}
+
+// Laner is implemented by clusters that give routes lanes of their own: a
+// queue in the cluster's pool with a limit on the workers it takes, a
+// priority and a queue timeout (route max_workers, priority, queue_timeout).
+type Laner interface {
+	// Lane returns the handler of a route with a lane. It is called while the
+	// server graph is built, before Start. A problem with a field of the
+	// route is a *config.FieldError (possibly joined): "max_workers".
+	Lane(lane httpx.Lane) (http.Handler, error)
 }
 
 // ErrResetRunning is returned by Reset while another reset runs.

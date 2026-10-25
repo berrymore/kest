@@ -3,14 +3,15 @@ package worker
 import "time"
 
 // Observer is told what a pool does, for metrics. Its methods are called from
-// Exec callers and from the pool's goroutines, concurrently; they must be
-// fast and must not block.
+// Exec callers and from the pool's goroutines, concurrently, some of them
+// under the pool's lock; they must be fast, must not block and must not call
+// the pool. lane is the name of the job's lane, empty for the default lane.
 type Observer interface {
 	// Waited reports how long a job waited for a free worker before it got one.
-	Waited(d time.Duration)
-	// Rejected reports a job that got no worker: ReasonQueueFull or
-	// ReasonNoWorker.
-	Rejected(reason Reason)
+	Waited(lane string, d time.Duration)
+	// Rejected reports a job that got no worker: ReasonQueueFull,
+	// ReasonNoWorker or ReasonOverload.
+	Rejected(lane string, reason Reason)
 	// Replaced reports a worker process that ended, or failed to start, while
 	// the pool runs; another one starts in its slot.
 	Replaced(reason Reason)
@@ -22,8 +23,9 @@ type Reason string
 
 // Reasons for Observer.Rejected.
 const (
-	ReasonQueueFull Reason = "queue_full" // MaxQueueSize callers were waiting already
-	ReasonNoWorker  Reason = "no_worker"  // no worker became free within AllocateTimeout
+	ReasonQueueFull Reason = "queue_full" // MaxQueueSize callers were waiting in the lane already
+	ReasonNoWorker  Reason = "no_worker"  // no worker became free within the lane's queue timeout
+	ReasonOverload  Reason = "overload"   // no worker became free within OverloadQueueTimeout, in an overloaded lane
 )
 
 // Reasons for Observer.Replaced.
@@ -47,6 +49,6 @@ var ReplaceReasons = []Reason{ReasonMaxJobs, ReasonTTL, ReasonIdleTTL, ReasonMem
 // nopObserver is the Observer of a pool without one.
 type nopObserver struct{}
 
-func (nopObserver) Waited(time.Duration) {}
-func (nopObserver) Rejected(Reason)      {}
-func (nopObserver) Replaced(Reason)      {}
+func (nopObserver) Waited(string, time.Duration) {}
+func (nopObserver) Rejected(string, Reason)      {}
+func (nopObserver) Replaced(Reason)              {}

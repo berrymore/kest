@@ -26,8 +26,11 @@ type Payload struct {
 var (
 	// ErrQueueFull means MaxQueueSize callers are already waiting for a worker.
 	ErrQueueFull = errors.New("too many requests are waiting for a worker")
-	// ErrNoWorker means no worker became free within AllocateTimeout.
+	// ErrNoWorker means no worker became free within the lane's queue timeout.
 	ErrNoWorker = errors.New("no worker became free in time")
+	// ErrOverloaded means no worker became free within OverloadQueueTimeout, which
+	// bounds the wait in a lane whose queue hasn't been empty for a while.
+	ErrOverloaded = errors.New("the pool is overloaded: no worker became free in time")
 	// ErrStopped means the pool is stopping or stopped.
 	ErrStopped = errors.New("worker pool is stopped")
 	// ErrExecTimeout means the worker didn't answer within ExecTTL; it was killed.

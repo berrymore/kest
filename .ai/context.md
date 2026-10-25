@@ -36,8 +36,9 @@ Longer term (M4+):
 6. **A professional upstream for the proxy in front** (ADR-0008): HTTP/1.1 and HTTP/2 (h2c), the client's
    address from trusted proxies, streamed responses, the files of `public/` that the proxy can't see (M4);
    gRPC, WebSockets and SSE, unix sockets (M7).
-7. **Routing, filters and pools** that take work off PHP: richer matches, per-route settings of listener
-   filters, traffic split between pools, authentication and limits before PHP, `X-Sendfile`, fast rejection under overload (M5).
+7. **Worker pools and routing to them**: lanes that keep a slow endpoint from taking the whole pool, priorities,
+   fast rejection under overload, a pool that grows under load, `X-Sendfile`, richer route matches (M5).
+   Filters that take work off PHP (authentication, limits) come later.
 8. **WASM sandbox** on wazero: `wasm` clusters (handlers), `wasm` HTTP filters, possibly functions
    callable from PHP (M6).
 9. Dynamic configuration: hot reload without dropping connections (M8).
@@ -91,6 +92,7 @@ Longer term (M4+):
 | **Route** | Match rule (prefix, path, …) plus an action: `route` to a cluster, `direct_response` or `redirect` |
 | **Cluster** | Named upstream that serves requests: `php_workers`, `wasm` (planned) |
 | **Pool** | Set of worker processes owned by a cluster |
+| **Lane** | A route's own queue in a pool, with a limit on the workers it takes, a priority and a queue timeout (M5) |
 | **Worker** | One long-lived child process (e.g. `php worker.php`) handling one request at a time |
 | **Supervisor** | Watches workers and recycles them on limits: TTL, idle TTL, exec TTL, memory, max jobs |
 | **Relay** | Transport between kest and a worker: pipes (stdin/stdout), unix socket, TCP |

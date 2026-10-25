@@ -227,9 +227,9 @@ listeners:
 				`kest.yaml:12:31: listeners[0].http.virtual_hosts[0].routes[0].match.prefix: must start with /`,
 				`kest.yaml:13:32: listeners[0].http.virtual_hosts[0].routes[0].route.cluster: unknown cluster "nope"`,
 				`kest.yaml:14:15: listeners[0].http.virtual_hosts[0].routes[1]: set only one action`,
-				`kest.yaml:14:22: listeners[0].http.virtual_hosts[0].routes[1].match: set only one of prefix or path`,
+				`kest.yaml:14:22: listeners[0].http.virtual_hosts[0].routes[1].match: set only one of prefix, path or regex`,
 				`kest.yaml:17:15: listeners[0].http.virtual_hosts[0].routes[2]: an action is required`,
-				`kest.yaml:17:22: listeners[0].http.virtual_hosts[0].routes[2].match: required: set prefix or path`,
+				`kest.yaml:17:22: listeners[0].http.virtual_hosts[0].routes[2].match: required: set prefix, path or regex`,
 			},
 		},
 		{
@@ -281,6 +281,62 @@ listeners:
 			},
 		},
 		{
+			name: "matchers",
+			src: `version: v1
+listeners:
+  - name: a
+    address: 127.0.0.1:8080
+    http:
+      virtual_hosts:
+        - name: a
+          domains: ["*"]
+          routes:
+            - match: {regex: "^/(a"}
+              direct_response: {}
+            - match:
+                prefix: /
+                methods: [GET, "BAD METHOD"]
+                headers: [{name: "X Bad", exact: x}, {name: X-Two, exact: a, prefix: b}, {name: X-Re, regex: "("}]
+                query: [{exact: x}, {name: q}]
+              direct_response: {}
+`,
+			want: []string{
+				"kest.yaml:10:30: listeners[0].http.virtual_hosts[0].routes[0].match.regex: error parsing regexp: missing closing ): `^/(a`",
+				`kest.yaml:14:32: listeners[0].http.virtual_hosts[0].routes[1].match.methods[1]: invalid method "BAD METHOD"`,
+				`kest.yaml:15:34: listeners[0].http.virtual_hosts[0].routes[1].match.headers[0].name: invalid header name "X Bad"`,
+				`kest.yaml:15:54: listeners[0].http.virtual_hosts[0].routes[1].match.headers[1]: set exactly one of exact, prefix, regex or present`,
+				"kest.yaml:15:110: listeners[0].http.virtual_hosts[0].routes[1].match.headers[2].regex: error parsing regexp: missing closing ): `(`",
+				`kest.yaml:16:25: listeners[0].http.virtual_hosts[0].routes[1].match.query[0].name: required`,
+				`kest.yaml:16:37: listeners[0].http.virtual_hosts[0].routes[1].match.query[1]: set exactly one of exact, prefix, regex or present`,
+			},
+		},
+		{
+			name: "lanes",
+			src: `version: v1
+listeners:
+  - name: a
+    address: 127.0.0.1:8080
+    http:
+      virtual_hosts:
+        - name: a
+          domains: ["*"]
+          routes:
+            - match: {prefix: /a}
+              route: {cluster: app, priority: low}
+            - name: b
+              match: {prefix: /b}
+              route: {cluster: app, max_workers: -1, priority: urgent, queue_timeout: 0s}
+clusters:
+  - {name: app, type: fake}
+`,
+			want: []string{
+				`kest.yaml:10:15: listeners[0].http.virtual_hosts[0].routes[0].name: required: a route with max_workers`,
+				`kest.yaml:14:50: listeners[0].http.virtual_hosts[0].routes[1].route.max_workers: must be positive, got -1`,
+				`kest.yaml:14:64: listeners[0].http.virtual_hosts[0].routes[1].route.priority: unknown priority "urgent"`,
+				`kest.yaml:14:87: listeners[0].http.virtual_hosts[0].routes[1].route.queue_timeout: must be positive`,
+			},
+		},
+		{
 			name: "redirects",
 			src: `version: v1
 listeners:
@@ -323,10 +379,10 @@ listeners:
       virtual_hosts:
         - name: a
           domains: ["*"]
-          routes: [{match: {prefix: /}, direct_response: {}}]
+          routes: [{name: r, match: {prefix: /}, direct_response: {}}]
         - name: a
           domains: ["*"]
-          routes: [{match: {prefix: /}, direct_response: {}}]
+          routes: [{name: r, match: {prefix: /}, direct_response: {}}, {name: "r 2", match: {prefix: /}, direct_response: {}}]
   - name: main
     address: 127.0.0.1:9001
 clusters:
@@ -337,6 +393,8 @@ clusters:
 				"listeners[0].address: address 127.0.0.1:9000 is already used by admin.address",
 				`listeners[0].http.virtual_hosts[1].name: duplicate virtual host name "a"`,
 				`listeners[0].http.virtual_hosts[1].domains[0]: domain "*" is already used by listeners[0].http.virtual_hosts[0].domains[0]`,
+				`kest.yaml:13:27: listeners[0].http.virtual_hosts[1].routes[0].name: duplicate route name "r"`,
+				`kest.yaml:13:79: listeners[0].http.virtual_hosts[1].routes[1].name: invalid name "r 2"`,
 				"kest.yaml:14:5: listeners[1].http: required",
 				`kest.yaml:14:11: listeners[1].name: duplicate listener name "main"`,
 				"kest.yaml:18:5: clusters[1].type: required",

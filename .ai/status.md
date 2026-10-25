@@ -1,41 +1,60 @@
 # Status
 
-_Last updated: 2026-10-25 (M4 merged, PR #3; codec benchmark K-148 merged; M5 not started)_
+_Last updated: 2026-10-25 (M5 merged, PR #5; M6 not started)_
 
 ## Current phase
 
-**M4 (HTTP edge features) is done and merged** (PR #3, squashed into `main`). The user delegated the milestone
-on 2026-10-25, looked at the result, and found kest drifting towards nginx and Envoy.
-ADR-0008 (accepted) draws the line: kest is an application server behind a proxy; it takes on what concerns how
-the proxy talks to the application or what makes up for a weakness of PHP. So, before the merge, the `http_proxy`
-cluster was removed (K-085), filters can be set on virtual hosts and routes (K-096), and static files are the
-`static` filter on the route to PHP instead of `php_workers.static` and the `static_files` cluster (K-082).
-`plans/M4-http-edge.md` is the record: decisions D1–D12 (D9 and D11 superseded by D12), steps 1–13 and the log.
-kest terminates TLS (certificates by SNI, reloaded on change) and HTTP/2 (h2, h2c), normalizes paths before
-routing, takes the client IP from trusted proxies (`client_ip`), sets headers (`headers`), answers CORS (`cors`),
-gzips (`compression`), redirects (`redirect` action), serves the files of `public/` (`static`) and streams
-responses from PHP (generators, `$chunkSize`, 103 Early Hints).
+**M5 (Worker pools and routing to them) is done and merged** (PR #5, squashed into `main`). ADR-0008 still draws
+the line: kest is an application server behind a proxy. M5 made the pool the core: lanes per route
+(`route.max_workers`, `priority`, `queue_timeout`), `Retry-After` and overload control (`pool.overload`, CoDel, on
+by default after a measurement), a dynamic size (`pool.max_workers`, `scale_down_after`), the `sendfile` filter,
+route names and matches on regex, method, headers and query, the listener filters' answers in the metrics, buffered
+relay reads; research on forking booted workers (`research/prefork.md`). `plans/M5-pools.md` is the record
+(decisions D1–D10, steps 1–13, the log). The user checked the decisions taken while they were away and approved
+them. `make bench` against RoadRunner did not run during M5 (no RoadRunner binary); A/B runs of kest's binaries
+stood in for it.
 
 ## In progress
 
-Nothing. M5 is next, but the user asked not to start it in the session that merged M4. K-148 (the codecs
-benchmarked with `ext-protobuf`) went to `main` on its own branch and PR after M4.
+Nothing. M6 is next; the user hasn't said to start it.
 
 ## Next up: how to continue in a fresh session
 
-1. **Git first:** `git checkout main && git pull`; `git status` is clean, `git log --oneline -3` shows the K-148
-   squash commit on top and M4's below it.
-2. **M5 (Routing, filters and pools)** on a new branch `feat/m5-routing` from `main`, once the user says to start.
-   Read `roadmap.md` § M5, `backlog.md` § M5 (K-140…K-147, K-095, K-905, K-908, K-910), ADR-0008 and
-   `architecture.md` § 2–4 and § 8 (`internal/httpx`: router, filter chain, metrics). First write `plans/M5-routing.md` and
-   agree its scope with the user (vertical slice first). Research before designing: Envoy's route matching and
-   `typed_per_filter_config` ❓, RoadRunner's `sendfile` middleware ❓ (K-143).
+1. **Git first:** `git checkout main && git pull`; `git status` is clean, `git log --oneline -3` shows M5's squash
+   commit on top.
+2. **M6 (WASM sandbox)** on a new branch `feat/m6-wasm` from `main`, once the user says to start. Read
+   `roadmap.md` § M6, `backlog.md` § M6 (K-100…K-104, K-141), ADR-0006 and `architecture.md` § 9. First write
+   `plans/M6-wasm.md` and agree its scope with the user (vertical slice first). The first step is the guest ABI
+   research and ADR (K-100: Proxy-Wasm, http-wasm, WASI stdin/stdout, custom); K-141 (per-route filter settings)
+   moved here from M5.
+3. **Q15** (below) is open: ask the user when it fits.
 
 ## Open questions (need a decision from the user)
 
-None.
+- **Q15** — Cap kest's `GOMAXPROCS` by default? Measured (K-149, `docs/benchmarks.md` § kest's own CPU): on a host
+  shared with the PHP workers, `GOMAXPROCS=2` to `4` cuts kest's CPU per request to a third or half and lets the
+  pool serve 25–35 % more, since idle Go threads spin on cores PHP needs. Today it is advice in the operations guide
+  (the Go runtime reads `GOMAXPROCS` from the environment). A default (say, `min(cores, 4)`, or a
+  `server.max_procs`) would help most deployments but would starve a kest that does TLS and gzip for a busy site.
+  The agent's suggestion: keep the advice, no default, until a deployment shows otherwise.
 
 ## Resolved decisions
+
+- 2026-10-25 — The user checked `feat/m5-pools` locally ("all fine"), had it pushed, PR #5 opened, and merged
+  (squash).
+- 2026-10-25 — M5: the user lets the agent commit each item itself after a green `make check`, until the end of the
+  milestone, then delegated all the remaining steps ("do all the steps"): the agent decides (D4's names and defaults
+  included) and records the choices for the PR review. Push and PR only after the user's OK.
+
+- 2026-10-25 — Q14: the user approved `plans/M5-pools.md` as a whole, with its schema changes (route `name`;
+  `route.max_workers`, `priority`, `queue_timeout`; `php_workers.retry_after`; `pool.max_workers`,
+  `pool.scale_down_after`; the `sendfile` filter; `match.regex`, `methods`, `headers`, `query`; a `route` label on the
+  HTTP and pool metrics), and had it committed.
+
+- 2026-10-25 — M5 scope (the user): the pool is the focus. K-142 weighted clusters dropped (one kest runs one release;
+  A/B splits are sticky and PHP does them); K-145, K-146, K-147 to the icebox ("nice to have, the core first");
+  K-141 to M6; the rest of M5 kept, plus K-151 (lanes, per-route worker limits) and K-152 (research: forking booted
+  workers). M5 renamed "Worker pools and routing to them".
 
 - 2026-10-25 — K-148: the user had it committed on its own branch, PR #4 opened and merged (squash) without
   stopping. K-150 (the benchmark with OPcache and JIT, was Q13): not now. msgpack: the user asked, the agent
@@ -109,6 +128,14 @@ None.
 
 ## Session log (newest first, keep ~15)
 
+- **2026-10-25** — M5 planned with the user (scope narrowed to the pool) and implemented on `feat/m5-pools` (the user
+  delegated all steps, then left; they checked it locally, then PR #5, merged):
+  K-910 route names; lanes in the pool (a dispatcher under one mutex, 3.1 → 1.8 µs per job) and on routes;
+  `Retry-After`; overload control decided by experiment in virtual time and with PHP (`loadgen -rate`, new): without
+  it overload collapses (7 of 40 requests/s served); dynamic pool size; `sendfile` (checked against Symfony's
+  `BinaryFileResponse`); route matchers; K-095; K-149 (most of the server's CPU is Go's idle threads spinning:
+  `GOMAXPROCS` 2–4 serves 25–35 % more on the laptop, Q15); K-152 research (forked workers: 1 ms and 4 MB against a
+  35 ms boot and 27 MB); the docs review.
 - **2026-10-25** — K-148: the user installed `ext-protobuf`; `make bench` re-run at M4 with and without it.
   With the extension `proto` is 1–4 % behind `json` (it was 30–35 %); PHP pays 14.4 µs per request for `json`,
   20.1 µs for `proto` with the extension, 135 µs without (`test/bench/codec.php`, new). RoadRunner is 8 % ahead on
@@ -170,7 +197,3 @@ None.
   Commit and squash policy added to the rules.
 - **2026-10-24** — Installed golangci-lint 2.15.0 into `~/go/bin` (release binary, no brew); the user
   installed Composer.
-- **2026-10-24** — Resolved Q1–Q6 (English artifacts, `{type, config}`, MIT, PHP 8.3+ test floor,
-  no CI yet, git). Added LICENSE and the no-AI-attribution rule; `git init`, remote, first commit.
-- **2026-10-24** — Bootstrapped project docs: AGENTS.md, CLAUDE.md, README.md, `.ai/` (context, rules,
-  architecture, roadmap, backlog, ADR-0001…0006, M0 plan, RoadRunner/Envoy research notes).
