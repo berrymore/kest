@@ -111,7 +111,7 @@ The first steps are the vertical slice: real metrics from a PHP app at `/metrics
 9. [ ] **Benchmarks** (K-066, maybe K-069) — `docs/benchmarks.md` with the method and the numbers.
 10. [ ] **Operations guide** (K-067) — `docs/operations.md`: signals, rolling resets, metrics with example queries,
     probes, sizing, a systemd unit.
-11. [ ] **Replace workers on file changes** (K-072).
+11. [x] **Replace workers on file changes** (K-072).
 12. [ ] **Docs review** (`review.md`), then the PR.
 
 ## Risks / open questions
@@ -124,6 +124,8 @@ The first steps are the vertical slice: real metrics from a PHP app at `/metrics
 
 ## Log
 
+- 2026-10-25 — Step 11 (K-072) done, before steps 9 and 10. Added `max_files` (bound) to the planned options;
+  dot directories are skipped; a change must hold still for one scan before the reset.
 - 2026-10-25 — Step 8 (K-070) done as in D10; requests don't wait for the budget. The body can be in memory twice
   while it goes to a worker (K-069), and the budget counts it once.
 - 2026-10-25 — K-068 done (step 7). The delay applies to a signal, not to a fatal error.

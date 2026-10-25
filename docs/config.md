@@ -317,6 +317,25 @@ Uploads count towards `max_request_body`.
 The route `timeout` still bounds each request: when it expires the client gets `504`, and the worker
 finishes the request (within `exec_ttl`) with nobody waiting for it.
 
+**`reload`**
+
+For development: replace the workers when your code changes, with the same rolling reset as
+`POST /clusters/{name}/reset`. kest scans the directories every `interval` (by file name, size and modification
+time, no file system events), and resets once a change has held still for one scan, so that saving many files
+makes one reset. Directories whose names start with a dot are skipped.
+
+```yaml
+      reload:
+        dirs: [src, config]
+```
+
+| Field | Default | |
+|---|---|---|
+| `dirs` | none (off) | Directories to watch, recursively; relative to the config file. |
+| `patterns` | `["*.php"]` | Names of the files to watch (shell patterns, like `*.yaml`). |
+| `interval` | `1s` | How often to scan; at least `10ms`. |
+| `max_files` | `20000` | A scan that finds more matching files stops watching, with an error in the log. |
+
 **Startup and shutdown.** kest starts every worker before it opens the listeners, and fails to start
 if one of them can't boot (the error shows the worker's exit status and the end of its stderr).
 Workers that crash later are replaced, with a growing delay (up to 30s) if they keep failing. A rolling

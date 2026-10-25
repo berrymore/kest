@@ -118,7 +118,8 @@ the [configuration reference](config.md#php_workers).
 - **Code changes need a reset.** A worker loads your code once. To deploy, replace the workers one by one
   with `curl -X POST localhost:9901/clusters/<cluster>/reset` (it returns when done) or `kill -HUP <kest pid>`
   (every cluster): each new worker boots while the old one keeps serving, so no request fails, and if the new
-  code doesn't boot, the reset stops and the remaining old workers keep serving.
+  code doesn't boot, the reset stops and the remaining old workers keep serving. In development, `reload` does it
+  for you when files change (`reload: {dirs: [src]}` in the cluster's config).
 - **Leaks are bounded by limits.** `pool.max_jobs` replaces a worker after that many requests,
   `supervisor.max_worker_memory` when it grows too large, `supervisor.ttl` after some time. A request
   that runs longer than `supervisor.exec_ttl` (default 60s) kills its worker and gets `504`.

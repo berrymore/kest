@@ -59,6 +59,10 @@ type Cluster struct {
 	logger  *slog.Logger
 
 	bodyRejected *metrics.Counter // requests turned away by the body budget
+
+	watcher   *watcher // nil without reload.dirs
+	stopWatch context.CancelFunc
+	watchDone chan struct{}
 }
 
 // bodyBudget bounds the bytes of request bodies held in memory at once
@@ -107,7 +111,7 @@ func New(cfg *Config, bc registry.BuildContext, environ []string) (*Cluster, err
 }
 
 func newCluster(cfg *Config, configDir string, p pool, logger *slog.Logger) *Cluster {
-	return &Cluster{
+	c := &Cluster{
 		pool:         p,
 		opts:         cfg.requestOptions(configDir),
 		maxBody:      int64(cfg.MaxRequestBody),
@@ -115,11 +119,25 @@ func newCluster(cfg *Config, configDir string, p pool, logger *slog.Logger) *Clu
 		logger:       logger,
 		bodyRejected: &metrics.Counter{},
 	}
+	c.watcher = newWatcher(cfg.Reload, configDir, c.Reset, logger)
+	return c
 }
 
-// Start starts the workers and returns once every one of them has booted.
+// Start starts the workers and returns once every one of them has booted,
+// then the file watcher of reload, if configured.
 func (c *Cluster) Start(ctx context.Context) error {
-	return withHint(c.pool.Start(ctx))
+	if err := c.pool.Start(ctx); err != nil {
+		return withHint(err)
+	}
+	if c.watcher != nil {
+		wctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+		c.stopWatch, c.watchDone = cancel, make(chan struct{})
+		go func() {
+			defer close(c.watchDone)
+			c.watcher.run(wctx)
+		}()
+	}
+	return nil
 }
 
 // Reset implements cluster.Resetter with a rolling replacement of the workers
@@ -186,8 +204,13 @@ type workerReport struct {
 	MemoryBytes int64  `json:"memory_bytes,omitempty"`
 }
 
-// Stop lets running requests finish, then stops the workers.
+// Stop stops the file watcher, lets running requests finish, then stops
+// the workers.
 func (c *Cluster) Stop(ctx context.Context) error {
+	if c.stopWatch != nil {
+		c.stopWatch()
+		<-c.watchDone
+	}
 	return c.pool.Stop(ctx)
 }
 

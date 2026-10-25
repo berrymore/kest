@@ -442,6 +442,47 @@ func TestPHPReset(t *testing.T) {
 	t.Logf("%d requests served during the resets", served.Load())
 }
 
+// A change in a reload directory replaces the workers.
+func TestPHPReload(t *testing.T) {
+	src := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "app.php"), []byte("<?php // v1"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	srv, c := phpCluster(t, CodecJSON, func(c *Config) {
+		c.Reload.Dirs = []string{src}
+		c.Reload.Interval = config.Duration(50 * time.Millisecond)
+	}, metrics.NewRegistry())
+	pids := func() []int {
+		var out []int
+		for _, w := range c.pool.Workers() {
+			out = append(out, w.Pid)
+		}
+		return out
+	}
+	before := pids()
+	if err := os.WriteFile(filepath.Join(src, "app.php"), []byte("<?php // version 2"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		after := pids()
+		replaced := true
+		for i := range after {
+			replaced = replaced && after[i] != 0 && after[i] != before[i]
+		}
+		if replaced {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("pids %v → %v: the change didn't replace the workers", before, after)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if r := send(t, http.MethodGet, srv.URL+"/status/200", "", http.NoBody, nil); r.status != 200 {
+		t.Errorf("after the reload: %d", r.status)
+	}
+}
+
 func TestPHPConcurrent(t *testing.T) {
 	srv := phpServer(t, CodecJSON, func(c *Config) { c.Pool.Workers = 4 })
 	var wg sync.WaitGroup

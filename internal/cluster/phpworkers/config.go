@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/berrymore/kest/internal/config"
 	"github.com/berrymore/kest/internal/relay"
@@ -53,6 +55,20 @@ type Config struct {
 	Uploads    Uploads    `yaml:"uploads"`
 	Pool       Pool       `yaml:"pool"`
 	Supervisor Supervisor `yaml:"supervisor"`
+	Reload     Reload     `yaml:"reload"`
+}
+
+// Reload replaces the workers when files change, for development (K-072).
+type Reload struct {
+	// Dirs are watched recursively, relative to the config file; none means
+	// off. Directories whose names start with a dot are skipped.
+	Dirs []string `yaml:"dirs,omitempty"`
+	// Patterns match the names of the files to watch (path.Match).
+	Patterns []string `yaml:"patterns"`
+	// Interval is how often the directories are scanned.
+	Interval config.Duration `yaml:"interval"`
+	// MaxFiles bounds a scan; past it, watching stops with an error.
+	MaxFiles int `yaml:"max_files"`
 }
 
 // Uploads controls the temp files of uploaded files.
@@ -104,6 +120,7 @@ func DefaultConfig() Config {
 			StartTimeout:    config.Duration(w.StartTimeout),
 			DestroyTimeout:  config.Duration(w.DestroyTimeout),
 		},
+		Reload: Reload{Patterns: []string{"*.php"}, Interval: config.Duration(time.Second), MaxFiles: 20000},
 		Supervisor: Supervisor{
 			TTL:             config.Duration(w.TTL),
 			IdleTTL:         config.Duration(w.IdleTTL),
@@ -167,6 +184,20 @@ func (c *Config) Validate() error {
 	}
 	if c.MaxRequestBody < 1 {
 		add("max_request_body", "must be positive, got %s", c.MaxRequestBody)
+	}
+	for i, p := range c.Reload.Patterns {
+		if _, err := path.Match(p, ""); err != nil || p == "" {
+			add(fmt.Sprintf("reload.patterns[%d]", i), "invalid pattern %q", p)
+		}
+	}
+	if len(c.Reload.Dirs) > 0 && len(c.Reload.Patterns) == 0 {
+		add("reload.patterns", "must not be empty when reload.dirs is set")
+	}
+	if c.Reload.Interval.Std() < 10*time.Millisecond {
+		add("reload.interval", "must be at least 10ms, got %s", c.Reload.Interval)
+	}
+	if c.Reload.MaxFiles < 1 {
+		add("reload.max_files", "must be positive, got %d", c.Reload.MaxFiles)
 	}
 	if c.MaxBufferedBodies < c.MaxRequestBody {
 		add("max_buffered_bodies", "must be at least max_request_body (%s), got %s", c.MaxRequestBody, c.MaxBufferedBodies)
@@ -272,15 +303,15 @@ func (c *Config) environment(environ []string) []string {
 	return append(env, "RR_MODE=http")
 }
 
-// resolve makes a relative path relative to dir.
-func resolve(dir, path string) string {
+// resolve makes a relative name relative to dir.
+func resolve(dir, name string) string {
 	switch {
-	case path == "":
+	case name == "":
 		return dir
-	case filepath.IsAbs(path) || dir == "":
-		return path
+	case filepath.IsAbs(name) || dir == "":
+		return name
 	default:
-		return filepath.Join(dir, path)
+		return filepath.Join(dir, name)
 	}
 }
 
