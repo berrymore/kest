@@ -185,7 +185,7 @@ in `kest_tls_handshake_errors_total` and logged at `debug` level, since scanners
 
 ### Filters
 
-Built-in types: `request_id`, `access_log`, `recovery`, `client_ip`, `headers`. Put `recovery` first so that it covers the
+Built-in types: `request_id`, `access_log`, `recovery`, `client_ip`, `headers`, `cors`. Put `recovery` first so that it covers the
 other filters too:
 
 ```yaml
@@ -265,6 +265,33 @@ ignored, not removed.
 The rules run in this order: `remove`, `set`, `add`, `set_if_absent`. Values are literal. Headers that kest
 manages can't be changed: `Host`, `Content-Length`, `Transfer-Encoding`, `Connection`, `Keep-Alive`,
 `Proxy-Connection`, `TE`, `Trailer`, `Upgrade`. `response.remove: [Date]` stops kest from adding a `Date`.
+
+**`cors`** lets pages from other origins call the application from a browser (Cross-Origin Resource Sharing):
+
+```yaml
+- type: cors
+  config:
+    allow_origins: ["https://app.example.com", "https://*.example.com"]
+    allow_methods: [GET, POST, PUT, DELETE]
+    allow_headers: [Content-Type, Authorization]
+    allow_credentials: true
+```
+
+| Field | Default | |
+|---|---|---|
+| `allow_origins` | — | Required. Exact origins (`https://app.example.com`, with the port if not the default), subdomain wildcards (`https://*.example.com` matches `https://a.example.com` but not `https://example.com`), or `"*"` for any origin. |
+| `allow_methods` | `[GET, HEAD, POST]` | Methods allowed in cross-origin requests. |
+| `allow_headers` | none | Request headers allowed beyond the safelisted ones (`Content-Type` with a JSON body needs listing); `"*"` allows any. |
+| `expose_headers` | none | Response headers that scripts may read beyond the safelisted ones. |
+| `allow_credentials` | `false` | Let requests carry cookies and HTTP authentication. Can't be combined with `"*"` in `allow_origins`. |
+| `max_age` | `5m` | How long browsers may cache a preflight answer. `0s` leaves it to the browser. |
+
+kest answers preflight requests (`OPTIONS` with `Origin` and `Access-Control-Request-Method`) itself with `204`;
+they don't reach the cluster. The CORS headers are there only if the origin, the method and every requested header
+are allowed, so the browser blocks the rest. Other requests from an allowed origin get
+`Access-Control-Allow-Origin` (and `-Credentials`, `-Expose-Headers`), replacing any the application set; with a
+list of origins, every response gets `Vary: Origin` so that caches keep them apart. Use either this filter or the
+application's CORS handling (such as `nelmio/cors-bundle`), not both.
 
 ### `virtual_hosts[]`
 

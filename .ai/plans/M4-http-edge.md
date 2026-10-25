@@ -173,7 +173,7 @@ Steps 1–2 are the vertical slice: `curl --http2 -k https://localhost:8443/` ag
 4. [x] **`client_ip`** (K-087) — acceptance: spoofed `X-Forwarded-For` from an untrusted peer is ignored; PHP's
    `REMOTE_ADDR` and the access log show the client.
 5. [x] **`headers`** (K-084).
-6. [ ] **`cors`** (K-089) — acceptance: preflight answered by kest; disallowed origins get no CORS headers.
+6. [x] **`cors`** (K-089) — acceptance: preflight answered by kest; disallowed origins get no CORS headers.
 7. [ ] **Redirect action** (K-090).
 8. [ ] **`compression`** (K-083) — acceptance: gzip round trip, streams flushed, HEAD/304/no-transform skipped.
 9. [ ] **Static files** (K-082) — acceptance: `php_workers.static` serves `public/` files with Range and ETag,
@@ -196,6 +196,8 @@ Steps 1–2 are the vertical slice: `curl --http2 -k https://localhost:8443/` ag
 
 ## Log
 
+- 2026-10-25 — Step 6 (K-089) done as in D6. `allow_headers: ["*"]` echoes the requested headers (works with
+  credentials too).
 - 2026-10-25 — Step 5 (K-084) done as in D5; `remove: [Date]` suppresses net/http's `Date`.
 - 2026-10-25 — Step 4 (K-087) done as in D4. `httpx.IsToken` is shared by the filters that check header names.
 - 2026-10-25 — Step 3 (K-086) done as in D3.

@@ -205,7 +205,7 @@ listeners:
 	}
 }
 
-func TestHeadersFilter(t *testing.T) {
+func TestHeaderFilters(t *testing.T) {
 	listenAddr, adminAddr := freeAddr(t), freeAddr(t)
 	configPath := filepath.Join(t.TempDir(), "kest.yaml")
 	writeFile(t, configPath, `version: v1
@@ -220,6 +220,8 @@ listeners:
             response:
               set: {X-Content-Type-Options: nosniff}
               remove: [Date]
+        - type: cors
+          config: {allow_origins: ["https://app.test"]}
       virtual_hosts:
         - name: default
           domains: ["*"]
@@ -230,5 +232,20 @@ listeners:
 	resp := do(t, http.DefaultClient, "http://"+listenAddr+"/")
 	if resp.Header.Get("X-Content-Type-Options") != "nosniff" || resp.Header.Get("Date") != "" {
 		t.Errorf("response headers %v: want X-Content-Type-Options and no Date", resp.Header)
+	}
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodOptions, "http://"+listenAddr+"/", http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Origin", "https://app.test")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	preflight, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preflight.Body.Close()
+	if preflight.StatusCode != http.StatusNoContent || preflight.Header.Get("Access-Control-Allow-Origin") != "https://app.test" {
+		t.Errorf("preflight = %d %v", preflight.StatusCode, preflight.Header)
 	}
 }

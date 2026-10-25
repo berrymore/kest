@@ -153,7 +153,7 @@ Milestone definitions: `roadmap.md`.
   (what RR's `proxy_ip_parser` v6 does, not an attribute) and the scheme in the URI; `httpx.ClientIP`/`Scheme`.
 - [ ] K-088 Streaming responses from PHP workers (`STREAM` frames, `PSR7Worker::$chunkSize`, generator bodies)
   and 1xx informational responses (103 Early Hints); stop a stream when the client goes away (Q-C).
-- [ ] K-089 CORS filter (`cors`): preflight answered by kest, allowed origins with wildcards.
+- [x] K-089 CORS filter (`cors`): preflight answered by kest, allowed origins with wildcards.
 - [ ] K-090 Redirect route action (`redirect`): scheme, host, port, path, prefix rewrite, status.
 - [ ] K-091 Client certificates on TLS listeners (mTLS): a CA file, required or optional, the verified subject
   passed to PHP.
