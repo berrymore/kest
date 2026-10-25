@@ -46,7 +46,7 @@ func NewHandler(cfg *config.HTTP, clusters ClusterLookup, bc registry.BuildConte
 		return nil, err
 	}
 	h := Chain(rt, filters...)
-	return m.entry(normalizer(h, isTrue(cfg.NormalizePath), isTrue(cfg.MergeSlashes))), nil
+	return m.entry(normalizer(h, isTrue(cfg.NormalizePath), isTrue(cfg.MergeSlashes)), len(filters) > 0), nil
 }
 
 // buildFilters builds the filters that exts configure, adding their

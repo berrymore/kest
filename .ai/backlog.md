@@ -200,8 +200,8 @@ IDs start at K-140: the milestones were renumbered on 2026-10-25 (ADR-0008), and
   2026-10-25).
 - [x] K-910 Optional route `name`, unique in the config, and a `route` label on the HTTP metrics and in
   `access_log` (plan D1; 2026-10-25).
-- [ ] K-095 Count requests that listener filters answer themselves (CORS preflights) in the HTTP metrics: today
-  only requests that reach the router are counted per virtual host and cluster. Moved from M4 on 2026-10-25 (plan D8).
+- [x] K-095 Count requests that listener filters answer themselves (CORS preflights) in the HTTP metrics, with an
+  empty virtual host, route and cluster. Moved from M4 on 2026-10-25 (plan D8; done 2026-10-25).
 - [ ] K-152 Research: start workers by forking a booted PHP process (copy on write, milliseconds instead of the
   framework's boot); socket relays (K-029), a hook in the worker script, reconnecting after the fork. A note and
   maybe an ADR draft, no code in M5 (plan D10).

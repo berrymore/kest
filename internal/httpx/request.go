@@ -22,7 +22,8 @@ type RequestInfo struct {
 	ClientIP string
 	Scheme   string // "http" or "https"
 
-	target *targetMetrics // the metrics of the chosen route, then of its cluster; nil until a route is chosen
+	target  *targetMetrics // the metrics of the chosen route, then of its cluster; nil until a route is chosen
+	counted bool           // the router counts the request: it reached a virtual host, or none matched
 }
 
 type infoKey struct{}

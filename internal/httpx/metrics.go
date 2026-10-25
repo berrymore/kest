@@ -25,11 +25,12 @@ func newListenerMetrics(reg *metrics.Registry, listener string) *listenerMetrics
 		requests: reg.NewCounterVec("kest_http_requests_total",
 			"HTTP requests by listener, virtual host, route, cluster and status code. The route is the name of the "+
 				"route the router chose, empty if it has none. The cluster is set when the request reached a route's "+
-				"cluster: it is empty for direct responses, redirects, answers of virtual host and route filters, and "+
-				"requests that match no route; the virtual host is empty when none matches.",
+				"cluster: it is empty for direct responses, redirects, answers of filters, and requests that match no "+
+				"route; the virtual host is empty when none matches or a listener filter answered.",
 			"listener", "virtual_host", "route", "cluster", "code"),
 		duration: reg.NewHistogramVec("kest_http_request_duration_seconds",
-			"Time from choosing an HTTP request's virtual host to its handler's return, in seconds.",
+			"Time from choosing an HTTP request's virtual host to its handler's return, in seconds; for requests "+
+				"that a listener filter answers, from the listener.",
 			metrics.DurationBuckets, "listener", "virtual_host", "route", "cluster"),
 		inFlight: reg.NewGaugeVec("kest_http_requests_in_flight",
 			"HTTP requests being served, by listener.", "listener").With(listener),
@@ -53,12 +54,28 @@ func (m *listenerMetrics) target(virtualHost, route, cluster string) *targetMetr
 }
 
 // entry wraps a listener's whole handler: it counts the request in flight and
-// gives it a RequestInfo.
-func (m *listenerMetrics) entry(h http.Handler) http.Handler {
+// gives it a RequestInfo. With listener filters, which may answer a request
+// before the router sees it (a CORS preflight), it counts such requests
+// without a virtual host, route or cluster, timed from here.
+func (m *listenerMetrics) entry(h http.Handler, filters bool) http.Handler {
+	if !filters {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			m.inFlight.Inc()
+			defer m.inFlight.Dec()
+			h.ServeHTTP(w, WithRequestInfo(r))
+		})
+	}
+	unrouted := m.target("", "", "")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		m.inFlight.Inc()
 		defer m.inFlight.Dec()
-		h.ServeHTTP(w, WithRequestInfo(r))
+		r = WithRequestInfo(r)
+		start := time.Now()
+		rw := NewResponseWriter(w)
+		h.ServeHTTP(rw, r)
+		if !Info(r).counted {
+			unrouted.observe(rw.Status(), time.Since(start))
+		}
 	})
 }
 
@@ -80,6 +97,7 @@ func (t *targetMetrics) instrument(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		info := Info(r)
 		info.VirtualHost, info.Route, info.Cluster, info.target = t.labels[1], t.labels[2], t.labels[3], nil
+		info.counted = true
 		start := time.Now()
 		rw := NewResponseWriter(w)
 		observe := func(code int) {

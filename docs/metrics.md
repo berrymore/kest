@@ -21,9 +21,9 @@ stays bounded:
   router chose, empty when the route has none: name the routes you want to tell apart, such as two routes to the
   same cluster. `cluster` is set when the request reaches a route's cluster: it is empty for
   `direct_response` and `redirect` routes, for requests that match no route, and for requests that a filter of the
-  virtual host or the route answers itself. `virtual_host` is empty when no virtual host matches the request's host.
-  Requests that a filter of the listener answers itself (CORS preflights from `cors`) don't reach the router and
-  aren't counted in `kest_http_requests_*`.
+  virtual host or the route answers itself. `virtual_host` is empty when no virtual host matches the request's host,
+  and for requests that a filter of the listener answers itself (CORS preflights from `cors`), which never reach the
+  router; their duration counts from the listener.
 - `route` on the `kest_pool_*` metrics: the lane of a pool. A route with `max_workers`, `priority` or `queue_timeout`
   has a lane of its own, labeled with the route's name; the other routes to the cluster share its default lane,
   labeled `""`.

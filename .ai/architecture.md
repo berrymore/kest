@@ -411,7 +411,8 @@ test/bench/                  🟢 benchmark against RoadRunner: configs, loadgen
   and hands it to components in `BuildContext`. `httpx` wraps each virtual host and counts a request under the named
   route it chose and the cluster that route reached, if any (`chosen` and `routed` mark them in `RequestInfo`;
   labels: listener, virtual host, route, cluster, status code from a per-target array) and counts in-flight requests
-  per listener; `php_workers`
+  per listener; with listener filters, the listener's entry counts the requests they answer before the router
+  (`RequestInfo.counted` unset) without a virtual host; `php_workers`
   observes its pool (`worker.Observer`, by lane: the `route` label of `kest_pool_wait_seconds`,
   `kest_pool_rejected_total`, `kest_pool_queue_length`, `kest_pool_lane_workers`) and reads states, queues and memory
   at scrape time. M4 adds

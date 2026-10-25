@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-10-25 (M5 on `feat/m5-pools`: steps 1–9 committed; step 10, listener filter answers in the metrics, next)_
+_Last updated: 2026-10-25 (M5 on `feat/m5-pools`: steps 1–10 committed; step 11, kest's CPU per request, next)_
 
 ## Current phase
 
@@ -20,17 +20,17 @@ external authorization) to the icebox, K-141 to M6. `plans/M5-pools.md` (Active,
 `queue_timeout`; `php_workers.retry_after`), and the slice end to end (`test/e2e/php_lanes_test.go`, the operations
 guide), overload control (`pool.overload`, on by default, decided by a measurement), and the dynamic pool size
 (`pool.max_workers`, `scale_down_after`), the `sendfile` filter, and route matching on regex, methods, headers and
-query. Step 10 is next. The agent commits each item itself after a green `make check` until the end of
+query, and the listener filters' answers in the metrics. Step 11 is next. The agent commits each item itself after a green `make check` until the end of
 M5; the PR waits for the user's OK.
 
 ## Next up: how to continue in a fresh session
 
 1. **Git first:** `git checkout feat/m5-pools`; `git log --oneline -3` shows the `docs:` commit of the plan on top
    of K-148.
-2. **Step 10 (K-095):** count the requests that listener filters answer themselves (CORS preflights) in the HTTP
-   metrics, with an empty virtual host, route and cluster (`internal/httpx/metrics.go`, `NewHandler`). Then step 11
-   (K-149: profile kest's CPU per request and trim), step 12 (K-152: research on forking booted workers), step 13
-   (docs review, `architecture.md`, then ask the user before the PR).
+2. **Step 11 (K-149):** profile kest's server CPU per request (`go test -cpuprofile` on a benchmark of the full
+   HTTP path with a fake pool, and/or `pprof` of `bin/kest` under `loadgen` with PHP) on `hello` and `form`; trim
+   what stands out; record before/after in `docs/benchmarks.md` (A/B of binaries as in step 3). Then step 12 (K-152:
+   research on forking booted workers) and step 13 (docs review, `architecture.md`, then ask the user before the PR).
 
 ## Open questions (need a decision from the user)
 

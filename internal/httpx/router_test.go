@@ -491,6 +491,39 @@ func TestRouteLaneErrors(t *testing.T) {
 	}
 }
 
+// A request that a listener filter answers itself is counted without a
+// virtual host, route or cluster; one that goes on is counted once, by the
+// router.
+func TestListenerFilterAnswerCounted(t *testing.T) {
+	for _, tt := range []struct {
+		filter, vhost, code string
+	}{{"teapot", "", "418"}, {"header_trace", "site", "200"}} {
+		reg := metrics.NewRegistry()
+		h, err := httpx.NewHandler(loadHTTP(t, `
+  - name: main
+    address: 127.0.0.1:0
+    http:
+      filters: [{type: `+tt.filter+`}]
+      virtual_hosts:
+        - name: site
+          domains: ["*"]
+          routes: [{match: {prefix: /}, direct_response: {}}]
+`), lookup, registry.BuildContext{Name: "main", Logger: logging.Discard(), Metrics: reg})
+		if err != nil {
+			t.Fatalf("NewHandler: %v", err)
+		}
+		get(t, h, "localhost", "/")
+		fams := metricstest.Scrape(t, reg)
+		if n := len(fams["kest_http_requests_total"].Metric); n != 1 {
+			t.Errorf("%s: %d series, want 1", tt.filter, n)
+		}
+		if got := metricstest.Value(t, reg, "kest_http_requests_total", "listener", "main", "virtual_host", tt.vhost,
+			"route", "", "cluster", "", "code", tt.code); got != 1 {
+			t.Errorf("%s: requests{virtual_host %q, %s} = %v, want 1", tt.filter, tt.vhost, tt.code, got)
+		}
+	}
+}
+
 func TestNewHandlerErrors(t *testing.T) {
 	_, err := httpx.NewHandler(loadHTTP(t, `
   - name: main

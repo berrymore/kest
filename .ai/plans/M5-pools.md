@@ -204,7 +204,7 @@ end to end. The user can look at it before the rest.
    `BinaryFileResponse`; docs.
 9. [x] K-140 route matching (D7) — acceptance: router tests for every matcher; validation errors located (a bad
    regex shows RE2's message); docs.
-10. [ ] K-095 requests answered by listener filters in the metrics (D8) — acceptance: a CORS preflight on a listener
+10. [x] K-095 requests answered by listener filters in the metrics (D8) — acceptance: a CORS preflight on a listener
     filter is counted.
 11. [ ] K-149 profile and trim kest's CPU per request (D9) — acceptance: the profile and the before/after numbers in
     `docs/benchmarks.md`; whatever is changed, `make bench` doesn't get slower.
@@ -281,3 +281,5 @@ end to end. The user can look at it before the rest.
 - 2026-10-25 — Step 9 (K-140): `match.regex`, `methods`, `headers`, `query` as in D7. An empty `exact` counts as
   unset, so an empty value is matched with `regex: "^$"`. A `regex` error shows RE2's message for the expression as
   written. The query is parsed once per request, and only when a route asks for it.
+- 2026-10-25 — Step 10 (K-095): the listener's entry wraps the response writer only when the listener has filters
+  (only they can answer before the router), so listeners without filters pay nothing for it.
