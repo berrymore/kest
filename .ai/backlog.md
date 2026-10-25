@@ -202,9 +202,9 @@ IDs start at K-140: the milestones were renumbered on 2026-10-25 (ADR-0008), and
   `access_log` (plan D1; 2026-10-25).
 - [x] K-095 Count requests that listener filters answer themselves (CORS preflights) in the HTTP metrics, with an
   empty virtual host, route and cluster. Moved from M4 on 2026-10-25 (plan D8; done 2026-10-25).
-- [ ] K-152 Research: start workers by forking a booted PHP process (copy on write, milliseconds instead of the
-  framework's boot); socket relays (K-029), a hook in the worker script, reconnecting after the fork. A note and
-  maybe an ADR draft, no code in M5 (plan D10).
+- [x] K-152 Research: start workers by forking a booted PHP process (2026-10-25, `research/prefork.md`): on the
+  Symfony smoke app a fork is ready in about 1 ms against a 35–43 ms boot, and 9 forked processes take 36 MB PSS
+  against about 248 MB. Worth an opt-in mode (K-154).
 - [x] K-148 Benchmark the codecs with `ext-protobuf` (2026-10-25, before M5 started): `docs/benchmarks.md` re-run
   at M4 with and without the extension; `test/bench/codec.php` measures what each codec costs PHP. With the
   extension `json` stays 1–4 % ahead of `proto`, and kest and RoadRunner are even except on forms (K-149).
@@ -278,3 +278,6 @@ IDs start at K-140: the milestones were renumbered on 2026-10-25 (ADR-0008), and
   2026-10-25.
 - [ ] K-147 External authorization through a cluster: a subrequest to a small PHP pool decides, and the headers it
   returns go to the main request (Envoy's `ext_authz`). Moved from M5 on 2026-10-25.
+- [ ] K-154 Prefork mode (opt-in): a booted PHP "template" forks the workers of a pool on kest's request; children
+  connect over a unix socket (needs K-029) and are known by their handshake pid. An ADR first, after measuring a real
+  application's boot (`research/prefork.md`). From K-152, 2026-10-25.

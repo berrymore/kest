@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-10-25 (M5 on `feat/m5-pools`: steps 1–11 committed; step 12, research on forking workers, next)_
+_Last updated: 2026-10-25 (M5 on `feat/m5-pools`: steps 1–12 committed; step 13, the docs review, next)_
 
 ## Current phase
 
@@ -21,7 +21,7 @@ external authorization) to the icebox, K-141 to M6. `plans/M5-pools.md` (Active,
 guide), overload control (`pool.overload`, on by default, decided by a measurement), and the dynamic pool size
 (`pool.max_workers`, `scale_down_after`), the `sendfile` filter, and route matching on regex, methods, headers and
 query, the listener filters' answers in the metrics, and K-149 (profile; buffered relay reads; `GOMAXPROCS`
-advice). Step 12 is next. The user is away and asked to finish without them: commit locally, **no push, no PR**
+advice), and K-152 (research on forking booted workers, `research/prefork.md`). Step 13 is next. The user is away and asked to finish without them: commit locally, **no push, no PR**
 until they have checked the branch. The agent commits each item itself after a green `make check` until the end of
 M5; the PR waits for the user's OK.
 
@@ -29,11 +29,9 @@ M5; the PR waits for the user's OK.
 
 1. **Git first:** `git checkout feat/m5-pools`; `git log --oneline -3` shows the `docs:` commit of the plan on top
    of K-148.
-2. **Step 12 (K-152):** research only: can a booted PHP worker fork workers? Measure boot time against fork time
-   and memory (copy on write) on the Symfony smoke app (`test/e2e/testdata/symfony`) with a small PHP script outside
-   the repo's code (scratch), note what the RoadRunner worker loop needs (socket relays, K-029), write
-   `research/prefork.md`, and an ADR draft only if worth it. Then step 13: the docs review (`review.md`,
-   `docs-reviewer` agent), `architecture.md`, and stop: the user checks the branch locally before any push or PR.
+2. **Step 13:** the docs review (`review.md`: `make docs-check`, then the `docs-reviewer` agent over the branch),
+   fix what it finds, bring `architecture.md` up to date, mark the plan Done. Then stop: the user checks the branch
+   locally and gives the go-ahead before any push or PR.
 
 ## Open questions (need a decision from the user)
 

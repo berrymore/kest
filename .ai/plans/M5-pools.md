@@ -208,7 +208,7 @@ end to end. The user can look at it before the rest.
     filter is counted.
 11. [x] K-149 profile and trim kest's CPU per request (D9) — acceptance: the profile and the before/after numbers in
     `docs/benchmarks.md`; whatever is changed, `make bench` doesn't get slower.
-12. [ ] K-152 fork-based start, research (D10) — acceptance: a note in `research/`, an ADR draft if it is worth it.
+12. [x] K-152 fork-based start, research (D10) — acceptance: a note in `research/`, an ADR draft if it is worth it.
 13. [ ] Docs review (`review.md`), `architecture.md` (§ 4 lanes, § 5 slot states, § 8 metrics, Q-F), then the PR.
 
 ## Risks / open questions
@@ -292,3 +292,6 @@ end to end. The user can look at it before the rest.
   the pool serve 25–35 % more on the laptop, because idle Go threads spin on cores PHP needs. Documented as advice
   (operations guide); a default cap is Q15 for the user. The two goroutine hand-overs per request that RoadRunner
   doesn't have (to the slot and back) are K-153, not done here: it changes the pool's ownership model.
+- 2026-10-25 — Step 12 (K-152): `research/prefork.md`. Measured on Linux (Docker) and macOS with the Symfony smoke
+  app: fork about 1 ms against a 35–43 ms boot; 36 MB PSS for 9 forked processes against about 248 MB booted. Worth
+  an opt-in mode; no ADR yet (K-154 in the icebox: socket relays first, and a real application's boot measured).
