@@ -151,3 +151,56 @@ listeners:
 		t.Errorf("validate = %d %q, want a failure with %q", code, stderr, want)
 	}
 }
+
+// rawGet sends path as is, without a client cleaning it, and returns the
+// status line and the body.
+func rawGet(t *testing.T, addr, path string) string {
+	t.Helper()
+	var d net.Dialer
+	conn, err := d.DialContext(t.Context(), "tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := io.WriteString(conn, "GET "+path+" HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := io.ReadAll(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, rest, _ := strings.Cut(string(out), "\r\n")
+	_, body, _ := strings.Cut(rest, "\r\n\r\n")
+	return status + " " + body
+}
+
+// A deny route can't be bypassed with dot segments or repeated slashes.
+func TestPathNormalization(t *testing.T) {
+	listenAddr, adminAddr := freeAddr(t), freeAddr(t)
+	configPath := filepath.Join(t.TempDir(), "kest.yaml")
+	writeFile(t, configPath, `version: v1
+admin: {address: "`+adminAddr+`"}
+listeners:
+  - name: main
+    address: "`+listenAddr+`"
+    http:
+      virtual_hosts:
+        - name: default
+          domains: ["*"]
+          routes:
+            - match: {prefix: /admin/}
+              direct_response: {status: 403, body: "denied"}
+            - match: {prefix: /}
+              direct_response: {body: "public"}
+`)
+	k := serve(t, configPath, adminAddr)
+	defer k.stop(t)
+	for _, path := range []string{"/admin/x", "/public/../admin/x", "/public/%2e%2e/admin/x", "//admin/x", "/./admin/x"} {
+		if got := rawGet(t, listenAddr, path); got != "HTTP/1.1 403 Forbidden denied" {
+			t.Errorf("GET %s = %q, want 403", path, got)
+		}
+	}
+	if got := rawGet(t, listenAddr, "/admin/../public"); got != "HTTP/1.1 200 OK public" {
+		t.Errorf("GET /admin/../public = %q, want 200", got)
+	}
+}

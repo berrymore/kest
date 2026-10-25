@@ -10,7 +10,7 @@ on 2026-10-25 and asked not to open the PR before they have looked at the branch
 
 ## In progress
 
-M4, step 3 (K-086, path normalization).
+M4, step 4 (K-087, `client_ip`).
 
 ## Next up: how to continue M4 in a fresh session
 

@@ -37,7 +37,13 @@ func NewHandler(cfg *config.HTTP, clusters ClusterLookup, bc registry.BuildConte
 		return nil, err
 	}
 	m := newListenerMetrics(bc.MetricsRegistry(), bc.Name)
-	return m.entry(Chain(newRouter(cfg.VirtualHosts, clusters, m), filters...)), nil
+	h := Chain(newRouter(cfg.VirtualHosts, clusters, m), filters...)
+	return m.entry(normalizer(h, isTrue(cfg.NormalizePath), isTrue(cfg.MergeSlashes))), nil
+}
+
+// isTrue reads an optional boolean whose default config.Parse has filled in.
+func isTrue(b *bool) bool {
+	return b != nil && *b
 }
 
 // Chain wraps h with filters so that filters[0] sees the request first.

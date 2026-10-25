@@ -172,6 +172,12 @@ type HTTP struct {
 	// HTTP/2 without TLS is h2c with prior knowledge.
 	Protocols []string `yaml:"protocols"`
 
+	// NormalizePath removes "." and ".." segments from request paths, and
+	// MergeSlashes collapses repeated slashes, before the filters and the
+	// router see the request. Both default to true.
+	NormalizePath *bool `yaml:"normalize_path"`
+	MergeSlashes  *bool `yaml:"merge_slashes"`
+
 	// Server limits. 0s turns a timeout off.
 	ReadHeaderTimeout *Duration `yaml:"read_header_timeout"` // reading a request's headers
 	ReadTimeout       *Duration `yaml:"read_timeout"`        // reading a whole request, body included
@@ -244,6 +250,12 @@ func (c *Config) applyDefaults() {
 		h := c.Listeners[i].HTTP
 		if h == nil {
 			continue
+		}
+		for _, b := range []**bool{&h.NormalizePath, &h.MergeSlashes} {
+			if *b == nil {
+				on := true
+				*b = &on
+			}
 		}
 		if h.Protocols == nil {
 			h.Protocols = []string{ProtocolHTTP1}

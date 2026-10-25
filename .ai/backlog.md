@@ -141,8 +141,10 @@ Milestone definitions: `roadmap.md`.
 - [ ] K-083 Compression filter.
 - [ ] K-084 Header manipulation filter (`headers`). Split on 2026-10-25: CORS is K-089, redirects K-090.
 - [ ] K-085 `http_proxy` cluster: endpoints, load balancing, health checks, retries.
-- [ ] K-086 Path normalization before routing (dot segments, duplicate slashes; Envoy `normalize_path` /
-  `merge_slashes`), so prefix routes can't be bypassed with `/a/../b`.
+- [x] K-086 Path normalization before routing (dot segments, duplicate slashes; Envoy `normalize_path` /
+  `merge_slashes`), so prefix routes can't be bypassed with `/a/../b`. `listeners[].http.normalize_path` and
+  `merge_slashes`, both on by default, on the decoded path before the filters; a changed path is rewritten for
+  the cluster too (fuzzed: idempotent, no dot segments or `//` left).
 - [ ] K-087 Trusted proxies: client IP from `X-Forwarded-For` / `Forwarded` for trusted peers, passed to PHP as
   the `ipAddress` attribute that `roadrunner/http` reads (RR's `proxy_ip_parser` middleware).
 - [ ] K-088 Streaming responses from PHP workers (`STREAM` frames, `PSR7Worker::$chunkSize`, generator bodies)

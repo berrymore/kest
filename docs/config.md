@@ -174,6 +174,8 @@ in `kest_tls_handshake_errors_total` and logged at `debug` level, since scanners
 |---|---|---|
 | `filters` | none | HTTP filters, run in order before the router. Each is `{type, config}`; see [Filters](#filters). |
 | `protocols` | `[http1, http2]` with `tls`, `[http1]` without | The HTTP versions served. `http2` over TLS is negotiated with ALPN (h2); on a listener without `tls` it is h2c with prior knowledge, which load balancers and proxies use towards backends (not the `Upgrade: h2c` dance). PHP sees the version as the request's protocol (`2` in PSR-7). |
+| `normalize_path` | `true` | Remove `.` and `..` segments from the request path before the filters and the router see it (RFC 3986), so that `/public/../admin/` can't slip past a route for `/admin/`. `%2e%2e` counts as `..` and `%2F` as `/`, since paths are matched decoded. A path that changes reaches the cluster in its normalized form; an unchanged one keeps its original encoding. |
+| `merge_slashes` | `true` | Collapse repeated slashes: `//admin//x` is `/admin/x`. |
 | `read_header_timeout` | `10s` | How long a client may take to send the request line and headers; then the connection is closed. Protects against slow clients. `0s` turns it off. |
 | `read_timeout` | `0s` (off) | How long reading a whole request may take, body included. Off by default, since uploads on slow links take long; `php_workers` stops reading a body at the route `timeout` anyway (`408`). |
 | `write_timeout` | `0s` (off) | How long writing a response may take, counted from the end of the request headers. |
@@ -242,8 +244,8 @@ Every route has a `match` and exactly one action.
 | `route` | Forward to a cluster |
 | `direct_response` | Answer without an upstream |
 
-Set exactly one of `match.prefix` and `match.path`. The match runs against the URL path, without the
-query string. If no route matches → `404`.
+Set exactly one of `match.prefix` and `match.path`. The match runs against the decoded URL path, after
+`normalize_path` and `merge_slashes`, without the query string. If no route matches → `404`.
 
 **`route`**
 

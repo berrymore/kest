@@ -338,3 +338,56 @@ func TestMetrics(t *testing.T) {
 		t.Errorf("requests in flight after the requests = %v, want 0", got)
 	}
 }
+
+func TestPathNormalization(t *testing.T) {
+	listener := func(options string) string {
+		return `
+  - name: main
+    address: 127.0.0.1:0
+    http:
+` + options + `
+      virtual_hosts:
+        - name: default
+          domains: ["*"]
+          routes:
+            - match: {prefix: /admin/}
+              direct_response: {status: 403, body: "denied"}
+            - match: {prefix: /}
+              route: {cluster: app}
+`
+	}
+	raw := func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "cluster "+r.URL.EscapedPath())
+	}
+	lookupRaw := func(string) (http.Handler, bool) { return http.HandlerFunc(raw), true }
+
+	on, err := httpx.NewHandler(loadHTTP(t, listener("")), lookupRaw, registry.BuildContext{Logger: logging.Discard()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	off, err := httpx.NewHandler(loadHTTP(t, listener("      normalize_path: false\n      merge_slashes: false")),
+		lookupRaw, registry.BuildContext{Logger: logging.Discard()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		path    string
+		on, off string
+	}{
+		{"/public/../admin/x", "denied", "cluster /public/../admin/x"},
+		{"/public/%2e%2e/admin/x", "denied", "cluster /public/%2e%2e/admin/x"},
+		{"/public%2F..%2Fadmin/x", "denied", "cluster /public%2F..%2Fadmin/x"},
+		{"//admin/x", "denied", "cluster //admin/x"},
+		{"/admin/./x", "denied", "denied"},
+		{"/a/./b//c", "cluster /a/b/c", "cluster /a/./b//c"},
+		// An unchanged path keeps its encoding.
+		{"/files/a%2Fb", "cluster /files/a%2Fb", "cluster /files/a%2Fb"},
+	} {
+		if got := get(t, on, "localhost", tt.path).Body.String(); got != tt.on {
+			t.Errorf("normalized: %s → %q, want %q", tt.path, got, tt.on)
+		}
+		if got := get(t, off, "localhost", tt.path).Body.String(); got != tt.off {
+			t.Errorf("not normalized: %s → %q, want %q", tt.path, got, tt.off)
+		}
+	}
+}
