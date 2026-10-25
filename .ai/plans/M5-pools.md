@@ -83,7 +83,7 @@ action:
 leaves it out). A lane's `queue_timeout` replaces `allocate_timeout` for its requests (D2).
 
 **D4. Adaptive queue timeout under overload** (K-144, schema after the experiment). The CoDel scheme as Facebook
-describes it for RPC queues ("Fail at scale", 2015 ❓): a lane whose queue hasn't been empty during the last
+adapted it for RPC queues ("Fail at scale", ACM Queue 2015; `folly::Codel` ✅, `research/overload.md`): a lane whose queue hasn't been empty during the last
 `interval` is overloaded, and its new requests wait at most `target` instead of their `queue_timeout`. A standing
 queue then turns into fast `503`s (`reason="overload"`), and the requests that get in reach a worker quickly instead
 of waiting most of their timeout. Step 6 measures it first: `test/bench` at about twice the pool's capacity, with
@@ -210,8 +210,8 @@ end to end. The user can look at it before the rest.
 11. [x] K-149 profile and trim kest's CPU per request (D9) — acceptance: the profile and the before/after numbers in
     `docs/benchmarks.md`; whatever is changed, `make bench` doesn't get slower.
 12. [x] K-152 fork-based start, research (D10) — acceptance: a note in `research/`, an ADR draft if it is worth it.
-13. [x] Docs review (`review.md`), `architecture.md` (§ 4 lanes, § 5 slot states, § 8 metrics, Q-F), then the PR —
-    the PR after the user's local check, as they asked.
+13. [x] Docs review (`review.md`), `architecture.md` (§ 4 lanes, § 5 slot states, § 8 metrics, Q-F) — done; the PR
+    is not part of the step any more: it waits for the user's local check, as they asked (`status.md`, Next up).
 
 ## Risks / open questions
 
@@ -242,7 +242,7 @@ end to end. The user can look at it before the rest.
   before, 904 → 985 bytes. `make bench`-style A/B of the binaries before and after (hello and form, 16 and 64
   clients, 6 interleaved runs each, `json`, no RoadRunner): medians −2.1 % to +1.9 %, the ranges overlap: no
   measurable difference.
-- 2026-10-25 — The user delegated the rest of M5 ("делай все шаги"); push and PR wait for their OK.
+- 2026-10-25 — The user delegated the rest of M5 ("do all the steps"); push and PR wait for their OK.
 - 2026-10-25 — Step 4: `route.max_workers`, `priority`, `queue_timeout`; `httpx.ClusterLookup(cluster, *Lane)` and
   `cluster.Laner`; `php_workers.retry_after` (1s); lane metrics and `/clusters` lanes. Deviation: no e2e test with
   fake workers. The fake worker echoes the request instead of answering in the RoadRunner HTTP format, so it can't
@@ -285,8 +285,8 @@ end to end. The user can look at it before the rest.
   written. The query is parsed once per request, and only when a route asks for it.
 - 2026-10-25 — Step 10 (K-095): the listener's entry wraps the response writer only when the listener has filters
   (only they can answer before the router), so listeners without filters pay nothing for it.
-- 2026-10-25 — The user left for the evening: "доделывай задачу без меня, PR не создавай сам, я приду локально
-  проверю". So: finish the steps, commit locally, no push, no PR.
+- 2026-10-25 — The user left for the evening: "finish the task without me, don't open the PR yourself, I'll check it
+  locally and approve". So: finish the steps, commit locally, no push, no PR.
 - 2026-10-25 — Step 11 (K-149). kest's own code is 3–5 µs per request (`BenchmarkServeHTTP`, new); a CPU profile of
   the binary under load (a temporary `net/http/pprof` hook, not committed) shows 40 % system calls, 45 % scheduler,
   5 % handlers. Changed: buffered relay reads (one read per frame instead of three): `hello` 84–85 → 82–84 µs,
@@ -297,3 +297,15 @@ end to end. The user can look at it before the rest.
 - 2026-10-25 — Step 12 (K-152): `research/prefork.md`. Measured on Linux (Docker) and macOS with the Symfony smoke
   app: fork about 1 ms against a 35–43 ms boot; 36 MB PSS for 9 forked processes against about 248 MB booted. Worth
   an opt-in mode; no ADR yet (K-154 in the icebox: socket relays first, and a real application's boot measured).
+- 2026-10-25 — Step 13: the docs review (a reviewer agent given `.claude/agents/docs-reviewer.md`) found 14 items, no
+  blocker; all fixed in the following `docs:` commit (the listener filters' answers in `config.md`, `Retry-After`'s
+  list, the `overload` reason in the troubleshooting table, `ErrOverloaded` in `architecture.md`, the RoadRunner
+  migration rows for `dynamic_allocator` and `sendfile`, stale comments, a research note on Symfony's `X-Sendfile`
+  and one on CoDel (`research/overload.md`, folly's `Codel.h` instead of an unverified "Fail at scale" quote), the
+  `make test-integration` rule in `rules.md` § 9). Not fixed: commits that bundle K-151, K-905 and part of K-144
+  (history is not rewritten without the user; the PR says so).
+- 2026-10-25 — Checks at the end: `make check`, `make test-integration`, `make test-linux` (Docker, Go 1.27) and
+  `make test-matrix` (PHP 8.3, 8.4, 8.5) green. A first `make test-matrix` failed `TestDonePlans` on PHP 8.4: it read
+  the working tree while this plan was Done with step 13 still open; the rerun passed. `make bench` against
+  RoadRunner did not run (no RoadRunner binary here); A/B runs of kest's own binaries stand in for it (steps 3 and
+  11), with no regression.

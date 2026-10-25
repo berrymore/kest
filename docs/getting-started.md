@@ -166,7 +166,8 @@ kest has no RPC yet.
 | `http.address` | `listeners[].address` | routes then pick a cluster per path and host |
 | `http.pool.num_workers` | `pool.workers` | |
 | `http.pool.max_jobs` | `pool.max_jobs` | |
-| `http.pool.allocate_timeout` | `pool.allocate_timeout` | |
+| `http.pool.allocate_timeout` | `pool.allocate_timeout` | per route: `route.queue_timeout` |
+| `http.pool.dynamic_allocator` | `pool.max_workers`, `pool.scale_down_after` | kest's `max_workers` is the total, RR's counts the workers *above* `num_workers`; kest grows as soon as requests wait, RR only after one waited the whole `allocate_timeout` |
 | `http.pool.destroy_timeout` | `pool.destroy_timeout` | RR: 60s default; kest: 10s |
 | — | `pool.max_queue_size` | RR's queue is unbounded by default; kest's holds 1000 |
 | `http.pool.supervisor.*` | `supervisor.*` | `max_worker_memory` is a size (`256MB`), not a number of MB; `exec_ttl` defaults to 60s (RR: unlimited) |
@@ -178,6 +179,7 @@ kest has no RPC yet.
 | `http.http2` | `listeners[].http.protocols` | `[http1, http2]` by default with TLS; `http2` without TLS is h2c |
 | `http.static` | the `static` filter | on the route to PHP: `dir`, `forbid` (default `[.php]`), `headers`; hidden paths aren't served |
 | `http.middleware: [gzip]` | the `compression` filter | gzip only |
+| `http.middleware: [sendfile]` | the `sendfile` filter | the same `X-Sendfile` header, but only absolute paths inside its `dirs`, with ranges and the application's `Content-Type` |
 | `http.middleware: [headers]` | the `headers` and `cors` filters | CORS preflights are answered by kest |
 | `http.trusted_subnets` | the `client_ip` filter | kest reads `X-Forwarded-For` from the right, so clients can't spoof it |
 

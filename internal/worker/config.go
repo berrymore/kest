@@ -25,9 +25,10 @@ type Config struct {
 	DestroyTimeout  time.Duration // how long a worker may take to exit after the stop frame
 	MaxFrameSize    int           // largest payload accepted from a worker, in bytes
 
-	// Overload control (CoDel, as in Facebook's "Fail at scale"): a lane
-	// whose queue hasn't been empty for OverloadInterval is overloaded, and
-	// its new jobs wait at most OverloadQueueTimeout for a worker; 0 = off.
+	// Overload control (CoDel, adapted for services as in Facebook's
+	// folly::Codel; .ai/research/overload.md): a lane whose jobs have waited
+	// without a break for OverloadInterval is overloaded, and its jobs wait
+	// at most OverloadQueueTimeout for a worker; 0 = off.
 	OverloadQueueTimeout time.Duration
 	OverloadInterval     time.Duration
 

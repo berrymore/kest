@@ -55,8 +55,8 @@ type Config struct {
 	// RawBody sends form and multipart bodies raw instead of parsed.
 	RawBody bool `yaml:"raw_body"`
 	// RetryAfter goes out as Retry-After, in whole seconds rounded up, with
-	// every 503 of the pool (queue full, no worker in time, body budget);
-	// 0 leaves the header out.
+	// every 503 of the pool (queue full, no worker in time, overload, body
+	// budget, stopping); 0 leaves the header out.
 	RetryAfter config.Duration `yaml:"retry_after"`
 
 	Uploads    Uploads    `yaml:"uploads"`

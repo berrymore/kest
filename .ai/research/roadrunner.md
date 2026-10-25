@@ -313,6 +313,18 @@ directory limit), `403` for `..`, `404` when missing; `Content-Type` is always `
 overwrites the worker's), the status always `200`, no `Content-Length` set, no ranges or conditional requests, read
 in chunks of up to 10 MB. Only `X-Sendfile`, not `X-Accel-Redirect`.
 
+## Symfony's `X-Sendfile` ✅ (checked 2026-10-25 for M5)
+
+Source: `symfony/http-foundation` v8.1.9,
+[`BinaryFileResponse::prepare()`](https://github.com/symfony/http-foundation/blob/7850897fb8659f98491b03be79ac48600bdaf9ab/BinaryFileResponse.php#L210-L300)
+(the same code as in the vendor directory of `playground/symfony`); the smoke test app's v7.4.21 behaves the same
+(`test/e2e/symfony_test.go` downloads through it). Only when the application has called
+`BinaryFileResponse::trustXSendfileTypeHeader()` and the request has `X-Sendfile-Type: X-Sendfile` does the response
+get `X-Sendfile: <real path>` and no body (`maxlen = 0`). It keeps `Content-Length` (the file size, set before) and
+skips its own `Range` handling in that case, so the server in front must do both. `X-Accel-Redirect` needs an
+`X-Accel-Mapping` request header to turn the path into a URI. Without `symfony/mime`, the response must set its
+`Content-Type` itself, or `prepare()` throws while guessing it.
+
 ## Questions
 
 K-020 (answered above, 2026-10-24):

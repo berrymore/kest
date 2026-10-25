@@ -144,9 +144,10 @@ production: deploys should decide when workers switch to new code.
   quiet hours, workers for busy ones. A new worker boots the framework (often 100 ms to 1 s, and CPU-heavy), so it
   helps with load that lasts, not with a spike of a second; kest boots at most `workers`/4 at once. Size `workers`
   for the usual load and `max_workers` for the memory you can give at the peak.
-- **Waiting:** a request waits for a free worker up to `pool.allocate_timeout`, and at most
-  `pool.max_queue_size` requests wait; others get `503` at once. Keep the queue short enough that a waiting
-  request still finishes within its route `timeout`.
+- **Waiting:** a request waits for a free worker up to `pool.allocate_timeout` (or its route's `queue_timeout`), and
+  at most `pool.max_queue_size` requests wait in each lane; others get `503` at once. Keep the wait short enough
+  that a waiting request still finishes within its route `timeout`. Under overload, [overload control](#overload)
+  shortens it.
 - **Leaks:** `pool.max_jobs` and `supervisor.max_worker_memory` replace workers that grow; `supervisor.ttl`
   replaces them by age. Restarts for these reasons are routine.
 - **Stuck requests:** `supervisor.exec_ttl` (default 60s) kills a worker stuck on one request; the route
@@ -155,8 +156,8 @@ production: deploys should decide when workers switch to new code.
   run it with `GOMAXPROCS=2` to `4` (an environment variable of the Go runtime): Go otherwise runs a thread per
   core, and the idle ones spin and take CPU from PHP. On a laptop with 12 cores and 4 workers, that served 30 %
   more requests ([Benchmarks](benchmarks.md#kests-own-cpu)). Give TLS, HTTP/2 and `compression` more.
-- **Memory:** about `pool.workers` × the worker's RSS, plus kest itself (about 25 MB), plus request bodies,
-  which `max_buffered_bodies` bounds per cluster.
+- **Memory:** about `pool.workers` × the worker's RSS (`pool.max_workers` × at the peak of a pool that grows), plus
+  kest itself (about 25 MB), plus request bodies, which `max_buffered_bodies` bounds per cluster.
 - **Isolation:** see the next section.
 
 ## Isolating slow endpoints
@@ -199,8 +200,8 @@ Watch the lanes with `kest_pool_wait_seconds`, `kest_pool_queue_length`, `kest_p
 When more requests come than the pool serves, a queue that only grows makes everything worse: requests wait as long
 as their clients do, and the workers serve requests whose clients have already given up. kest's overload control
 (`pool.overload`, on by default) sees a lane in which requests have waited without a break for 5 s and from then on
-lets its requests wait at most 500 ms; the others get `503` with `Retry-After` at once, and the served ones get a
-worker quickly. Below the pool's capacity it never acts. [Benchmarks](benchmarks.md#overload-control) has the
+lets its requests wait at most 500 ms; those that get no worker by then get `503` with `Retry-After`, and the served
+ones get a worker quickly. Below the pool's capacity it never acts. [Benchmarks](benchmarks.md#overload-control) has the
 measurements: with requests of 100 ms at twice the capacity, a pool without it served 7 requests per second of 40.
 
 - Lanes with `max_workers` or `queue_timeout` are left out: their waits are what the route asks for.
@@ -235,7 +236,7 @@ Failed requests are logged with their status: `5xx` at error or warn level, clie
 |---|---|
 | kest exits at start: `stdout is reserved for the RoadRunner protocol, but the worker printed "…"` | The script doesn't run a RoadRunner worker loop, or it printed something before it: a PHP warning (set `display_errors=stderr`), an `echo`, or for Symfony a missing `APP_RUNTIME` in the cluster's `env`. |
 | kest exits at start with the worker's exit status and stderr | The application fails to boot; the message shows PHP's error. |
-| `503` | No worker free in time (`no_worker`), the queue full (`queue_full`) or the body budget full (`body_budget`): see `kest_pool_rejected_total`. Or `/ready` while a cluster has no live worker. |
+| `503` | No worker free in time (`no_worker`), the queue full (`queue_full`), overload control (`overload`, see `pool.overload`) or the body budget full (`body_budget`): see `kest_pool_rejected_total`. Or `/ready` while a cluster has no live worker. |
 | `504` | The route `timeout` expired; the worker may still be running the request (until `exec_ttl`). |
 | `502` | The worker died in the request (a fatal error, `exit`), broke the protocol, or sent a response over `max_response_size`; the log has the details. A streamed response that fails after its headers is cut off instead. |
 | `500` | The application reported an error (`$worker->getWorker()->error()`), or a panic in kest (with `recovery`). |

@@ -101,7 +101,9 @@ Workflow (set by the user on 2026-10-25):
 - **Ask before every commit**, unless the user has given other instructions for the current milestone (for
   example, "commit each item yourself once `make check` is green"). Such instructions last until the milestone
   ends. Run `make check` before committing, and commit only on its own exit status: `make check | grep …`
-  reports grep's, and once let a failing check through.
+  reports grep's, and once let a failing check through. A change to `php_workers`, the PHP test projects or the
+  e2e tests also needs `make test-integration` before its commit: `make check` doesn't run the PHP tests, and in M5
+  a commit broke two of them.
 - **Merging goes through a pull request.** When the milestone is done, run the docs review (`.ai/review.md`) and
   fix its findings; ask; then push the branch and open a PR to `main` with `gh pr create` (summary of the
   milestone, its backlog items, how it was tested, that the docs review ran). The user reviews it. If the branch

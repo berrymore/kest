@@ -49,8 +49,8 @@ clusters:
   kest.yaml:13:32: listeners[0].http.virtual_hosts[0].routes[0].route.cluster: unknown cluster "nope"
   ```
 
-- **Names** (listeners, virtual hosts, clusters) are 1–64 characters: letters, digits, `_`, `.`, `-`,
-  starting with a letter or digit. They must be unique within their kind.
+- **Names** (listeners, virtual hosts, clusters, routes) are 1–64 characters: letters, digits, `_`, `.`, `-`,
+  starting with a letter or digit. They must be unique within their kind; route names in the whole config.
 - **Durations** are Go duration strings: `500ms`, `30s`, `1m30s`. A bare number such as `30` is
   rejected, since the unit would be ambiguous.
 - **Sizes** are integers with an optional unit: `512`, `64KB`, `128MB`, `1GiB`. Every unit is a power
@@ -190,7 +190,7 @@ request; those of the virtual host the router chose (`virtual_hosts[].filters`);
 (`routes[].filters`); then the route's action. A filter may answer a request itself instead of passing it on (CORS
 preflights, files of `static`): the rest of the chain and the action don't run. In the [metrics](metrics.md), such
 an answer from a virtual host's or a route's filter counts with an empty `cluster`; one from a listener's filter
-isn't counted (it never reaches the router).
+counts with an empty `virtual_host`, `route` and `cluster`, timed from the listener.
 
 Built-in types: `request_id`, `access_log`, `recovery`, `client_ip`, `headers`, `cors`, `compression`, `static`,
 `sendfile`. Put
@@ -418,11 +418,11 @@ Every route has a `match` and exactly one action.
 
 | Field | |
 |---|---|
-| `name` | Optional. Up to 64 letters, digits, `_`, `.` or `-`, unique in the whole config. Labels the route's requests in the metrics (`route`) and the access log. |
+| `name` | Optional. Up to 64 letters, digits, `_`, `.` or `-`, starting with a letter or digit, unique in the whole config. Labels the route's requests in the metrics (`route`) and the access log. |
 | `match.prefix` | The path starts with this value; must start with `/` |
 | `match.path` | The path equals this value; must start with `/` |
 | `match.regex` | An [RE2](https://github.com/google/re2/wiki/Syntax) expression that must match the whole path, like `/(export\|reports)/[0-9]+` |
-| `match.methods` | Any of these methods, like `[GET, HEAD]`; any method if unset |
+| `match.methods` | Any of these methods, like `[GET, HEAD]`, in capitals: methods are case-sensitive; any method if unset |
 | `match.headers` | Headers that must all match; see below |
 | `match.query` | Query parameters that must all match; see below |
 | `filters` | Filters for the requests of this route, after the virtual host's, before the action; see [Filters](#filters) |
@@ -565,7 +565,7 @@ clusters:
 | `max_buffered_bodies` | `256MB` | The request body bytes the cluster holds at once, at least `max_request_body`. Each request reserves its `Content-Length` (or `max_request_body` when the length is unknown) before its body is read, until its response is written; one that doesn't fit gets `503` at once. Bodies count once, though a body can be in memory twice while it goes to a worker. |
 | `max_response_size` | `64MB` | A worker that sends a larger response (headers and body) is replaced, and the request gets `502`. At most `4GB`. |
 | `raw_body` | `false` | Send `application/x-www-form-urlencoded` and `multipart/form-data` bodies as they are instead of parsing them (RoadRunner's `http.raw_body`). |
-| `retry_after` | `1s` | The `Retry-After` header of every `503` the pool answers (queue full, no worker in time, `max_buffered_bodies` full), in whole seconds rounded up. `0s` leaves it out. |
+| `retry_after` | `1s` | The `Retry-After` header of every `503` the pool answers (queue full, no worker in time, overload control, `max_buffered_bodies` full, the pool stopping), in whole seconds rounded up. `0s` leaves it out. |
 
 Every worker also gets `RR_MODE=http` and `RR_RELAY=pipes`; they override the same names from `env` or
 the inherited environment.

@@ -28,7 +28,7 @@ var (
 	ErrQueueFull = errors.New("too many requests are waiting for a worker")
 	// ErrNoWorker means no worker became free within the lane's queue timeout.
 	ErrNoWorker = errors.New("no worker became free in time")
-	// ErrOverloaded means no worker became free within OverloadTarget, which
+	// ErrOverloaded means no worker became free within OverloadQueueTimeout, which
 	// bounds the wait in a lane whose queue hasn't been empty for a while.
 	ErrOverloaded = errors.New("the pool is overloaded: no worker became free in time")
 	// ErrStopped means the pool is stopping or stopped.

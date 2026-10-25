@@ -9,8 +9,8 @@ import "time"
 type Observer interface {
 	// Waited reports how long a job waited for a free worker before it got one.
 	Waited(lane string, d time.Duration)
-	// Rejected reports a job that got no worker: ReasonQueueFull or
-	// ReasonNoWorker.
+	// Rejected reports a job that got no worker: ReasonQueueFull,
+	// ReasonNoWorker or ReasonOverload.
 	Rejected(lane string, reason Reason)
 	// Replaced reports a worker process that ended, or failed to start, while
 	// the pool runs; another one starts in its slot.
@@ -25,7 +25,7 @@ type Reason string
 const (
 	ReasonQueueFull Reason = "queue_full" // MaxQueueSize callers were waiting in the lane already
 	ReasonNoWorker  Reason = "no_worker"  // no worker became free within the lane's queue timeout
-	ReasonOverload  Reason = "overload"   // no worker became free within OverloadTarget, in an overloaded lane
+	ReasonOverload  Reason = "overload"   // no worker became free within OverloadQueueTimeout, in an overloaded lane
 )
 
 // Reasons for Observer.Replaced.

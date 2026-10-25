@@ -232,8 +232,8 @@ func (l *Lane) exec(ctx context.Context, req Payload) (Payload, *Stream, error) 
 
 // overloadedLocked reports whether a lane is overloaded at now: jobs have
 // waited in it without a break for OverloadInterval. That is CoDel's test for
-// a standing queue, in the form Facebook describes for RPC servers ("Fail at
-// scale", ACM Queue, 2015). In an overloaded lane, new jobs wait at most
+// a standing queue, adapted for services as in Facebook's folly::Codel
+// (.ai/research/overload.md). In an overloaded lane, new jobs wait at most
 // OverloadQueueTimeout, and a free worker sheds the jobs at the head that
 // have waited longer (shedLocked), so the queue turns into fast rejections
 // instead of long waits. A lane with a QueueTimeout or MaxWorkers of its own

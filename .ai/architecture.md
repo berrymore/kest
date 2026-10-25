@@ -61,8 +61,9 @@ kest is a single Go binary. At startup it reads one YAML file and builds a graph
    `body` = the raw body or, for forms, a JSON tree of fields in PHP's bracket syntax; bounded by
    `max_request_body`. Before reading it, the request reserves its size in the cluster's `max_buffered_bodies`
    budget (`503` when full), and the read gets a deadline from the route timeout (`408` for a slow sender).
-6. The **pool** takes a free worker, waiting at most `allocate_timeout` in a bounded queue, and sends
-   the payload over the relay.
+6. The **pool** takes a free worker, waiting in its route's lane (a bounded queue) at most the lane's
+   `queue_timeout` (the pool's `allocate_timeout` by default, `pool.overload.queue_timeout` in an overloaded lane),
+   and sends the payload over the relay.
 7. The PHP worker (`$worker->waitRequest()` … `$worker->respond()`) answers; kest decodes status,
    headers and body (`rrhttp.DecodeResponse`) and writes the response with its own framing
    (`rrhttp.WriteResponse`). Pool and worker errors become 5xx (`rrhttp.ErrorStatus`). A streamed answer is
@@ -231,7 +232,8 @@ func (p *Pool) Waiting() int                      // callers waiting for a free 
 func (p *Pool) Reset(ctx context.Context) error   // rolling replacement, one slot at a time; ErrResetRunning
 // Config.Observer (optional) hears Waited(lane, d), Rejected(lane, reason) and Replaced(reason); reasons are
 // metric labels.
-// Errors: ErrQueueFull, ErrNoWorker, ErrStopped, ErrStopRequested, ErrStreamTooLarge (Exec only),
+// Errors: ErrQueueFull, ErrNoWorker, ErrOverloaded (overload control), ErrStopped, ErrStopRequested,
+// ErrStreamTooLarge (Exec only),
 // *JobError (soft, worker kept),
 // *ProcessError (worker gone; wraps ErrExecTimeout or ErrStartTimeout on timeouts, *StdoutError
 // with the start of the output when the worker printed to stdout outside the protocol).
@@ -252,7 +254,7 @@ Layering (dependencies point down only):
 cmd/kest ─▶ server ─▶ config, registry ─▶ metrics
                   ─▶ listener
                   ─▶ httpx (filter chain, router, RequestInfo) ◀─ filters/*
-                  ─▶ cluster/* ─▶ httpx (RequestInfo, ClientIP, Scheme)
+                  ─▶ cluster/* ─▶ httpx (RequestInfo, ClientIP, Scheme, Lane)
                                ─▶ rrhttp ─▶ worker ─▶ relay
                   ─▶ admin ─▶ metrics, cluster
 ```
@@ -287,6 +289,8 @@ Each pool slot is owned by one goroutine for the pool's lifetime. Slot states (`
 Stopped ──▶ Starting ──▶ Ready ⇄ Working ──▶ Stopping ──▶ (released) ──▶ Starting …
                 │           │        │                                     ▲
                 └───────────┴────────┴──── failure ──▶ (released) ──▶ Backoff
+
+Extra slots (beyond Workers, M5): Parked ──▶ Starting ──▶ Ready ⇄ Working ──▶ Stopping ──▶ Parked
 ```
 
 | From | Event | To |
@@ -427,7 +431,7 @@ test/bench/                  🟢 benchmark against RoadRunner: configs, loadgen
 | `GET /ready` | 200 when serving; 503 while starting, draining, or a cluster can't serve (`cluster.Prober`) | 🟢 M0, M3 |
 | `GET /server_info` | version, uptime, config path | 🟢 M0 |
 | `GET /config_dump` | effective config, defaults applied; extension configs that implement `config.Redactor` (php_workers: `env` values) redacted | 🟢 M3 |
-| `GET /clusters` | clusters with `cluster.Reporter`'s status: php_workers pools and workers (pid, state, jobs, memory, age) | 🟢 M3 |
+| `GET /clusters` | clusters with `cluster.Reporter`'s status: php_workers pools, their lanes (M5) and workers (pid, state, jobs, memory, age) | 🟢 M3 |
 | `POST /clusters/{name}/reset` | rolling restart of a pool; returns when done | 🟢 M3 |
 | `GET /metrics` | Prometheus text format (`docs/metrics.md`) | 🟢 M3 |
 
