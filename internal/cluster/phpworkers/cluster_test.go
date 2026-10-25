@@ -126,15 +126,15 @@ func fail(err error) func(context.Context, worker.Payload) (worker.Payload, erro
 	return func(context.Context, worker.Payload) (worker.Payload, error) { return worker.Payload{}, err }
 }
 
-func newTestCluster(t *testing.T, mutate func(*Config), p *fakePool) *Cluster {
-	t.Helper()
+func newTestCluster(tb testing.TB, mutate func(*Config), p *fakePool) *Cluster {
+	tb.Helper()
 	cfg := DefaultConfig()
 	cfg.Command = []string{"php"}
 	if mutate != nil {
 		mutate(&cfg)
 	}
 	if err := cfg.Validate(); err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	return newCluster(&cfg, "", p, logging.Discard())
 }

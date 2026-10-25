@@ -4,6 +4,7 @@
 package relay
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/binary"
 	"errors"
@@ -153,20 +154,33 @@ func (w *Writer) WriteFrame(f *Frame) error {
 	return err
 }
 
+// readBuffer is the size of a Reader's buffer: a frame that fits, header
+// and payload, takes one read from the stream instead of three (header,
+// options, payload). Larger payloads are read past the buffer.
+const readBuffer = 8 << 10
+
 // Reader reads frames from a stream. It is not safe for concurrent use.
 type Reader struct {
-	r          io.Reader
+	r          *bufio.Reader
 	maxPayload uint32
 	hdr        [MaxHeaderSize]byte
 }
 
 // NewReader returns a Reader that reads from r and rejects payloads larger
 // than maxPayload bytes. It panics if maxPayload is not in 1…math.MaxUint32.
+// It reads ahead: Buffered returns what it read past the last frame.
 func NewReader(r io.Reader, maxPayload int) *Reader {
 	if maxPayload <= 0 || maxPayload > math.MaxUint32 {
 		panic(fmt.Sprintf("relay: invalid payload limit %d", maxPayload))
 	}
-	return &Reader{r: r, maxPayload: uint32(maxPayload)}
+	return &Reader{r: bufio.NewReaderSize(r, readBuffer), maxPayload: uint32(maxPayload)}
+}
+
+// Buffered returns a copy of the bytes read from the stream and not yet
+// consumed, such as what follows a header that was not a frame.
+func (r *Reader) Buffered() []byte {
+	b, _ := r.r.Peek(r.r.Buffered())
+	return bytes.Clone(b)
 }
 
 // ReadFrame reads the next frame into f. f.Options and f.Payload are newly

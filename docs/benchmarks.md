@@ -99,7 +99,7 @@ so rough):
   RoadRunner is about 8 % ahead, which a second run that took turns between the targets (5 times 15 s each)
   confirmed. kest's server spends more CPU per request than RoadRunner's, on forms most (95–105 µs against 79 µs),
   and on one laptop the load generator, the server and PHP share the cores, so the server's CPU likely comes out of
-  PHP's. Finding and trimming kest's share is K-149.
+  PHP's. Most of it is the Go runtime spinning on idle cores: see [kest's own CPU](#kests-own-cpu).
 - **64 clients add latency, not throughput:** four workers are busy, and requests wait in the queue.
 - **Large bodies:** the codec makes no difference beyond the noise, and kest's memory stays at half of
   RoadRunner's. The 61 ms p99 of kest's `proto` at 64 clients is one run's tail; the control run had 28 ms.
@@ -108,6 +108,33 @@ so rough):
   and also works with `roadrunner/http` 2.x–3.4. With `proto`, install `ext-protobuf`.
 - These are numbers for one laptop and a minimal worker; run `make bench` on your hardware with your
   worker's typical requests before drawing conclusions for production.
+
+## kest's own CPU
+
+K-148 measured kest's server at 77–105 µs of CPU per request against RoadRunner's 72–79 µs. Profiled on
+2026-10-25 for M5 (K-149) with `examples/php-hello`, 4 workers, 16 clients, `json`:
+
+- **kest's own code is small:** the cluster's work per request (encoding the request, decoding and writing the
+  answer) takes 3 µs for `hello` and 5 µs for `form` (`BenchmarkServeHTTP` in `internal/cluster/phpworkers`), the
+  pool's hand-over 1.8 µs (`BenchmarkPoolExec`).
+- **The rest is the Go runtime and the kernel:** in a CPU profile of the binary under load, system calls (sockets
+  and pipes) take 40 %, the scheduler 45 % (finding work, parking and waking threads), kest's handlers 5 %. A
+  request takes two goroutine hand-overs more than in RoadRunner (to the worker's slot and back), and each wakes a
+  thread.
+- **Buffered relay reads:** a frame from a worker took three reads from its pipe (header, options, payload); with a
+  buffer it takes one. Server CPU per `hello` went from 84–85 µs to 82–84 µs, `form` stayed at 98–101 µs, and the
+  throughput didn't change (the 4 PHP workers are the bottleneck).
+- **`GOMAXPROCS`:** Go runs as many threads as there are cores, and the idle ones spin looking for work. On a host
+  that kest shares with its PHP workers (and here with the load generator), that CPU comes out of PHP's:
+
+| `GOMAXPROCS` | CPU per `hello` | CPU per `form` | `hello` requests/s | `form` requests/s |
+|---|---|---|---|---|
+| 12 (the default here) | 78–80 µs | 90–95 µs | 48 477–49 187 | 41 473–42 775 |
+| 4 | 43–45 µs | 51–52 µs | 60 608–63 314 | 52 112–52 557 |
+| 2 | 26 µs | 30–31 µs | 65 014–66 012 | 55 173–56 475 |
+
+  Two runs each, CPU measured as the server's user and system time over 10 s. RoadRunner was not run with a
+  smaller `GOMAXPROCS`; it would likely gain too. See [Operations](operations.md#sizing) for the advice.
 
 ## Overload control
 

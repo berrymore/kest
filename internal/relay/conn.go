@@ -28,3 +28,9 @@ func (c *Conn) Send(f *Frame) error {
 func (c *Conn) Receive(f *Frame) error {
 	return c.r.ReadFrame(f)
 }
+
+// Buffered returns what Receive read from the stream past the last frame;
+// see Reader.Buffered.
+func (c *Conn) Buffered() []byte {
+	return c.r.Buffered()
+}

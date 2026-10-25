@@ -206,7 +206,7 @@ end to end. The user can look at it before the rest.
    regex shows RE2's message); docs.
 10. [x] K-095 requests answered by listener filters in the metrics (D8) — acceptance: a CORS preflight on a listener
     filter is counted.
-11. [ ] K-149 profile and trim kest's CPU per request (D9) — acceptance: the profile and the before/after numbers in
+11. [x] K-149 profile and trim kest's CPU per request (D9) — acceptance: the profile and the before/after numbers in
     `docs/benchmarks.md`; whatever is changed, `make bench` doesn't get slower.
 12. [ ] K-152 fork-based start, research (D10) — acceptance: a note in `research/`, an ADR draft if it is worth it.
 13. [ ] Docs review (`review.md`), `architecture.md` (§ 4 lanes, § 5 slot states, § 8 metrics, Q-F), then the PR.
@@ -283,3 +283,12 @@ end to end. The user can look at it before the rest.
   written. The query is parsed once per request, and only when a route asks for it.
 - 2026-10-25 — Step 10 (K-095): the listener's entry wraps the response writer only when the listener has filters
   (only they can answer before the router), so listeners without filters pay nothing for it.
+- 2026-10-25 — The user left for the evening: "доделывай задачу без меня, PR не создавай сам, я приду локально
+  проверю". So: finish the steps, commit locally, no push, no PR.
+- 2026-10-25 — Step 11 (K-149). kest's own code is 3–5 µs per request (`BenchmarkServeHTTP`, new); a CPU profile of
+  the binary under load (a temporary `net/http/pprof` hook, not committed) shows 40 % system calls, 45 % scheduler,
+  5 % handlers. Changed: buffered relay reads (one read per frame instead of three): `hello` 84–85 → 82–84 µs,
+  `form` unchanged, throughput unchanged. Found: `GOMAXPROCS` 2–4 cuts the server's CPU to a third or half and lets
+  the pool serve 25–35 % more on the laptop, because idle Go threads spin on cores PHP needs. Documented as advice
+  (operations guide); a default cap is Q15 for the user. The two goroutine hand-overs per request that RoadRunner
+  doesn't have (to the slot and back) are K-153, not done here: it changes the pool's ownership model.

@@ -208,11 +208,17 @@ IDs start at K-140: the milestones were renumbered on 2026-10-25 (ADR-0008), and
 - [x] K-148 Benchmark the codecs with `ext-protobuf` (2026-10-25, before M5 started): `docs/benchmarks.md` re-run
   at M4 with and without the extension; `test/bench/codec.php` measures what each codec costs PHP. With the
   extension `json` stays 1–4 % ahead of `proto`, and kest and RoadRunner are even except on forms (K-149).
-- [ ] K-149 Trim kest's own CPU per request. K-148 measured the server at 77–86 µs per small request against
+- [x] K-149 Trim kest's own CPU per request (2026-10-25: profiled; buffered relay reads; `GOMAXPROCS` advice, see
+  `docs/benchmarks.md` § kest's own CPU; the rest is K-153). Was: K-148 measured the server at 77–86 µs per small request against
   RoadRunner's 72 µs, and 95–105 µs per small form against 79 µs; RoadRunner then serves about 8 % more forms with
   16 clients (at M3, without the extension, the two were even on forms: 28 526 against 28 543 requests/s with
   `proto`). Profile the form path (`rrhttp` form tree, `encoding/json`) and what M4 added per request (path
   normalization, the filter chain on routes) before changing anything.
+- [ ] K-153 Fewer goroutine hand-overs per request: today a job goes to the slot's goroutine, which talks to the
+  worker, and the result comes back, two wake-ups that RoadRunner's handler (which talks to the worker itself)
+  doesn't pay; the scheduler is 45 % of the server's CPU (K-149). Option: the caller borrows the slot's process for
+  the exchange and does the slot's bookkeeping after it. Changes the pool's ownership model: an ADR first, and
+  `BenchmarkPoolExec` plus the server CPU per request (`docs/benchmarks.md`) before and after.
 - [ ] K-150 Benchmark with OPcache and JIT on the CLI (`opcache.enable_cli=1`, `opcache.jit=tracing`): the
   benchmark runs PHP without them, and the PSR-7 code `roadrunner/http` runs per request may gain more from JIT
   than from any codec. Proposed on 2026-10-25; the user: not now.

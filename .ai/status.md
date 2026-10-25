@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-10-25 (M5 on `feat/m5-pools`: steps 1–10 committed; step 11, kest's CPU per request, next)_
+_Last updated: 2026-10-25 (M5 on `feat/m5-pools`: steps 1–11 committed; step 12, research on forking workers, next)_
 
 ## Current phase
 
@@ -20,21 +20,29 @@ external authorization) to the icebox, K-141 to M6. `plans/M5-pools.md` (Active,
 `queue_timeout`; `php_workers.retry_after`), and the slice end to end (`test/e2e/php_lanes_test.go`, the operations
 guide), overload control (`pool.overload`, on by default, decided by a measurement), and the dynamic pool size
 (`pool.max_workers`, `scale_down_after`), the `sendfile` filter, and route matching on regex, methods, headers and
-query, and the listener filters' answers in the metrics. Step 11 is next. The agent commits each item itself after a green `make check` until the end of
+query, the listener filters' answers in the metrics, and K-149 (profile; buffered relay reads; `GOMAXPROCS`
+advice). Step 12 is next. The user is away and asked to finish without them: commit locally, **no push, no PR**
+until they have checked the branch. The agent commits each item itself after a green `make check` until the end of
 M5; the PR waits for the user's OK.
 
 ## Next up: how to continue in a fresh session
 
 1. **Git first:** `git checkout feat/m5-pools`; `git log --oneline -3` shows the `docs:` commit of the plan on top
    of K-148.
-2. **Step 11 (K-149):** profile kest's server CPU per request (`go test -cpuprofile` on a benchmark of the full
-   HTTP path with a fake pool, and/or `pprof` of `bin/kest` under `loadgen` with PHP) on `hello` and `form`; trim
-   what stands out; record before/after in `docs/benchmarks.md` (A/B of binaries as in step 3). Then step 12 (K-152:
-   research on forking booted workers) and step 13 (docs review, `architecture.md`, then ask the user before the PR).
+2. **Step 12 (K-152):** research only: can a booted PHP worker fork workers? Measure boot time against fork time
+   and memory (copy on write) on the Symfony smoke app (`test/e2e/testdata/symfony`) with a small PHP script outside
+   the repo's code (scratch), note what the RoadRunner worker loop needs (socket relays, K-029), write
+   `research/prefork.md`, and an ADR draft only if worth it. Then step 13: the docs review (`review.md`,
+   `docs-reviewer` agent), `architecture.md`, and stop: the user checks the branch locally before any push or PR.
 
 ## Open questions (need a decision from the user)
 
-None. D4 (overload) will bring its names and defaults to the user after step 6's measurement.
+- **Q15** — Cap kest's `GOMAXPROCS` by default? Measured (K-149, `docs/benchmarks.md` § kest's own CPU): on a host
+  shared with the PHP workers, `GOMAXPROCS=2` to `4` cuts kest's CPU per request to a third or half and lets the
+  pool serve 25–35 % more, since idle Go threads spin on cores PHP needs. Today it is advice in the operations guide
+  (the Go runtime reads `GOMAXPROCS` from the environment). A default (say, `min(cores, 4)`, or a
+  `server.max_procs`) would help most deployments but would starve a kest that does TLS and gzip for a busy site.
+  The agent's suggestion: keep the advice, no default, until a deployment shows otherwise.
 
 ## Resolved decisions
 

@@ -151,6 +151,10 @@ production: deploys should decide when workers switch to new code.
   replaces them by age. Restarts for these reasons are routine.
 - **Stuck requests:** `supervisor.exec_ttl` (default 60s) kills a worker stuck on one request; the route
   `timeout` (default 30s) answers the client `504` earlier, while the worker finishes.
+- **kest's own CPU:** a few tens of microseconds per request. On a host that kest shares with its PHP workers,
+  run it with `GOMAXPROCS=2` to `4` (an environment variable of the Go runtime): Go otherwise runs a thread per
+  core, and the idle ones spin and take CPU from PHP. On a laptop with 12 cores and 4 workers, that served 30 %
+  more requests ([Benchmarks](benchmarks.md#kests-own-cpu)). Give TLS, HTTP/2 and `compression` more.
 - **Memory:** about `pool.workers` × the worker's RSS, plus kest itself (about 25 MB), plus request bodies,
   which `max_buffered_bodies` bounds per cluster.
 - **Isolation:** see the next section.
