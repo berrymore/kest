@@ -25,6 +25,7 @@ import (
 	"github.com/berrymore/kest/internal/config"
 	_ "github.com/berrymore/kest/internal/filters/accesslog"
 	_ "github.com/berrymore/kest/internal/filters/clientip"
+	_ "github.com/berrymore/kest/internal/filters/compression"
 	_ "github.com/berrymore/kest/internal/filters/cors"
 	_ "github.com/berrymore/kest/internal/filters/headers"
 	_ "github.com/berrymore/kest/internal/filters/recovery"

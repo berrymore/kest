@@ -185,7 +185,7 @@ in `kest_tls_handshake_errors_total` and logged at `debug` level, since scanners
 
 ### Filters
 
-Built-in types: `request_id`, `access_log`, `recovery`, `client_ip`, `headers`, `cors`. Put `recovery` first so that it covers the
+Built-in types: `request_id`, `access_log`, `recovery`, `client_ip`, `headers`, `cors`, `compression`. Put `recovery` first so that it covers the
 other filters too:
 
 ```yaml
@@ -292,6 +292,25 @@ are allowed, so the browser blocks the rest. Other requests from an allowed orig
 `Access-Control-Allow-Origin` (and `-Credentials`, `-Expose-Headers`), replacing any the application set; with a
 list of origins, every response gets `Vary: Origin` so that caches keep them apart. Use either this filter or the
 application's CORS handling (such as `nelmio/cors-bundle`), not both.
+
+**`compression`** gzips responses of compressible types for clients that accept it (`Accept-Encoding: gzip`):
+
+```yaml
+- type: compression
+  config:
+    level: 5
+```
+
+| Field | Default | |
+|---|---|---|
+| `level` | `5` | gzip level, from `1` (fastest) to `9` (smallest). |
+| `min_length` | `1KB` | A body whose `Content-Length` is smaller isn't compressed. A body without one (a stream) is. |
+| `content_types` | `text/*`, `application/javascript`, `application/json`, `application/xml`, `application/ld+json`, `application/manifest+json`, `application/problem+json`, `application/rss+xml`, `application/atom+xml`, `application/xhtml+xml`, `image/svg+xml`, `application/wasm` | Media types to compress: `type/subtype`, or `type/*` for a whole type. Images, video and archives are compressed already. |
+
+A response isn't compressed when it already has a `Content-Encoding`, is a `HEAD`, `204`, `206` or `304`, or says
+`Cache-Control: no-transform`. A compressed one loses its `Content-Length`, gets `Content-Encoding: gzip` and a weak
+`ETag`; every compressible response gets `Vary: Accept-Encoding`. Flushes go through, so streamed responses stay
+streams. Only gzip: brotli and zstd would need dependencies.
 
 ### `virtual_hosts[]`
 

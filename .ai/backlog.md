@@ -138,7 +138,9 @@ Milestone definitions: `roadmap.md`.
 - [x] K-081 HTTP/2 (h2 over TLS, h2c). `listeners[].http.protocols` (`http1`, `http2`; both with `tls`, `http1`
   without); h2c is prior knowledge through `http.Protocols`; the PHP e2e test sees protocol `2` both ways.
 - [ ] K-082 Static files route action / filter.
-- [ ] K-083 Compression filter.
+- [x] K-083 Compression filter. `compression`: gzip with pooled writers, `level`, `min_length`, `content_types`;
+  the decision waits for the first write (sniffed Content-Type), flushes pass through, `HEAD`/`204`/`206`/`304`/
+  `no-transform`/encoded responses are left alone.
 - [x] K-084 Header manipulation filter (`headers`). Split on 2026-10-25: CORS is K-089, redirects K-090.
   `request`/`response` rules `remove`, `set`, `add`, `set_if_absent`; protected framing headers rejected;
   `httpx.BeforeHeader` edits a response header just before it goes out (shared with CORS and compression).

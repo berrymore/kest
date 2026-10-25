@@ -82,11 +82,12 @@ func tlsClient(addr string, cert *x509.Certificate) *http.Client {
 
 // response is what do returns: the parts of an *http.Response that tests check.
 type response struct {
-	Status int
-	Proto  string
-	TLS    bool
-	Header http.Header
-	Body   string
+	Status       int
+	Proto        string
+	TLS          bool
+	Header       http.Header
+	Body         string
+	Uncompressed bool // the client gunzipped the body
 }
 
 func do(t *testing.T, c *http.Client, url string) response {
@@ -104,7 +105,8 @@ func do(t *testing.T, c *http.Client, url string) response {
 	if err != nil {
 		t.Fatalf("GET %s: read body: %v", url, err)
 	}
-	return response{Status: resp.StatusCode, Proto: resp.Proto, TLS: resp.TLS != nil, Header: resp.Header, Body: string(body)}
+	return response{Status: resp.StatusCode, Proto: resp.Proto, TLS: resp.TLS != nil, Header: resp.Header, Body: string(body),
+		Uncompressed: resp.Uncompressed}
 }
 
 func TestTLSListener(t *testing.T) {
@@ -222,6 +224,8 @@ listeners:
               remove: [Date]
         - type: cors
           config: {allow_origins: ["https://app.test"]}
+        - type: compression
+          config: {min_length: 0}
       virtual_hosts:
         - name: default
           domains: ["*"]
@@ -232,6 +236,9 @@ listeners:
 	resp := do(t, http.DefaultClient, "http://"+listenAddr+"/")
 	if resp.Header.Get("X-Content-Type-Options") != "nosniff" || resp.Header.Get("Date") != "" {
 		t.Errorf("response headers %v: want X-Content-Type-Options and no Date", resp.Header)
+	}
+	if !resp.Uncompressed || resp.Body != "ok" {
+		t.Errorf("body %q, gunzipped by the client: %v; want it compressed", resp.Body, resp.Uncompressed)
 	}
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodOptions, "http://"+listenAddr+"/", http.NoBody)
