@@ -57,7 +57,8 @@ kest is a single Go binary. At startup it reads one YAML file and builds a graph
    the payload over the relay.
 7. The PHP worker (`$worker->waitRequest()` … `$worker->respond()`) answers; kest decodes status,
    headers and body (`rrhttp.DecodeResponse`) and writes the response with its own framing
-   (`rrhttp.WriteResponse`). Pool and worker errors become 5xx (`rrhttp.ErrorStatus`).
+   (`rrhttp.WriteResponse`). Pool and worker errors become 5xx (`rrhttp.ErrorStatus`). A streamed answer is
+   written frame by frame (`rrhttp.DecodeStreamFrame`, `WriteInformational`, `WriteStreamHeader`), flushed.
 8. The worker goes back to the pool. The supervisor checks its limits (max_jobs, memory, TTL) and
    recycles it if needed.
 
@@ -196,7 +197,10 @@ func DefaultConfig() Config                       // explicit defaults; zero mea
 func New(cfg Config, logger *slog.Logger) (*Pool, error)
 func (p *Pool) Start(ctx context.Context) error   // all workers handshaked, or an error
 func (p *Pool) Stop(ctx context.Context) error    // jobs finish, stop frames, kill at the deadline
-func (p *Pool) Exec(ctx context.Context, req Payload) (Payload, error)
+func (p *Pool) Exec(ctx context.Context, req Payload) (Payload, error)          // a stream joined, up to MaxFrameSize
+func (p *Pool) ExecStream(ctx context.Context, req Payload) (Payload, *Stream, error)
+// A streamed answer (STREAM bit): the first frame, then Stream.Next(ctx) (Payload, ok, error) until ok is false;
+// Stream.Close sends STOP and drops the rest. The slot goroutine answers PING with PONG; ExecTTL bounds each frame.
 func (p *Pool) Workers() []Info                   // per slot: state, pid, jobs, started, memory
 func (p *Pool) Health() Health                    // healthy / degraded / unhealthy
 func (p *Pool) Waiting() int                      // callers waiting for a free worker
@@ -273,6 +277,8 @@ Stopped ──▶ Starting ──▶ Ready ⇄ Working ──▶ Stopping ──
 - A caller that gives up (client gone, route timeout) doesn't kill the worker: the job finishes within
   `exec_ttl` and the result is dropped.
 - A worker that asks to be replaced instead of answering (`$worker->stop()`) gets its job retried once on another.
+- A streamed answer keeps the slot in `Working` until its last frame; the slot reads the frames, answers pings, and
+  on `Stream.Close` (client gone) sends STOP and drains the rest within max(`exec_ttl`, `destroy_timeout`), or kills.
 - `max_jobs` gets +0…14 % jitter (as in RoadRunner). `idle_ttl` counts from when the worker became ready, so an
   unused worker is replaced too. Only memory is polled (`watch_tick`); the other limits are timers and counters.
 - Backoff applies after a worker fails without completing a job within 10 s of its start; the pool never
@@ -389,7 +395,7 @@ at the start of M5.
 |---|---|---|
 | Q-A | HTTP filter model: `func(http.Handler) http.Handler`, or Envoy-like decode/encode phases with per-filter state? | Middleware first; revisit when WASM filters arrive |
 | Q-B | Request body: buffer it whole (RR-style, bounded by `max_request_body` and per cluster by `max_buffered_bodies`) or stream it to the worker? | Buffered (M2). The RR protocol sends the body in the request frame, so streaming it would need a protocol extension |
-| Q-C | Streaming responses from PHP (SSE, large downloads) | Protocol known (K-040: `STREAM` frames, opt-in on the PHP side); implement after M2 |
+| Q-C | Streaming responses from PHP (SSE, large downloads) | ✅ M4 (K-088): `worker.Pool.ExecStream`; `php_workers` writes chunks as they come, 1xx as informational responses, STOP when the client goes away |
 | Q-D | Cluster interface: `http.Handler`, or a kest request/response type shared by php, wasm and proxy? | `http.Handler` until a second cluster type exists |
 | Q-E | Metrics: `prometheus/client_golang`, OpenTelemetry metrics, or a minimal custom exposition? | ✅ ADR-0007 (2026-10-25): a hand-written core with the Prometheus text format |
 | Q-F | Per-route priority and queueing inside one pool, on top of pool isolation | After M3 |

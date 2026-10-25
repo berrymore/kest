@@ -178,7 +178,7 @@ Steps 1–2 are the vertical slice: `curl --http2 -k https://localhost:8443/` ag
 8. [x] **`compression`** (K-083) — acceptance: gzip round trip, streams flushed, HEAD/304/no-transform skipped.
 9. [x] **Static files** (K-082) — acceptance: `php_workers.static` serves `public/` files with Range and ETag,
    PHP gets the rest, no escape from `dir`.
-10. [ ] **Streaming responses** (K-088) — acceptance: PHP integration test with a generator and with 103 Early
+10. [x] **Streaming responses** (K-088) — acceptance: PHP integration test with a generator and with 103 Early
     Hints; a client that disconnects mid-stream stops it and the worker serves the next request.
 11. [ ] **`http_proxy`** (K-085) — acceptance: e2e against test backends: balancing, health checks, retries,
     WebSocket upgrade.
@@ -196,6 +196,10 @@ Steps 1–2 are the vertical slice: `curl --http2 -k https://localhost:8443/` ag
 
 ## Log
 
+- 2026-10-25 — Step 10 (K-088) done as in D10. The end of a stream is `ok == false`, not `io.EOF`: a
+  `*ProcessError` of a worker that died mid-stream wraps `io.EOF` and would read as a normal end. `Exec` joins a
+  stream up to `MaxFrameSize` (`ErrStreamTooLarge`). The fake worker reads frames in the background, as an OS pipe
+  buffers them, so that kest's PONG and STOP never block it.
 - 2026-10-25 — Step 9 (K-082) done as in D9 except for `os.Root`: it refuses absolute symlinks even inside the
   directory, and Laravel's `php artisan storage:link` makes `public/storage` an absolute link out of `public/`.
   Files are opened by name instead, symlinks followed as nginx does; `..` can't occur, since no segment that starts

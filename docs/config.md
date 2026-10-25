@@ -529,6 +529,18 @@ shutdown, running requests finish first. Worker stderr is logged line by line wi
 during boot, since PHP's CLI prints errors to stdout) breaks the protocol: the worker fails to start,
 and the error shows the start of what it printed.
 
+**Streaming.** A worker may stream its response, as under RoadRunner: `HttpWorker::respond()` with a
+`Generator` body, or `PSR7Worker` with `$chunkSize` set. kest sends each chunk to the client as it comes
+(chunked encoding, no `Content-Length`), with the status and headers of the first frame; later frames' headers are
+ignored. A frame with a 1xx status, such as `respond(103, '', ['Link' => …], false)`, goes out as an informational
+response (103 Early Hints) before the final one. `supervisor.exec_ttl` bounds the wait for each chunk, not the
+whole stream; the route `timeout` bounds the whole request, so give long streams (server-sent events) a route with
+`timeout: 0s`. When the client goes away, kest tells the worker to stop: the generator gets a
+`StreamStoppedException` (after at most five more chunks, when the worker next checks) and the worker serves the
+next request. A worker that keeps streaming gets the longer of `exec_ttl` and `pool.destroy_timeout`, then it is
+replaced. If a stream fails after its headers went out, the connection is cut, so the client doesn't take a partial
+response for a complete one.
+
 **Codec.** The request head (method, URI, headers, cookies, …) travels as JSON or protobuf. PHP's
 `roadrunner/http` reads either and answers in the same format. `json` (the default) works with every
 version of `spiral/roadrunner-http` / `roadrunner/http` from 2.0 on and costs PHP less: about 30 µs

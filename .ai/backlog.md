@@ -156,8 +156,11 @@ Milestone definitions: `roadmap.md`.
   the `ipAddress` attribute that `roadrunner/http` reads (RR's `proxy_ip_parser` middleware). Done as the
   `client_ip` filter: right-to-left walk over trusted hops, `X-Forwarded-Proto`; PHP gets the IP in `remoteAddr`
   (what RR's `proxy_ip_parser` v6 does, not an attribute) and the scheme in the URI; `httpx.ClientIP`/`Scheme`.
-- [ ] K-088 Streaming responses from PHP workers (`STREAM` frames, `PSR7Worker::$chunkSize`, generator bodies)
+- [x] K-088 Streaming responses from PHP workers (`STREAM` frames, `PSR7Worker::$chunkSize`, generator bodies)
   and 1xx informational responses (103 Early Hints); stop a stream when the client goes away (Q-C).
+  `worker.Pool.ExecStream`/`Stream` (PING→PONG, STOP and drain, `exec_ttl` per frame), the fake worker streams like
+  `roadrunner/worker`; `php_workers` flushes each chunk, aborts the connection on a failure after the headers; PHP
+  integration test with a generator, early hints, `$chunkSize` and a client that disconnects, on both codecs.
 - [x] K-089 CORS filter (`cors`): preflight answered by kest, allowed origins with wildcards.
 - [x] K-090 Redirect route action (`redirect`): scheme, host, port, path, prefix rewrite, status.
 - [ ] K-091 Client certificates on TLS listeners (mTLS): a CA file, required or optional, the verified subject

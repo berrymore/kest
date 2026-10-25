@@ -136,7 +136,7 @@ func TestSampleRSS(t *testing.T) {
 
 	before := sampleOne(t, p.Pid())
 	const grow = 64 << 20
-	if _, err := execute(p, Payload{Body: []byte("memory 67108864")}, 10*time.Second); err != nil {
+	if _, _, err := execute(p, Payload{Body: []byte("memory 67108864")}, 10*time.Second); err != nil {
 		t.Fatalf("grow: %v", err)
 	}
 	after := sampleOne(t, p.Pid())

@@ -39,6 +39,9 @@ var (
 	// ErrStopRequested means the worker asked to be replaced instead of answering.
 	// The pool retries the job once on another worker.
 	ErrStopRequested = errors.New("worker asked to be replaced instead of answering")
+	// ErrStreamTooLarge means Exec got a streamed answer larger than
+	// MaxFrameSize; ExecStream reads one frame at a time.
+	ErrStreamTooLarge = errors.New("streamed answer too large")
 )
 
 // JobError is an error the worker reported for a job (roadrunner/worker's
@@ -175,32 +178,45 @@ func exchangePids(conn *relay.Conn) (int, error) {
 // replaced (roadrunner/worker's $worker->stop()).
 var stopRequest = []byte(`{"stop":true}`)
 
-// execute sends one request and reads the response. ttl, if positive, bounds
-// the exchange: when it expires the process is killed.
+// execute sends one request and reads the first frame of the response; more
+// reports that the worker streams its answer and frames follow
+// (receiveFrame). ttl, if positive, bounds the exchange: when it expires the
+// process is killed.
 //
 // A nil error or a *JobError leaves the process in service. ErrStopRequested
 // leaves it alive but due for a graceful stop. Any other error is a
 // *ProcessError, and the process is gone.
-func execute(p process, req Payload, ttl time.Duration) (Payload, error) {
+func execute(p process, req Payload, ttl time.Duration) (resp Payload, more bool, err error) {
+	return bounded(p, ttl, func() (Payload, bool, error) { return exchange(p.Conn(), req) })
+}
+
+// receiveFrame reads the next frame of a streamed response, with the same
+// bound and errors as execute: ttl bounds each frame, as in RoadRunner.
+func receiveFrame(p process, ttl time.Duration) (resp Payload, more bool, err error) {
+	return bounded(p, ttl, func() (Payload, bool, error) { return receive(p.Conn()) })
+}
+
+// bounded runs an exchange with the worker, killing it if ttl expires first.
+func bounded(p process, ttl time.Duration, exchange func() (Payload, bool, error)) (Payload, bool, error) {
 	var timer *time.Timer
 	if ttl > 0 {
 		timer = time.AfterFunc(ttl, p.Kill)
 	}
 
-	resp, err := exchange(p.Conn(), req)
+	resp, more, err := exchange()
 	var jobErr *JobError
 	switch {
 	case timer != nil && !timer.Stop():
 		// The kill is under way, whatever the worker answered.
-		return Payload{}, failed(p, "exec", ErrExecTimeout)
+		return Payload{}, false, failed(p, "exec", ErrExecTimeout)
 	case err == nil, errors.As(err, &jobErr), errors.Is(err, ErrStopRequested):
-		return resp, err
+		return resp, more, err
 	default:
-		return Payload{}, failed(p, "exec", err)
+		return Payload{}, false, failed(p, "exec", err)
 	}
 }
 
-func exchange(conn *relay.Conn, req Payload) (Payload, error) {
+func exchange(conn *relay.Conn, req Payload) (Payload, bool, error) {
 	payload := make([]byte, 0, len(req.Context)+len(req.Body))
 	payload = append(append(payload, req.Context...), req.Body...)
 	err := conn.Send(&relay.Frame{
@@ -209,32 +225,62 @@ func exchange(conn *relay.Conn, req Payload) (Payload, error) {
 		Payload: payload,
 	})
 	if err != nil {
-		return Payload{}, err
+		return Payload{}, false, err
 	}
+	resp, more, err := receive(conn)
+	if err == nil && !more && len(resp.Body) == 0 && bytes.Equal(resp.Context, stopRequest) {
+		return Payload{}, false, ErrStopRequested
+	}
+	return resp, more, err
+}
 
+// receive reads one frame of a response and reports whether more frames of
+// it follow (the STREAM bit). A frame with the PING bit is answered with a
+// PONG frame, as RoadRunner does: a streaming worker pings every few frames
+// and then checks for a STOP.
+func receive(conn *relay.Conn) (Payload, bool, error) {
 	var f relay.Frame
 	if err := conn.Receive(&f); err != nil {
-		return Payload{}, err
+		return Payload{}, false, err
 	}
 	switch {
 	case f.Flags.Has(relay.FlagError):
-		return Payload{}, &JobError{Message: string(f.Payload)}
+		return Payload{}, false, &JobError{Message: string(f.Payload)}
 	case f.Flags.Has(relay.FlagControl):
-		return Payload{}, fmt.Errorf("unexpected control frame %q", clip(f.Payload))
-	case f.Stream != 0:
-		return Payload{}, fmt.Errorf("streaming responses are not supported (stream bits %#x)", f.Stream)
+		return Payload{}, false, fmt.Errorf("unexpected control frame %q", clip(f.Payload))
 	case len(f.Options) != 1 || int(f.Options[0]) > len(f.Payload):
-		return Payload{}, fmt.Errorf("invalid response: options %v for a %d-byte payload", f.Options, len(f.Payload))
+		return Payload{}, false, fmt.Errorf("invalid response: options %v for a %d-byte payload", f.Options, len(f.Payload))
+	}
+	if f.Stream.Has(relay.StreamPing) {
+		if err := conn.Send(&relay.Frame{Stream: relay.StreamPong}); err != nil {
+			return Payload{}, false, err
+		}
 	}
 	resp := Payload{
 		Codec:   f.Flags & relay.CodecMask,
 		Context: f.Payload[:f.Options[0]],
 		Body:    f.Payload[f.Options[0]:],
 	}
-	if len(resp.Body) == 0 && bytes.Equal(resp.Context, stopRequest) {
-		return Payload{}, ErrStopRequested
+	return resp, f.Stream.Has(relay.StreamMore), nil
+}
+
+// stopStream asks a streaming worker to stop (a STOP frame) and drops the
+// frames it still sends, up to the last one, within budget. A worker that
+// doesn't end the stream in time is killed, and the error is a
+// *ProcessError.
+func stopStream(p process, budget time.Duration) error {
+	timer := time.AfterFunc(budget, p.Kill)
+	err := p.Conn().Send(&relay.Frame{Stream: relay.StreamStop})
+	for more := true; err == nil && more; {
+		_, more, err = receive(p.Conn())
 	}
-	return resp, nil
+	if !timer.Stop() {
+		return failed(p, "exec", fmt.Errorf("stream not stopped within %s", budget))
+	}
+	if _, ok := errors.AsType[*JobError](err); err != nil && !ok {
+		return failed(p, "exec", err)
+	}
+	return nil
 }
 
 // stopProcess asks the process to exit and gives it timeout to do so, then

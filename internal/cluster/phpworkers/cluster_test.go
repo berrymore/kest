@@ -10,9 +10,12 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httptrace"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -33,6 +36,7 @@ func TestMain(m *testing.M) { leaktest.VerifyTestMain(m) }
 // fakePool answers every job with exec and records the last request.
 type fakePool struct {
 	exec     func(ctx context.Context, req worker.Payload) (worker.Payload, error)
+	stream   *fakeStream // answers instead of exec when set
 	startErr error
 	health   worker.Health
 	workers  []worker.Info
@@ -51,11 +55,34 @@ func (p *fakePool) Workers() []worker.Info      { return p.workers }
 func (p *fakePool) Waiting() int                { return p.waiting }
 func (p *fakePool) Reset(context.Context) error { return p.resetErr }
 
-func (p *fakePool) Exec(ctx context.Context, req worker.Payload) (worker.Payload, error) {
+func (p *fakePool) ExecStream(ctx context.Context, req worker.Payload) (worker.Payload, frames, error) {
 	p.calls++
 	p.last = req
-	return p.exec(ctx, req)
+	if p.stream != nil {
+		return p.stream.first, p.stream, nil
+	}
+	resp, err := p.exec(ctx, req)
+	return resp, nil, err
 }
+
+// fakeStream is a streamed answer: first, then rest, then err (or the end).
+type fakeStream struct {
+	first  worker.Payload
+	rest   []worker.Payload
+	err    error
+	closed atomic.Bool // set by the server's goroutine
+}
+
+func (s *fakeStream) Next(context.Context) (worker.Payload, bool, error) {
+	if len(s.rest) > 0 {
+		f := s.rest[0]
+		s.rest = s.rest[1:]
+		return f, true, nil
+	}
+	return worker.Payload{}, false, s.err
+}
+
+func (s *fakeStream) Close() { s.closed.Store(true) }
 
 func respond(codec relay.Flags, header, body string) func(context.Context, worker.Payload) (worker.Payload, error) {
 	return func(context.Context, worker.Payload) (worker.Payload, error) {
@@ -153,6 +180,103 @@ func TestStatic(t *testing.T) {
 	cfg.Static.Dir = "missing"
 	if err := newCluster(&cfg, dir, &fakePool{}, logging.Discard()).Start(t.Context()); err == nil {
 		t.Error("Start with a missing static.dir succeeded")
+	}
+}
+
+func jsonFrame(header, body string) worker.Payload {
+	return worker.Payload{Codec: relay.CodecJSON, Context: []byte(header), Body: []byte(body)}
+}
+
+// A streamed answer: early hints as a 1xx response, then the first final
+// frame's status and headers, then every chunk, flushed.
+func TestServeHTTPStream(t *testing.T) {
+	stream := &fakeStream{
+		first: jsonFrame(`{"status":103,"headers":{"Link":["</app.css>; rel=preload"]}}`, ""),
+		rest: []worker.Payload{
+			jsonFrame(`{"status":200,"headers":{"Content-Type":["text/event-stream"],"Content-Length":["5"]}}`, "data: 1\n\n"),
+			jsonFrame(`{"status":500}`, "data: 2\n\n"), // later heads are ignored
+			jsonFrame("", "data: 3\n\n"),
+		},
+	}
+	c := newTestCluster(t, nil, &fakePool{stream: stream})
+	srv := httptest.NewServer(c)
+	defer srv.Close()
+
+	var hints []string
+	trace := &httptrace.ClientTrace{Got1xxResponse: func(code int, h textproto.MIMEHeader) error {
+		hints = append(hints, fmt.Sprintf("%d %s", code, h.Get("Link")))
+		return nil
+	}}
+	req, err := http.NewRequestWithContext(httptrace.WithClientTrace(t.Context(), trace), http.MethodGet, srv.URL, http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil || resp.StatusCode != http.StatusOK || string(body) != "data: 1\n\ndata: 2\n\ndata: 3\n\n" {
+		t.Errorf("response %d %q, %v", resp.StatusCode, body, err)
+	}
+	if resp.ContentLength != -1 || resp.Header.Get("Content-Type") != "text/event-stream" || resp.Header.Get("Link") != "" {
+		t.Errorf("headers %v (length %d): want the final frame's, chunked", resp.Header, resp.ContentLength)
+	}
+	if len(hints) != 1 || hints[0] != "103 </app.css>; rel=preload" {
+		t.Errorf("informational responses %q, want the early hints", hints)
+	}
+	if !stream.closed.Load() {
+		t.Error("the stream was not closed")
+	}
+}
+
+func TestServeHTTPStreamErrors(t *testing.T) {
+	head := jsonFrame(`{"status":200}`, "partial")
+	for _, tt := range []struct {
+		name   string
+		stream *fakeStream
+		status int // before the header went out
+		abort  bool
+	}{
+		{"error before the final frame", &fakeStream{first: jsonFrame(`{"status":103}`, ""),
+			err: &worker.ProcessError{Pid: 1, Op: "exec", Err: io.EOF}}, http.StatusBadGateway, false},
+		{"only informational frames", &fakeStream{first: jsonFrame(`{"status":103}`, "")}, http.StatusBadGateway, false},
+		{"invalid status", &fakeStream{first: jsonFrame(`{"status":101}`, "")}, http.StatusBadGateway, false},
+		{"error after the header", &fakeStream{first: head, err: &worker.ProcessError{Pid: 1, Op: "exec", Err: io.EOF}}, 0, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(newTestCluster(t, nil, &fakePool{stream: tt.stream}))
+			defer srv.Close()
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL, http.NoBody)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if aborted := err != nil; aborted != tt.abort {
+				t.Errorf("cut off = %v (%v), want %v", aborted, err, tt.abort)
+			}
+			if !tt.abort && resp.StatusCode != tt.status {
+				t.Errorf("status %d, want %d", resp.StatusCode, tt.status)
+			}
+			if !tt.stream.closed.Load() {
+				t.Error("the stream was not closed")
+			}
+		})
+	}
+}
+
+func TestServeHTTPStreamHead(t *testing.T) {
+	stream := &fakeStream{first: jsonFrame(`{"status":200}`, "chunk"), rest: []worker.Payload{jsonFrame("", "more")}}
+	c := newTestCluster(t, nil, &fakePool{stream: stream})
+	rec := serve(c, httptest.NewRequestWithContext(t.Context(), http.MethodHead, "/", http.NoBody))
+	if rec.Code != 200 || rec.Body.Len() != 0 {
+		t.Errorf("HEAD: %d with %d body bytes", rec.Code, rec.Body.Len())
 	}
 }
 
@@ -390,10 +514,10 @@ type gatedPool struct {
 	entered chan struct{}
 }
 
-func (p *gatedPool) Exec(context.Context, worker.Payload) (worker.Payload, error) {
+func (p *gatedPool) ExecStream(context.Context, worker.Payload) (worker.Payload, frames, error) {
 	p.entered <- struct{}{}
 	<-p.gate
-	return worker.Payload{Codec: relay.CodecJSON, Context: []byte(`{"status":200}`)}, nil
+	return worker.Payload{Codec: relay.CodecJSON, Context: []byte(`{"status":200}`)}, nil, nil
 }
 
 // Bodies held at once stay within max_buffered_bodies; a request that

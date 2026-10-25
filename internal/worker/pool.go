@@ -48,10 +48,12 @@ type spawnFunc func(ctx context.Context) (process, error)
 type job struct {
 	payload Payload
 	result  chan jobResult // buffered: the worker never blocks on it
+	gone    chan struct{}  // closed when the caller stopped waiting for the result
 }
 
 type jobResult struct {
 	payload Payload
+	stream  *Stream // the rest of a streamed answer; nil if there is none
 	err     error
 }
 
@@ -181,29 +183,59 @@ func (p *Pool) Stop(ctx context.Context) error {
 // from the worker, ErrStopRequested if two workers in a row asked to be
 // replaced instead of answering, and a *ProcessError (wrapping
 // ErrExecTimeout on a timeout) if the worker failed.
+//
+// A streamed answer is returned whole: the bodies of its frames joined, up to
+// MaxFrameSize (ErrStreamTooLarge beyond). ExecStream returns it frame by
+// frame.
 func (p *Pool) Exec(ctx context.Context, req Payload) (Payload, error) {
-	resp, err := p.exec(ctx, req)
-	if errors.Is(err, ErrStopRequested) {
-		// The worker didn't run the job: give it to another one, once.
-		resp, err = p.exec(ctx, req)
+	resp, stream, err := p.ExecStream(ctx, req)
+	if err != nil || stream == nil {
+		return resp, err
 	}
-	return resp, err
+	defer stream.Close()
+	body := resp.Body
+	for {
+		f, ok, err := stream.Next(ctx)
+		if err != nil {
+			return Payload{}, err
+		}
+		if !ok {
+			resp.Body = body
+			return resp, nil
+		}
+		if len(body)+len(f.Body) > p.cfg.MaxFrameSize {
+			return Payload{}, ErrStreamTooLarge
+		}
+		body = append(body, f.Body...)
+	}
 }
 
-func (p *Pool) exec(ctx context.Context, req Payload) (Payload, error) {
+// ExecStream runs a job as Exec does. If the worker streams its answer, resp
+// is the first frame and stream delivers the others; the caller must Close
+// it. Otherwise stream is nil. ExecTTL bounds the wait for each frame.
+func (p *Pool) ExecStream(ctx context.Context, req Payload) (resp Payload, stream *Stream, err error) {
+	resp, stream, err = p.exec(ctx, req)
+	if errors.Is(err, ErrStopRequested) {
+		// The worker didn't run the job: give it to another one, once.
+		resp, stream, err = p.exec(ctx, req)
+	}
+	return resp, stream, err
+}
+
+func (p *Pool) exec(ctx context.Context, req Payload) (Payload, *Stream, error) {
 	if !p.running.Load() {
-		return Payload{}, ErrStopped
+		return Payload{}, nil, ErrStopped
 	}
 	if err := ctx.Err(); err != nil {
-		return Payload{}, err
+		return Payload{}, nil, err
 	}
 	if p.waiting.Add(1) > int64(p.cfg.MaxQueueSize) {
 		p.waiting.Add(-1)
 		p.obs.Rejected(ReasonQueueFull)
-		return Payload{}, ErrQueueFull
+		return Payload{}, nil, ErrQueueFull
 	}
 
-	j := &job{payload: req, result: make(chan jobResult, 1)}
+	j := &job{payload: req, result: make(chan jobResult, 1), gone: make(chan struct{})}
 	queued := time.Now()
 	timer := time.NewTimer(p.cfg.AllocateTimeout)
 	var err error
@@ -221,14 +253,15 @@ func (p *Pool) exec(ctx context.Context, req Payload) (Payload, error) {
 	timer.Stop()
 	p.waiting.Add(-1)
 	if err != nil {
-		return Payload{}, err
+		return Payload{}, nil, err
 	}
 
 	select {
 	case r := <-j.result:
-		return r.payload, r.err
+		return r.payload, r.stream, r.err
 	case <-ctx.Done():
-		return Payload{}, ctx.Err()
+		close(j.gone) // a stream that comes now is stopped
+		return Payload{}, nil, ctx.Err()
 	}
 }
 
@@ -536,10 +569,16 @@ func (s *slot) serve(ctx context.Context, proc process) (next *handoff, failedEa
 		case j := <-p.jobs:
 			idle.stop()
 			s.update(func(i *Info) { i.State = StateWorking })
-			resp, err := execute(proc, j.payload, p.cfg.ExecTTL)
+			resp, more, err := execute(proc, j.payload, p.cfg.ExecTTL)
+			if err == nil && more {
+				st := newStream()
+				j.result <- jobResult{payload: resp, stream: st}
+				err = s.stream(proc, j, st)
+			} else {
+				j.result <- jobResult{payload: resp, err: err}
+			}
 			jobs++
 			s.update(func(i *Info) { i.Jobs = jobs })
-			j.result <- jobResult{payload: resp, err: err}
 
 			if _, ok := errors.AsType[*ProcessError](err); ok {
 				logger.Warn("worker failed", "err", err)

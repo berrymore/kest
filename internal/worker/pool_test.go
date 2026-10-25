@@ -367,7 +367,7 @@ func TestPoolExecTTL(t *testing.T) {
 }
 
 func TestPoolWorkerFailures(t *testing.T) {
-	for _, body := range []string{"crash", "exit", "garbage", "stream", "no-options", "big 100000"} {
+	for _, body := range []string{"crash", "exit", "garbage", "no-options", "big 100000"} {
 		t.Run(body, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				var fake workertest.Fake

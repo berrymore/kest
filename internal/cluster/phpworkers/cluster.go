@@ -45,11 +45,30 @@ func init() {
 type pool interface {
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error
-	Exec(ctx context.Context, req worker.Payload) (worker.Payload, error)
+	ExecStream(ctx context.Context, req worker.Payload) (worker.Payload, frames, error)
 	Health() worker.Health
 	Workers() []worker.Info
 	Waiting() int
 	Reset(ctx context.Context) error
+}
+
+// frames is what the cluster needs from *worker.Stream.
+type frames interface {
+	Next(ctx context.Context) (worker.Payload, bool, error)
+	Close()
+}
+
+// workerPool adapts *worker.Pool to pool.
+type workerPool struct {
+	*worker.Pool
+}
+
+func (p workerPool) ExecStream(ctx context.Context, req worker.Payload) (worker.Payload, frames, error) {
+	resp, stream, err := p.Pool.ExecStream(ctx, req)
+	if stream == nil {
+		return resp, nil, err // not a nil *worker.Stream in a non-nil interface
+	}
+	return resp, stream, err
 }
 
 // Cluster serves HTTP requests with a pool of PHP workers.
@@ -105,7 +124,7 @@ func New(cfg *Config, bc registry.BuildContext, environ []string) (*Cluster, err
 	if err != nil {
 		return nil, err
 	}
-	c := newCluster(cfg, bc.ConfigDir, p, bc.Logger)
+	c := newCluster(cfg, bc.ConfigDir, workerPool{p}, bc.Logger)
 	c.bodyRejected = pm.rejected[reasonBodyBudget]
 	collectPool(reg, bc.Name, p)
 	reg.NewCollector("kest_pool_buffered_body_bytes",
@@ -281,9 +300,14 @@ func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		c.fail(w, r, err)
 		return
 	}
-	out, err := c.pool.Exec(r.Context(), payload)
+	out, stream, err := c.pool.ExecStream(r.Context(), payload)
 	if err != nil {
 		c.fail(w, r, err)
+		return
+	}
+	if stream != nil {
+		defer stream.Close()
+		c.writeStream(w, r, out, stream)
 		return
 	}
 	resp, err := rrhttp.DecodeResponse(out)
@@ -298,6 +322,67 @@ func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		c.logger.Debug("write response", "method", r.Method, "path", r.URL.Path, "err", err)
+	}
+}
+
+// writeStream writes a streamed response (RoadRunner's STREAM frames):
+// informational frames as 1xx responses (103 Early Hints), then the status
+// and headers of the first final frame, then each body chunk as it comes,
+// flushed. Later frames repeat status and headers; they are ignored. A
+// failure after the header went out aborts the connection, so that the client
+// sees a cut-off response rather than a complete-looking one.
+func (c *Cluster) writeStream(w http.ResponseWriter, r *http.Request, first worker.Payload, stream frames) {
+	rc := http.NewResponseController(w)
+	frame, started := first, false
+	bodyAllowed := r.Method != http.MethodHead
+	for {
+		if !started {
+			resp, err := rrhttp.DecodeStreamFrame(frame)
+			if err != nil {
+				c.fail(w, r, err)
+				return
+			}
+			var dropped int
+			if resp.Informational() {
+				dropped = rrhttp.WriteInformational(w, resp)
+			} else {
+				dropped = rrhttp.WriteStreamHeader(w, resp)
+				started = true
+				bodyAllowed = bodyAllowed && resp.Status != http.StatusNoContent && resp.Status != http.StatusNotModified
+			}
+			if dropped > 0 {
+				c.logger.Debug("dropped invalid response headers", "method", r.Method, "path", r.URL.Path, "count", dropped)
+			}
+		}
+		if started && bodyAllowed && len(frame.Body) > 0 {
+			_, err := w.Write(frame.Body)
+			if err == nil {
+				err = rc.Flush()
+			}
+			if err != nil {
+				c.logger.Debug("client went away during a stream", "method", r.Method, "path", r.URL.Path, "err", err)
+				return
+			}
+		}
+
+		next, ok, err := stream.Next(r.Context())
+		switch {
+		case err != nil && !started:
+			c.fail(w, r, err)
+			return
+		case errors.Is(err, context.Canceled):
+			c.logger.Debug("client went away during a stream", "method", r.Method, "path", r.URL.Path)
+			return
+		case err != nil:
+			c.logger.Warn("stream cut off", "method", r.Method, "path", r.URL.Path, "err", err)
+			panic(http.ErrAbortHandler)
+		case !ok && !started:
+			c.fail(w, r, &rrhttp.ResponseError{Err: errors.New("the stream ended without a final response")})
+			return
+		case !ok:
+			return
+		}
+		frame = next
 	}
 }
 

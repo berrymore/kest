@@ -11,6 +11,10 @@
 //   /error          a soft error ($worker->error())
 //   /exit           the process exits mid-request
 //   /fatal          a PHP fatal error
+//   /stream/<n>     n chunks from a generator, 50 ms apart (HttpWorker stream
+//                   mode); a stopped stream is logged to stderr
+//   /hints          103 Early Hints, then the response
+//   /chunked/<n>    a PSR-7 body of n bytes sent in 1000-byte chunks
 //
 // If the file named by KEST_TEST_BOOT_MARKER exists, the worker fails to boot,
 // like a deploy of code that doesn't start.
@@ -77,8 +81,33 @@ while (true) {
         case 'fatal':
             undefined_function();
             break;
+        case 'stream':
+            $worker->getHttpWorker()->respond(200, chunks((int) $arg), ['Content-Type' => 'text/plain']);
+            break;
+        case 'hints':
+            $worker->getHttpWorker()->respond(103, '', ['Link' => '</app.css>; rel=preload'], false);
+            $worker->respond(new Response(200, ['Content-Type' => 'text/plain'], 'after hints'));
+            break;
+        case 'chunked':
+            $chunked = new PSR7Worker($worker->getWorker(), $factory, $factory, $factory);
+            $chunked->chunkSize = 1000;
+            $chunked->respond(new Response(200, [], str_repeat('y', (int) $arg)));
+            break;
         default:
             $worker->respond(new Response(404, [], 'no route'));
+    }
+}
+
+function chunks(int $n): \Generator
+{
+    try {
+        for ($i = 0; $i < $n; $i++) {
+            yield "chunk $i\n";
+            usleep(50000);
+        }
+    } catch (\Spiral\RoadRunner\Http\Exception\StreamStoppedException $e) {
+        fwrite(STDERR, "stream stopped\n");
+        throw $e;
     }
 }
 

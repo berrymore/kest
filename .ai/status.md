@@ -10,7 +10,7 @@ on 2026-10-25 and asked not to open the PR before they have looked at the branch
 
 ## In progress
 
-M4, step 10 (K-088, streaming responses).
+M4, step 11 (K-085, `http_proxy`).
 
 ## Next up: how to continue M4 in a fresh session
 

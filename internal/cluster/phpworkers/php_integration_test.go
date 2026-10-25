@@ -4,12 +4,15 @@ package phpworkers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httptrace"
+	"net/textproto"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -563,6 +566,85 @@ func TestPHPUploads(t *testing.T) {
 					t.Fatalf("temp files left: %v", entries)
 				}
 				time.Sleep(10 * time.Millisecond)
+			}
+		})
+	}
+}
+
+// A generator streams chunk by chunk, early hints come first, and a client
+// that disconnects mid-stream stops it; the worker then serves on.
+func TestPHPStream(t *testing.T) {
+	for _, codec := range codecs {
+		t.Run(codec, func(t *testing.T) {
+			srv, _ := phpCluster(t, codec, func(c *Config) { c.Pool.Workers = 1 }, metrics.NewRegistry())
+
+			// Each chunk arrives before the next is produced.
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/stream/4", http.NoBody)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			buf := make([]byte, 64)
+			n, err := resp.Body.Read(buf)
+			if err != nil || string(buf[:n]) != "chunk 0\n" {
+				t.Errorf("first read = %q, %v; want the first chunk alone", buf[:n], err)
+			}
+			rest, err := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if err != nil || string(rest) != "chunk 1\nchunk 2\nchunk 3\n" || resp.ContentLength != -1 {
+				t.Errorf("rest = %q, %v (length %d)", rest, err, resp.ContentLength)
+			}
+
+			// Early hints.
+			var hints []string
+			trace := &httptrace.ClientTrace{Got1xxResponse: func(code int, h textproto.MIMEHeader) error {
+				hints = append(hints, fmt.Sprintf("%d %s", code, h.Get("Link")))
+				return nil
+			}}
+			req, err = http.NewRequestWithContext(httptrace.WithClientTrace(t.Context(), trace), http.MethodGet, srv.URL+"/hints", http.NoBody)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, err = http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if string(body) != "after hints" || len(hints) != 1 || hints[0] != "103 </app.css>; rel=preload" {
+				t.Errorf("hints %q, body %q", hints, body)
+			}
+
+			// PSR7Worker's chunked mode.
+			if r := send(t, http.MethodGet, srv.URL+"/chunked/2500", "", nil, nil); r.status != 200 || r.body != strings.Repeat("y", 2500) {
+				t.Errorf("/chunked: %d, %d bytes", r.status, len(r.body))
+			}
+
+			// A client that goes away stops the stream; the single worker serves the next request.
+			ctx, cancel := context.WithCancel(t.Context())
+			req, err = http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/stream/1000", http.NoBody)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, err = http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if n, err := resp.Body.Read(buf); err != nil || n == 0 {
+				t.Fatalf("read = %d, %v", n, err)
+			}
+			cancel()
+			resp.Body.Close()
+			start := time.Now()
+			if r := send(t, http.MethodGet, srv.URL+"/echo", "", nil, nil); r.status != 200 {
+				t.Errorf("after a stopped stream: %d %q", r.status, r.body)
+			}
+			// The worker notices the STOP after its next ping, every fifth frame.
+			if elapsed := time.Since(start); elapsed > 2*time.Second {
+				t.Errorf("the next request waited %s for the stopped stream", elapsed)
 			}
 		})
 	}
