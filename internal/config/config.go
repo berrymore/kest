@@ -232,10 +232,30 @@ type Route struct {
 	Redirect       *Redirect       `yaml:"redirect,omitempty"`
 }
 
-// RouteMatch selects requests by path. Exactly one field must be set.
+// RouteMatch selects requests by path, and optionally by method, headers and
+// query parameters; all that are set must match. Exactly one of Prefix, Path
+// and Regex must be set.
 type RouteMatch struct {
 	Prefix string `yaml:"prefix,omitempty"`
 	Path   string `yaml:"path,omitempty"`
+	// Regex is an RE2 expression that must match the whole path.
+	Regex   string       `yaml:"regex,omitempty"`
+	Methods []string     `yaml:"methods,omitempty"` // any of them
+	Headers []ValueMatch `yaml:"headers,omitempty"` // all of them
+	Query   []ValueMatch `yaml:"query,omitempty"`   // all of them
+}
+
+// ValueMatch matches a header or a query parameter by name. Exactly one of
+// Exact, Prefix, Regex and Present must be set. A header sent several times
+// is matched as its values joined with ", "; a query parameter sent several
+// times, by its first value.
+type ValueMatch struct {
+	Name   string `yaml:"name"`
+	Exact  string `yaml:"exact,omitempty"`
+	Prefix string `yaml:"prefix,omitempty"`
+	Regex  string `yaml:"regex,omitempty"` // RE2, matching the whole value
+	// Present: true matches any value, false a missing header or parameter.
+	Present *bool `yaml:"present,omitempty"`
 }
 
 // RouteAction forwards the request to a cluster.

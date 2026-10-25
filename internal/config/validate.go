@@ -207,16 +207,7 @@ func (v *validator) route(path string, r *Route) {
 	}
 	v.filters(path, r.Filters)
 	m := r.Match
-	switch {
-	case m.Prefix == "" && m.Path == "":
-		v.errorf(path+".match", "required: set prefix or path")
-	case m.Prefix != "" && m.Path != "":
-		v.errorf(path+".match", "set only one of prefix or path")
-	case m.Prefix != "" && !strings.HasPrefix(m.Prefix, "/"):
-		v.errorf(path+".match.prefix", "must start with /")
-	case m.Path != "" && !strings.HasPrefix(m.Path, "/"):
-		v.errorf(path+".match.path", "must start with /")
-	}
+	v.routeMatch(path+".match", &m)
 
 	actions := 0
 	for _, set := range []bool{r.Route != nil, r.DirectResponse != nil, r.Redirect != nil} {
@@ -238,6 +229,91 @@ func (v *validator) route(path string, r *Route) {
 			v.errorf(path+".direct_response.status", "invalid HTTP status %d", s)
 		}
 	}
+}
+
+func (v *validator) routeMatch(path string, m *RouteMatch) {
+	set := 0
+	for _, s := range []string{m.Prefix, m.Path, m.Regex} {
+		if s != "" {
+			set++
+		}
+	}
+	switch {
+	case set == 0:
+		v.errorf(path, "required: set prefix, path or regex")
+	case set > 1:
+		v.errorf(path, "set only one of prefix, path or regex")
+	case m.Prefix != "" && !strings.HasPrefix(m.Prefix, "/"):
+		v.errorf(path+".prefix", "must start with /")
+	case m.Path != "" && !strings.HasPrefix(m.Path, "/"):
+		v.errorf(path+".path", "must start with /")
+	case m.Regex != "":
+		if _, err := WholeMatch(m.Regex); err != nil {
+			v.errorf(path+".regex", "%v", err)
+		}
+	}
+	for i, method := range m.Methods {
+		if !isToken(method) {
+			v.errorf(indexPath(path+".methods", i), "invalid method %q", method)
+		}
+	}
+	for i := range m.Headers {
+		hpath := indexPath(path+".headers", i)
+		if h := &m.Headers[i]; !isToken(h.Name) {
+			v.errorf(hpath+".name", "invalid header name %q", h.Name)
+		}
+		v.valueMatch(hpath, &m.Headers[i])
+	}
+	for i := range m.Query {
+		qpath := indexPath(path+".query", i)
+		if m.Query[i].Name == "" {
+			v.errorf(qpath+".name", "required")
+		}
+		v.valueMatch(qpath, &m.Query[i])
+	}
+}
+
+func (v *validator) valueMatch(path string, m *ValueMatch) {
+	set := 0
+	for _, s := range []string{m.Exact, m.Prefix, m.Regex} {
+		if s != "" {
+			set++
+		}
+	}
+	if m.Present != nil {
+		set++
+	}
+	switch {
+	case set != 1:
+		v.errorf(path, "set exactly one of exact, prefix, regex or present")
+	case m.Regex != "":
+		if _, err := WholeMatch(m.Regex); err != nil {
+			v.errorf(path+".regex", "%v", err)
+		}
+	}
+}
+
+// WholeMatch compiles an RE2 expression that must match a whole string.
+func WholeMatch(expr string) (*regexp.Regexp, error) {
+	if _, err := regexp.Compile(expr); err != nil {
+		return nil, err // the message of the expression as written
+	}
+	return regexp.Compile(`^(?:` + expr + `)$`)
+}
+
+// isToken reports whether s is an HTTP token (RFC 9110), as method and
+// header names are.
+func isToken(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := range len(s) {
+		c := s[i]
+		if c <= ' ' || c >= 0x7f || strings.IndexByte(`"(),/:;<=>?@[\]{}`, c) >= 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func (v *validator) routeAction(path string, r *Route) {

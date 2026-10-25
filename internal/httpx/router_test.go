@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -364,6 +365,71 @@ func TestFilterAnswerCountsWithoutCluster(t *testing.T) {
 		if got := metricstest.Value(t, reg, "kest_http_requests_total", "listener", "main", "virtual_host", "site",
 			"route", tt.route, "cluster", tt.cluster, "code", tt.code); got != 1 {
 			t.Errorf("requests{route %q, cluster %q, %s} = %v, want 1", tt.route, tt.cluster, tt.code, got)
+		}
+	}
+}
+
+// Routes match on regular expressions, methods, headers and query parameters;
+// the first route whose conditions all hold wins.
+func TestRouteMatchers(t *testing.T) {
+	h, err := httpx.NewHandler(loadHTTP(t, `
+  - name: main
+    address: 127.0.0.1:0
+    http:
+      virtual_hosts:
+        - name: site
+          domains: ["*"]
+          routes:
+            - match: {regex: "/(export|reports)/[0-9]+"}
+              direct_response: {body: "regex"}
+            - match: {prefix: /api/, methods: [POST, PUT]}
+              direct_response: {body: "write"}
+            - match: {prefix: /api/, headers: [{name: x-requested-with, exact: XMLHttpRequest}]}
+              direct_response: {body: "ajax"}
+            - match: {prefix: /api/, headers: [{name: Authorization, present: false}]}
+              direct_response: {body: "anonymous"}
+            - match: {prefix: /api/, query: [{name: format, exact: csv}]}
+              direct_response: {body: "csv"}
+            - match:
+                prefix: /api/
+                headers: [{name: Accept, regex: "application/(json|xml)"}, {name: X-Tenant, prefix: eu-}]
+                query: [{name: v, present: true}]
+              direct_response: {body: "eu"}
+            - match: {prefix: /}
+              direct_response: {body: "fallback"}
+`), lookup, registry.BuildContext{Name: "main", Logger: logging.Discard()})
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+	auth := http.Header{"Authorization": {"Bearer x"}}
+	for _, tt := range []struct {
+		method, target string
+		header         http.Header
+		want           string
+	}{
+		{http.MethodGet, "/export/12", nil, "regex"},
+		{http.MethodGet, "/reports/7", nil, "regex"},
+		{http.MethodGet, "/export/12/x", nil, "fallback"}, // the whole path must match
+		{http.MethodPost, "/api/x", nil, "write"},
+		{http.MethodDelete, "/api/x", auth, "fallback"},
+		{http.MethodGet, "/api/x", http.Header{"X-Requested-With": {"XMLHttpRequest"}}, "ajax"},
+		{http.MethodGet, "/api/x", nil, "anonymous"},
+		{http.MethodGet, "/api/x?format=csv&format=tsv", auth, "csv"}, // the first value
+		{http.MethodGet, "/api/x?format=tsv&format=csv", auth, "fallback"},
+		{http.MethodGet, "/api/x?v", http.Header{"Authorization": {"x"}, "Accept": {"application/xml"},
+			"X-Tenant": {"eu-1"}}, "eu"},
+		{http.MethodGet, "/api/x?v", http.Header{"Authorization": {"x"}, "Accept": {"application/xml"},
+			"X-Tenant": {"us-1"}}, "fallback"},
+		// Two Accept lines are matched as "text/html, application/json": not the whole value.
+		{http.MethodGet, "/api/x?v", http.Header{"Authorization": {"x"}, "Accept": {"text/html", "application/json"},
+			"X-Tenant": {"eu-1"}}, "fallback"},
+	} {
+		req := httptest.NewRequestWithContext(t.Context(), tt.method, "http://localhost"+tt.target, http.NoBody)
+		maps.Copy(req.Header, tt.header)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if got := rec.Body.String(); got != tt.want {
+			t.Errorf("%s %s %v: %q, want %q", tt.method, tt.target, tt.header, got, tt.want)
 		}
 	}
 }

@@ -421,13 +421,41 @@ Every route has a `match` and exactly one action.
 | `name` | Optional. Up to 64 letters, digits, `_`, `.` or `-`, unique in the whole config. Labels the route's requests in the metrics (`route`) and the access log. |
 | `match.prefix` | The path starts with this value; must start with `/` |
 | `match.path` | The path equals this value; must start with `/` |
+| `match.regex` | An [RE2](https://github.com/google/re2/wiki/Syntax) expression that must match the whole path, like `/(export\|reports)/[0-9]+` |
+| `match.methods` | Any of these methods, like `[GET, HEAD]`; any method if unset |
+| `match.headers` | Headers that must all match; see below |
+| `match.query` | Query parameters that must all match; see below |
 | `filters` | Filters for the requests of this route, after the virtual host's, before the action; see [Filters](#filters) |
 | `route` | Forward to a cluster |
 | `direct_response` | Answer without an upstream |
 | `redirect` | Answer with a redirect |
 
-Set exactly one of `match.prefix` and `match.path`. The match runs against the decoded URL path, after
-`normalize_path` and `merge_slashes`, without the query string. If no route matches → `404`.
+Set exactly one of `match.prefix`, `match.path` and `match.regex`. They match the decoded URL path, after
+`normalize_path` and `merge_slashes`, without the query string. A route matches when all its conditions hold; the
+first one that matches wins. If no route matches → `404`.
+
+Each entry of `match.headers` and `match.query` has a `name` and exactly one of:
+
+| Field | Matches |
+|---|---|
+| `exact` | the value equals this |
+| `prefix` | the value starts with this |
+| `regex` | an RE2 expression matches the whole value |
+| `present` | `true`: any value; `false`: the header or parameter is missing |
+
+Header names don't depend on case, values do. A header sent several times is matched as its values joined with
+`", "`; a query parameter sent several times, by its first value.
+
+```yaml
+routes:
+  - name: uploads                   # POSTs to /files go to a pool with large body limits
+    match: {prefix: /files, methods: [POST, PUT]}
+    route: {cluster: uploads}
+  - match: {prefix: /api/, headers: [{name: Authorization, present: false}]}
+    direct_response: {status: 401}
+  - match: {prefix: /api/, query: [{name: format, exact: csv}]}
+    route: {cluster: app, timeout: 120s}
+```
 
 **`route`**
 

@@ -202,7 +202,7 @@ end to end. The user can look at it before the rest.
 8. [x] K-143 `sendfile` filter (D6) — acceptance: unit tests (ranges, conditional requests, symlinks out of `dirs`,
    missing files, a client's own `X-Sendfile-Type`); the Symfony smoke test downloads a file through
    `BinaryFileResponse`; docs.
-9. [ ] K-140 route matching (D7) — acceptance: router tests for every matcher; validation errors located (a bad
+9. [x] K-140 route matching (D7) — acceptance: router tests for every matcher; validation errors located (a bad
    regex shows RE2's message); docs.
 10. [ ] K-095 requests answered by listener filters in the metrics (D8) — acceptance: a CORS preflight on a listener
     filter is counted.
@@ -278,3 +278,6 @@ end to end. The user can look at it before the rest.
   `Content-Disposition`, `Etag` and `Last-Modified` so the error page doesn't pose as the file. The Symfony smoke test
   downloads through `BinaryFileResponse` (with `trustXSendfileTypeHeader()`) and a range; its controller sets
   `Content-Type` itself, since guessing it needs `symfony/mime`, which the test app doesn't have.
+- 2026-10-25 — Step 9 (K-140): `match.regex`, `methods`, `headers`, `query` as in D7. An empty `exact` counts as
+  unset, so an empty value is matched with `regex: "^$"`. A `regex` error shows RE2's message for the expression as
+  written. The query is parsed once per request, and only when a route asks for it.

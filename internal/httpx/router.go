@@ -6,6 +6,8 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -16,8 +18,8 @@ import (
 )
 
 // Router selects a virtual host by the request's Host and runs its filters,
-// then selects the first route whose match fits the request path and runs
-// the route's filters and its action. Requests are counted by virtual host,
+// then selects the first route whose match fits the request (path, method,
+// headers, query) and runs the route's filters and its action. Requests are counted by virtual host,
 // route name and cluster.
 type Router struct {
 	exact    map[string]*virtualHost
@@ -39,14 +41,93 @@ type virtualHost struct {
 type route struct {
 	prefix  string
 	path    string
+	regex   *regexp.Regexp // matches the whole path
+	methods []string
+	headers []valueMatch
+	query   []valueMatch
 	handler http.Handler // the route's filters, then its action
 }
 
-func (r *route) matches(path string) bool {
-	if r.path != "" {
-		return path == r.path
+// matches reports whether the request fits every condition of the route.
+func (rt *route) matches(r *http.Request, q *lazyQuery) bool {
+	switch {
+	case rt.path != "":
+		if r.URL.Path != rt.path {
+			return false
+		}
+	case rt.regex != nil:
+		if !rt.regex.MatchString(r.URL.Path) {
+			return false
+		}
+	case !strings.HasPrefix(r.URL.Path, rt.prefix):
+		return false
 	}
-	return strings.HasPrefix(path, r.prefix)
+	if len(rt.methods) > 0 && !slices.Contains(rt.methods, r.Method) {
+		return false
+	}
+	for i := range rt.headers {
+		m := &rt.headers[i]
+		values := r.Header.Values(m.name)
+		if !m.matches(strings.Join(values, ", "), len(values) > 0) {
+			return false
+		}
+	}
+	for i := range rt.query {
+		m := &rt.query[i]
+		values, ok := q.get()[m.name]
+		first := ""
+		if ok {
+			first = values[0]
+		}
+		if !m.matches(first, ok) {
+			return false
+		}
+	}
+	return true
+}
+
+// valueMatch is a config.ValueMatch, compiled.
+type valueMatch struct {
+	name          string // canonical for headers
+	exact, prefix string
+	regex         *regexp.Regexp
+	present       *bool
+}
+
+func newValueMatch(m config.ValueMatch, canonical func(string) string) valueMatch {
+	v := valueMatch{name: canonical(m.Name), exact: m.Exact, prefix: m.Prefix, present: m.Present}
+	if m.Regex != "" {
+		v.regex, _ = config.WholeMatch(m.Regex) // validated
+	}
+	return v
+}
+
+func (m *valueMatch) matches(value string, ok bool) bool {
+	switch {
+	case m.present != nil:
+		return ok == *m.present
+	case !ok:
+		return false
+	case m.regex != nil:
+		return m.regex.MatchString(value)
+	case m.prefix != "":
+		return strings.HasPrefix(value, m.prefix)
+	default:
+		return value == m.exact
+	}
+}
+
+// lazyQuery parses a request's query once, if a route asks for it.
+type lazyQuery struct {
+	u      *url.URL
+	values url.Values
+}
+
+func (q *lazyQuery) get() url.Values {
+	if q.values == nil {
+		q.values = q.u.Query()
+	}
+	return q.values
 }
 
 // newRouter builds a router from validated virtual hosts, counting requests
@@ -93,7 +174,17 @@ func newRouter(vhosts []config.VirtualHost, clusters ClusterLookup, m *listenerM
 }
 
 func newRoute(cfg *config.Route, clusters ClusterLookup, errs *config.Errors) route {
-	r := route{prefix: cfg.Match.Prefix, path: cfg.Match.Path}
+	m := &cfg.Match
+	r := route{prefix: m.Prefix, path: m.Path, methods: m.Methods}
+	if m.Regex != "" {
+		r.regex, _ = config.WholeMatch(m.Regex) // validated
+	}
+	for _, h := range m.Headers {
+		r.headers = append(r.headers, newValueMatch(h, http.CanonicalHeaderKey))
+	}
+	for _, q := range m.Query {
+		r.query = append(r.query, newValueMatch(q, func(s string) string { return s }))
+	}
 	switch {
 	case cfg.DirectResponse != nil:
 		r.handler = directResponse(cfg.DirectResponse.Status, cfg.DirectResponse.Body)
@@ -134,11 +225,12 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	vh.handler.ServeHTTP(w, r)
 }
 
-// dispatch runs the first route that matches the request's path; 404 when
-// none does.
+// dispatch runs the first route that matches the request; 404 when none
+// does.
 func (vh *virtualHost) dispatch(w http.ResponseWriter, r *http.Request) {
+	q := lazyQuery{u: r.URL}
 	for i := range vh.routes {
-		if vh.routes[i].matches(r.URL.Path) {
+		if vh.routes[i].matches(r, &q) {
 			vh.routes[i].handler.ServeHTTP(w, r)
 			return
 		}

@@ -196,7 +196,8 @@ IDs start at K-140: the milestones were renumbered on 2026-10-25 (ADR-0008), and
 - [x] K-143 `sendfile` filter: PHP answers `X-Sendfile`, kest sends the file from configured directories, with
   ranges and conditional requests (plan D6; RoadRunner's `send` middleware ✅ in `research/roadrunner.md`;
   2026-10-25).
-- [ ] K-140 Route matches on method, headers and query parameters, and regular-expression paths (RE2) (plan D7).
+- [x] K-140 Route matches on method, headers and query parameters, and regular-expression paths (RE2) (plan D7;
+  2026-10-25).
 - [x] K-910 Optional route `name`, unique in the config, and a `route` label on the HTTP metrics and in
   `access_log` (plan D1; 2026-10-25).
 - [ ] K-095 Count requests that listener filters answer themselves (CORS preflights) in the HTTP metrics: today

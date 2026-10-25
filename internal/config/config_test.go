@@ -227,9 +227,9 @@ listeners:
 				`kest.yaml:12:31: listeners[0].http.virtual_hosts[0].routes[0].match.prefix: must start with /`,
 				`kest.yaml:13:32: listeners[0].http.virtual_hosts[0].routes[0].route.cluster: unknown cluster "nope"`,
 				`kest.yaml:14:15: listeners[0].http.virtual_hosts[0].routes[1]: set only one action`,
-				`kest.yaml:14:22: listeners[0].http.virtual_hosts[0].routes[1].match: set only one of prefix or path`,
+				`kest.yaml:14:22: listeners[0].http.virtual_hosts[0].routes[1].match: set only one of prefix, path or regex`,
 				`kest.yaml:17:15: listeners[0].http.virtual_hosts[0].routes[2]: an action is required`,
-				`kest.yaml:17:22: listeners[0].http.virtual_hosts[0].routes[2].match: required: set prefix or path`,
+				`kest.yaml:17:22: listeners[0].http.virtual_hosts[0].routes[2].match: required: set prefix, path or regex`,
 			},
 		},
 		{
@@ -278,6 +278,36 @@ listeners:
 				`kest.yaml:6:18: listeners[0].http.protocols: at least one protocol is required: http1 or http2`,
 				`kest.yaml:11:26: listeners[1].http.protocols[1]: unknown protocol "h3"; use http1 or http2`,
 				`kest.yaml:11:30: listeners[1].http.protocols[2]: duplicate protocol "http2"`,
+			},
+		},
+		{
+			name: "matchers",
+			src: `version: v1
+listeners:
+  - name: a
+    address: 127.0.0.1:8080
+    http:
+      virtual_hosts:
+        - name: a
+          domains: ["*"]
+          routes:
+            - match: {regex: "^/(a"}
+              direct_response: {}
+            - match:
+                prefix: /
+                methods: [GET, "BAD METHOD"]
+                headers: [{name: "X Bad", exact: x}, {name: X-Two, exact: a, prefix: b}, {name: X-Re, regex: "("}]
+                query: [{exact: x}, {name: q}]
+              direct_response: {}
+`,
+			want: []string{
+				"kest.yaml:10:30: listeners[0].http.virtual_hosts[0].routes[0].match.regex: error parsing regexp: missing closing ): `^/(a`",
+				`kest.yaml:14:32: listeners[0].http.virtual_hosts[0].routes[1].match.methods[1]: invalid method "BAD METHOD"`,
+				`kest.yaml:15:34: listeners[0].http.virtual_hosts[0].routes[1].match.headers[0].name: invalid header name "X Bad"`,
+				`kest.yaml:15:54: listeners[0].http.virtual_hosts[0].routes[1].match.headers[1]: set exactly one of exact, prefix, regex or present`,
+				"kest.yaml:15:110: listeners[0].http.virtual_hosts[0].routes[1].match.headers[2].regex: error parsing regexp: missing closing ): `(`",
+				`kest.yaml:16:25: listeners[0].http.virtual_hosts[0].routes[1].match.query[0].name: required`,
+				`kest.yaml:16:37: listeners[0].http.virtual_hosts[0].routes[1].match.query[1]: set exactly one of exact, prefix, regex or present`,
 			},
 		},
 		{
