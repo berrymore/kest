@@ -21,11 +21,13 @@ Nothing: the branch waits for the user.
 1. **Git first:** `git status` on `feat/m4-http-edge`; `git log --oneline main..HEAD` shows one commit per item
    (K-080…K-090) and the `docs:` commits.
 2. **When the user has looked at the branch and agrees:** push it (`git push -u origin feat/m4-http-edge`; if SSH
-   fails, see the memory note on HTTPS with `gh auth git-credential`), `gh pr create` with the milestone summary,
+   fails while the SSH agent is locked: `git -c credential.helper= -c "credential.helper=!gh auth git-credential"
+   push https://github.com/berrymore/kest.git feat/m4-http-edge:feat/m4-http-edge`), `gh pr create` with the milestone summary,
    the items, the decisions to review (Q10 below), how it was tested, and that the docs review ran. Merge only on
    the user's go-ahead (`rules.md` § 9); run the docs review again if the branch changed.
-3. **After the merge: M5 (WASM sandbox).** Read `roadmap.md` § M5, `backlog.md` § M5 (K-100…), ADR-0006 and
-   `architecture.md` § 9; K-100 (the guest ABI ADR) comes first and needs research (Proxy-Wasm, http-wasm, WASI).
+3. **After the merge: M5 (WASM sandbox)** on a new branch `feat/m5-wasm` from an updated `main`. Read
+   `roadmap.md` § M5, `backlog.md` § M5 (K-100…), ADR-0006 and `architecture.md` § 9; K-100 (the guest ABI ADR)
+   comes first and needs research (Proxy-Wasm, http-wasm, WASI).
 
 ## Open questions (need a decision from the user)
 
@@ -33,6 +35,8 @@ Nothing: the branch waits for the user.
   D11 (`tls`, `http.protocols`, `http.normalize_path`/`merge_slashes` on by default, the filters `client_ip`,
   `headers`, `cors`, `compression`, the `redirect` action, `php_workers.static`, the cluster types `static_files`
   and `http_proxy`). Recommendation: accept them as a whole with the PR.
+- **Q11** — `.ai/context.md`'s glossary lists the cluster types `php_workers`, `wasm`, `http_proxy`; M4 added
+  `static_files`. `context.md` changes only with the user: add it?
 
 ## Resolved decisions
 

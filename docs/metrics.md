@@ -18,8 +18,9 @@ Every label value comes from the config or from a small fixed set, never from a 
 stays bounded:
 
 - `listener`, `virtual_host`, `cluster`: names from the config. Routes have no names, so requests are counted by
-  virtual host and cluster. `cluster` is empty for `direct_response` routes and for requests that match no route;
-  `virtual_host` is empty when no virtual host matches the request's host.
+  virtual host and cluster. `cluster` is empty for `direct_response` and `redirect` routes and for requests that
+  match no route; `virtual_host` is empty when no virtual host matches the request's host. Requests that a filter
+  answers itself (CORS preflights from `cors`) don't reach the router and aren't counted in `kest_http_requests_*`.
 - `code`: the HTTP status code of the response.
 - `state`, `reason`: the fixed values listed below.
 - `endpoint`, `cert_file`: values from the config (an `http_proxy` endpoint, a TLS certificate file).

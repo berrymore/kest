@@ -169,7 +169,7 @@ Stop(ctx context.Context) error
 type Factory[T any] struct {
 	Type      string                                    // "php_workers", "access_log", …
 	NewConfig func() any                                // pointer to a config struct pre-filled with defaults; may implement Validate() error
-	Build     func(bc BuildContext, cfg any) (T, error) // no side effects: no goroutines, no I/O
+	Build     func(bc BuildContext, cfg any) (T, error) // no goroutines, no side effects; may read files the config names
 }
 type BuildContext struct {
 	Name      string // component name (clusters)
@@ -222,7 +222,8 @@ func (p *Pool) Health() Health                    // healthy / degraded / unheal
 func (p *Pool) Waiting() int                      // callers waiting for a free worker
 func (p *Pool) Reset(ctx context.Context) error   // rolling replacement, one slot at a time; ErrResetRunning
 // Config.Observer (optional) hears Waited(d), Rejected(reason) and Replaced(reason); reasons are metric labels.
-// Errors: ErrQueueFull, ErrNoWorker, ErrStopped, ErrStopRequested, *JobError (soft, worker kept),
+// Errors: ErrQueueFull, ErrNoWorker, ErrStopped, ErrStopRequested, ErrStreamTooLarge (Exec only),
+// *JobError (soft, worker kept),
 // *ProcessError (worker gone; wraps ErrExecTimeout or ErrStartTimeout on timeouts, *StdoutError
 // with the start of the output when the worker printed to stdout outside the protocol).
 
@@ -242,7 +243,8 @@ Layering (dependencies point down only):
 cmd/kest ─▶ server ─▶ config, registry ─▶ metrics
                   ─▶ listener
                   ─▶ httpx (filter chain, router, RequestInfo) ◀─ filters/*
-                  ─▶ cluster/* ─▶ rrhttp ─▶ worker ─▶ relay
+                  ─▶ cluster/* ─▶ httpx (RequestInfo, ClientIP, Scheme), staticfiles ─▶ httpx, config
+                               ─▶ rrhttp ─▶ worker ─▶ relay
                   ─▶ admin ─▶ metrics, cluster
 ```
 
@@ -258,7 +260,10 @@ cmd/kest ─▶ server ─▶ config, registry ─▶ metrics
    For field-level problems, `Validate() error` returns `*config.FieldError{Field, Msg}` values (joined with
    `errors.Join`); they come out located, as in `clusters[0].config.pool.workers: must be positive`.
 3. Register in `init()`: `cluster.Types.Register(registry.Factory[cluster.Cluster]{Type, NewConfig, Build})`
-   (or `httpx.Filters`). `Build` must not start goroutines or do I/O; that belongs in `Start`.
+   (or `httpx.Filters`). `Build` must not start goroutines, bind or connect; that belongs in `Start`. It may read
+   files the config names (`http_proxy`'s `tls.ca_file`) and report a problem as a `*config.FieldError`, which
+   `registry.Build` locates like a `Validate` error. Core components located by YAML path use
+   `config.Config.ErrorAt` (TLS certificates in `server.New`).
 4. Blank-import the package from the binary, in `cmd/kest/extensions.go` (create it with the first
    extension). Otherwise `init()` never runs and the type is "unknown".
 5. Tests: register test-only types from `_test.go` files (see `internal/server/server_test.go`), and add
@@ -309,11 +314,15 @@ Stopped ──▶ Starting ──▶ Ready ⇄ Working ──▶ Stopping ──
 
 1. Parse flags → read file → parse YAML → expand env in scalars → strict decode → apply defaults → validate
    (including cross-references).
-2. `server.New` builds the component graph through the registry, decoding extension configs. No side
-   effects, so `kest validate` runs this step too.
-3. Start clusters (M2+: `php_workers` starts its pool and waits for every handshake, bounded by a startup timeout).
-4. Start the admin server, then the listeners (bind ports). If anything fails to start, the components
-   already started are stopped and `Run` returns the error.
+2. `server.New` builds the component graph through the registry, decoding extension configs and reading the
+   files the config names (TLS certificates, `http_proxy`'s `tls.ca_file`). No side effects, so `kest validate`
+   runs this step too and reports unreadable files with their YAML path.
+3. Start clusters (M2+: `php_workers` starts its pool and waits for every handshake, bounded by a startup timeout;
+   `php_workers.static` and `static_files` fail if their `dir` is missing; `http_proxy` runs one round of health
+   checks, never failing on them, then checks in the background until `Stop`).
+4. Start the admin server, then the listeners (bind ports; a TLS listener also starts its certificate checks,
+   stopped in `Stop` after the drain). If anything fails to start, the components already started are stopped and
+   `Run` returns the error.
 5. Mark ready (`/ready` returns 200); `Server.Ready()` is closed.
 
 **Shutdown** (SIGINT / SIGTERM, or a fatal error from a running component)
@@ -335,6 +344,8 @@ Stopped ──▶ Starting ──▶ Ready ⇄ Working ──▶ Stopping ──
   replacement while the old worker serves, hands it to the slot between jobs (`slot.swap`), and stops the old one in
   the background: capacity stays, at most `workers + 1` processes. A replacement that doesn't boot stops the reset;
   a slot whose process started after the reset began (a newer generation) drops the offered one.
+- M4 🟢: TLS certificates: each TLS listener checks its files every 10s (size and mtime) and swaps a pair that
+  changed once it holds still for a check; a pair that fails to load keeps the old one.
 - M6: full config reload: diff the old and new graphs and restart only the components that changed.
 
 ## 7. Package layout
@@ -391,7 +402,7 @@ test/bench/                  🟢 benchmark against RoadRunner: configs, loadgen
 | `GET /ready` | 200 when serving; 503 while starting, draining, or a cluster can't serve (`cluster.Prober`) | 🟢 M0, M3 |
 | `GET /server_info` | version, uptime, config path | 🟢 M0 |
 | `GET /config_dump` | effective config, defaults applied; extension configs that implement `config.Redactor` (php_workers: `env` values) redacted | 🟢 M3 |
-| `GET /clusters` | clusters, pools, workers (pid, state, jobs, memory, age), from `cluster.Reporter` | 🟢 M3 |
+| `GET /clusters` | clusters with `cluster.Reporter`'s status: php_workers pools and workers (pid, state, jobs, memory, age), http_proxy endpoints (health, active requests) | 🟢 M3, M4 |
 | `POST /clusters/{name}/reset` | rolling restart of a pool; returns when done | 🟢 M3 |
 | `GET /metrics` | Prometheus text format (`docs/metrics.md`) | 🟢 M3 |
 

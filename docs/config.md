@@ -110,7 +110,7 @@ Endpoints:
 | `GET /ready` | `200 ready` while serving traffic; `503 starting` / `503 draining` otherwise, and `503 not serving: <clusters>` while a cluster has no live worker (a pool whose workers are only being replaced still counts as serving) |
 | `GET /server_info` | JSON: version, commit, Go version, state, start time, uptime, config file |
 | `GET /config_dump` | The effective configuration as YAML, with every default filled in, like `kest validate -dump`, but with the values of every `env` map shown as `[redacted]` (`validate -dump` shows them) |
-| `GET /clusters` | JSON: every cluster with its `name`, `type`, whether it is `serving`, and its `status`; for `php_workers` the pool's `health` (`healthy`, `degraded`, `unhealthy`), `queue_length`, and each worker's `slot`, `state`, `pid`, `jobs`, `started_at`, `age_seconds` and `memory_bytes` (when sampled) |
+| `GET /clusters` | JSON: every cluster with its `name`, `type`, whether it is `serving` (only for types that can be down: `php_workers`), and its `status`: for `php_workers` the pool's `health` (`healthy`, `degraded`, `unhealthy`), `queue_length`, and each worker's `slot`, `state`, `pid`, `jobs`, `started_at`, `age_seconds` and `memory_bytes` (when sampled); for `http_proxy` the `load_balancing` and each endpoint's `endpoint`, `healthy` and `active` requests; none for `static_files` |
 | `POST /clusters/{name}/reset` | Replace the cluster's workers one by one (a rolling restart, to deploy new code), and answer when done: `200 reset done`; `404` for an unknown cluster, `409` while a reset runs, `501` for a cluster type that can't, `503` while starting or draining, `500` with the reason when a new worker failed to boot (the reset stops there; the workers it didn't reach keep serving). A client that disconnects doesn't stop the reset. |
 | `GET /metrics` | Metrics in the Prometheus text format; see [Metrics](metrics.md) |
 
@@ -466,7 +466,7 @@ Uploads count towards `max_request_body`.
 |---|---|---|
 | `ttl` | `0s` (off) | A worker's maximum lifetime; it is replaced after its current request. |
 | `idle_ttl` | `0s` (off) | A worker idle this long is replaced. |
-| `exec_ttl` | `60s` | A request's maximum time in a worker; the worker is killed after it and the request gets `504`. `0s` disables it. |
+| `exec_ttl` | `60s` | A request's maximum time in a worker (per chunk when the worker streams); the worker is killed after it and the request gets `504`. `0s` disables it. |
 | `max_worker_memory` | `0` (off) | A worker whose RSS grows past this size is replaced after its current request. Linux and macOS only. |
 | `watch_tick` | `5s` | How often worker memory is checked. |
 
@@ -556,8 +556,7 @@ forms to 10000 fields and 1000 multipart parts.
 
 **Responses.** kest sets `Content-Length` itself and ignores the worker's `Content-Length` and
 `Transfer-Encoding` (a HEAD response keeps the worker's `Content-Length`); headers named in a
-`Trailer` header are sent as trailers. Streamed responses (`PSR7Worker::$chunkSize`, generator bodies)
-are not supported yet: a worker that streams is replaced and the request gets `502`.
+`Trailer` header are sent as trailers. A streamed response is chunked instead (see Streaming above).
 
 **Errors.** The client gets the status and its standard text; the details go to the log.
 
@@ -621,7 +620,7 @@ clusters:
 | `max_connections` | `1024` | Connections to each endpoint; requests beyond it wait for one, within the route `timeout`. |
 | `max_idle_connections` | `64` | Idle connections kept per endpoint for reuse; at most `max_connections`. |
 | `idle_timeout` | `90s` | An idle connection is closed after this long. |
-| `http2` | `false` | Speak HTTP/2 to the endpoints: h2 to `https` ones, h2c (prior knowledge) to `http` ones. |
+| `http2` | `false` | Speak HTTP/2 to the endpoints: h2 to `https` ones, h2c (prior knowledge) to `http` ones. HTTP/2 only, so WebSocket upgrades don't pass. |
 | `tls.ca_file` | the system's | PEM certificates trusted for `https` endpoints; relative to the config file. |
 | `tls.server_name` | each endpoint's host | The name checked against the endpoints' certificates. |
 | `tls.insecure_skip_verify` | `false` | Accept any certificate. For development only. |
@@ -631,7 +630,7 @@ clusters:
 | `health_check.healthy_threshold` | `2` | Passed checks in a row that bring an endpoint back. |
 | `health_check.unhealthy_threshold` | `3` | Failed checks in a row that take an endpoint out. |
 | `retries.count` | `1` | How many times a failed request is sent again, each time to another endpoint when there is one; 0–10. |
-| `retries.on` | `[connect_failure]` | What is retried: `connect_failure` (no connection could be made, so nothing was sent: any request), `gateway_error` (`502`, `503` or `504` from the endpoint) and `reset` (the connection broke before a response); the last two only for requests without a body and with an idempotent method (`GET`, `HEAD`, `OPTIONS`, `PUT`, `DELETE`). |
+| `retries.on` | `[connect_failure]` | What is retried: `connect_failure` (no connection could be made, so nothing was sent: any request), `gateway_error` (`502`, `503` or `504` from the endpoint) and `reset` (the connection broke before a response); the last two only for requests without a body and with an idempotent method (`GET`, `HEAD`, `OPTIONS`, `TRACE`, `PUT`, `DELETE`). |
 
 kest checks every endpoint once when it starts, then every `interval`; it doesn't fail to start when one is down.
 Requests go to healthy endpoints only, unless none is healthy: then to all of them, since failing every request
@@ -641,6 +640,7 @@ load balancer; `/clusters` shows each endpoint's health and requests in flight.
 The request keeps its path, query, method and body (streamed, not buffered); hop-by-hop headers are removed. kest
 appends the peer's address to `X-Forwarded-For` and sets `X-Forwarded-Host` (the client's `Host`) and
 `X-Forwarded-Proto` (as the `client_ip` filter reports it behind a trusted proxy). Responses stream back as they
-come, and `Upgrade` requests (WebSocket) pass through on HTTP/1.1 listeners. A request that gets no response is
+come, and `Upgrade` requests (WebSocket) pass through on HTTP/1.1 listeners, with `http2: false` (Go's HTTP/2
+client doesn't send `Upgrade`). A request that gets no response is
 answered `503` when no connection could be made, `504` at the route `timeout`, and `502` otherwise. Outgoing
 connections ignore `HTTP_PROXY`.

@@ -93,7 +93,7 @@ Exit criteria:
 
 ## M4 — HTTP edge features
 
-Scope [K-080…K-093]: TLS from files (ACME later), HTTP/2 (h2, h2c), static files, compression, CORS,
+Scope [K-080…K-095]: TLS from files (ACME later), HTTP/2 (h2, h2c), static files, compression, CORS,
 header manipulation, redirects, an `http_proxy` cluster (load balancing, health checks, retries), path
 normalization, trusted proxies, streaming responses from PHP. Plan: `plans/M4-http-edge.md`.
 

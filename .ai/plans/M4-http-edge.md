@@ -1,7 +1,8 @@
 # Plan: M4 — HTTP edge features
 
-- **Status:** Active (2026-10-25). The user delegated M4 ("start M4, write the plan, try to finish the milestone
-  yourself") and asked not to open the PR before they have looked at the result locally. The decisions below
+- **Status:** Done (2026-10-25), on `feat/m4-http-edge`, not pushed: the user delegated M4 ("start M4, write the
+  plan, try to finish the milestone yourself") and asked not to open the PR before they have looked at the result
+  locally. The decisions below
   were taken by the agent; the ones marked **schema** change the config file and are listed for the user's
   review.
 - **Milestone:** M4
@@ -73,8 +74,8 @@ When the peer is trusted, kest walks the header from the right and skips trusted
 is the client (if all are trusted, the leftmost). A client can't spoof it by sending its own `X-Forwarded-For`,
 which RoadRunner's `proxy_ip_parser` allows (it takes the leftmost value; checked in its v6.0.0 source). The
 result goes to `httpx.RequestInfo.ClientIP`, which every consumer reads whatever the filter order: PHP's
-`remoteAddr` (replaced, as RoadRunner does), `access_log`'s `remote`, and the `X-Forwarded-For` that
-`http_proxy` sends. A trusted peer's `X-Forwarded-Proto: https` (a single `http` or `https` value) also makes the
+`remoteAddr` (replaced, as RoadRunner does) and `access_log`'s `remote`. (`http_proxy` appends the peer to the
+incoming `X-Forwarded-For` instead; see the log.) A trusted peer's `X-Forwarded-Proto: https` (a single `http` or `https` value) also makes the
 URI that PHP sees `https://`, so frameworks build the right links behind a TLS-terminating balancer.
 
 **D5. Headers filter** (K-084, schema). `headers` with `request` and `response` blocks, each with `set` (replace),
@@ -182,7 +183,7 @@ Steps 1–2 are the vertical slice: `curl --http2 -k https://localhost:8443/` ag
     Hints; a client that disconnects mid-stream stops it and the worker serves the next request.
 11. [x] **`http_proxy`** (K-085) — acceptance: e2e against test backends: balancing, health checks, retries,
     WebSocket upgrade.
-12. [ ] **Docs and review** — `docs/` (config reference, operations: TLS and proxies), README, architecture; the
+12. [x] **Docs and review** — `docs/` (config reference, operations: TLS and proxies), README, architecture; the
     docs review (`review.md`). No PR until the user has looked at the branch.
 
 ## Risks / open questions
@@ -196,6 +197,14 @@ Steps 1–2 are the vertical slice: `curl --http2 -k https://localhost:8443/` ag
 
 ## Log
 
+- 2026-10-25 — Step 12 done: README, getting started (RoadRunner mapping), operations (TLS, load balancers),
+  architecture; the docs review found 19 drifts (one blocker: `docs/config.md` still said streaming was
+  unsupported), all fixed except the glossary of `context.md`, which changes only with the user (Q11). Exit
+  criteria met: `make check`, `make test-integration` and `make test-matrix` (PHP 8.3.36, 8.4.27, 8.5.12) green.
+  A server test runs a stream with early hints through `recovery`, `headers` and `compression`.
+- 2026-10-25 — Deviation from D4/D11: `http_proxy` doesn't put `RequestInfo.ClientIP` into `X-Forwarded-For`; it
+  appends the peer's address to the incoming header, as every proxy in a chain does (`SetXForwarded`), so the
+  upstream can walk the chain with its own trusted proxies. `X-Forwarded-Proto` does use `httpx.Scheme`.
 - 2026-10-25 — Step 11 (K-085) done as in D11; beyond it, `kest_upstream_requests_active`. `registry.Build` now
   locates a `*config.FieldError` that `Build` returns (an unreadable `tls.ca_file`). Passive health checks went to
   the backlog (K-094); counting filter-answered requests too (K-095).

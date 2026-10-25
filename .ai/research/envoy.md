@@ -43,5 +43,7 @@ Sources: https://www.envoyproxy.io/docs, https://github.com/envoyproxy/envoy (C+
 ## Questions for later
 
 - Envoy's drain sequence (`drain_timeout`, `--drain-strategy`) — details to mirror in M3/M6.
-- Retry and timeout semantics for `http_proxy` clusters (M4).
+- Retry and timeout semantics for `http_proxy` clusters: M4 chose its own (`docs/config.md` § `http_proxy`)
+  without checking Envoy's ❓. The names borrowed from Envoy (panic mode when no endpoint is healthy,
+  `normalize_path`, `merge_slashes`, `prefix_rewrite`) are from memory ❓ and describe kest's behavior only.
 - How the Proxy-Wasm ABI maps onto wazero, and the existing Go host implementations (M5).

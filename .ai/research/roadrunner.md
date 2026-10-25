@@ -226,9 +226,16 @@ context means "body only".
 
 **Streaming** (`STREAM` bit): `HttpWorker::respond()` streams when the body is a `Generator`; `PSR7Worker` does so
 only when `$chunkSize > 0` (default 0, off). Every chunk repeats status and headers; RR writes them once.
-Checked on 2026-10-25 in `roadrunner/worker` 3.8.2 (`Worker.php`, `PayloadFactory.php`), `roadrunner/http` 4.2.1
-(`HttpWorker::respondStream`) and Go `github.com/roadrunner-server/pool/v2` v2.0.0-beta.1 (`worker/worker.go`,
-`pool/static_pool/pool.go`) ✅:
+Checked on 2026-10-25 ✅ in `roadrunner/worker` 3.8.2
+([`Worker.php`](https://github.com/roadrunner-php/worker/blob/35fcf09b55de68954e03dc727b710b963db9517d/src/Worker.php),
+[`PayloadFactory.php`](https://github.com/roadrunner-php/worker/blob/35fcf09b55de68954e03dc727b710b963db9517d/src/PayloadFactory.php)),
+`roadrunner/http` 4.2.1
+([`HttpWorker.php`](https://github.com/roadrunner-php/http/blob/8aef71907057d076f132484b32fe6178c370a73d/src/HttpWorker.php),
+`respondStream`) and Go `pool/v2` v2.0.0, RR 3's version
+([`worker/worker.go`](https://github.com/roadrunner-server/pool/blob/c0b00f97a646bf37ff9772be93ad5dfd6dfd1fe5/worker/worker.go),
+[`pool/static_pool/stream.go`](https://github.com/roadrunner-server/pool/blob/c0b00f97a646bf37ff9772be93ad5dfd6dfd1fe5/pool/static_pool/stream.go)).
+v2.0.0-beta.1 (`96b38d2`, the version `http/v6` v6.0.0's `go.mod` names) behaves the same; v2.0.0 moved the loop
+into `streamIterate` and also stops a stream whose consumer's context is gone:
 - Byte 10 of a frame: `0x01` STREAM (more frames follow), `0x02` STOP, `0x04` PING, `0x08` PONG. The last frame of a
   stream has no STREAM bit. `respond(103, '', $headers, false)` sends an informational frame first; RR writes 1xx
   other than 101 as informational responses (`writeInformational`).
@@ -242,15 +249,17 @@ Checked on 2026-10-25 in `roadrunner/worker` 3.8.2 (`Worker.php`, `PayloadFactor
 
 **PHP side** (`PSR7Worker`, `GlobalState`): `$_SERVER` gets `REQUEST_URI` = the full `uri` (scheme and host
 included), `REMOTE_ADDR` (`attributes.ipAddress` if set), `REQUEST_METHOD`, `HTTP_HOST` from the URI, `HTTP_*` and
-`CONTENT_TYPE`/`CONTENT_LENGTH` from the headers.
+`CONTENT_TYPE`/`CONTENT_LENGTH` from the headers. PSR-7 `Host` comes from the URI. The protocol version is the part
+after `HTTP/` (`2.0` → `2`). A request with an empty context and an empty body is read as "stop".
 
-**Client IP behind proxies** (`proxy_ip_parser` v6.0.0, `plugin.go`, checked 2026-10-25 ✅): enabled by
+**Client IP behind proxies** (`proxy_ip_parser` v6.0.0,
+[`plugin.go`](https://github.com/roadrunner-server/proxy_ip_parser/blob/31190ae39d7472fc881ec559c336f898b903d3f2/plugin.go),
+checked 2026-10-25 ✅): enabled by
 `http.trusted_subnets` (CIDRs, no defaults in the plugin). If the peer is in a trusted subnet, the first header of
 `Forwarded` (`for=`), `X-Forwarded-For` (the **leftmost** address), `X-Real-Ip`, `True-Client-Ip`,
 `Cf-Connecting-Ip` (or the `http.trusted_headers` list, in order) that yields a value replaces `r.RemoteAddr`, which
 becomes `remote_addr` of the request context. The value isn't validated as an IP, and the leftmost
-`X-Forwarded-For` entry is whatever the client sent through a proxy that appends. No `ipAddress` attribute is set. PSR-7 `Host` comes from the URI. The protocol version is the part
-after `HTTP/` (`2.0` → `2`). A request with an empty context and an empty body is read as "stop".
+`X-Forwarded-For` entry is whatever the client sent through a proxy that appends. No `ipAddress` attribute is set.
 
 **Environment:** the http plugin adds `RR_MODE=http` ✅. PHP reads `RR_VERSION` only through
 `Environment::getVersion()`; nothing in `roadrunner/http` or `roadrunner/worker` uses it ✅. Frameworks branch on
