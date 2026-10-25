@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-10-25 (M5 on `feat/m5-pools`: plan approved, step 2 K-910 in progress)_
+_Last updated: 2026-10-25 (M5 on `feat/m5-pools`: K-910 committed; step 3, the lanes, in progress)_
 
 ## Current phase
 
@@ -15,22 +15,27 @@ priority, a queue timeout), fast rejection under overload, a dynamic size, `X-Se
 **M5 — Worker pools and routing to them**, on `feat/m5-pools` (from `main` at the K-148 commit). The user narrowed
 the milestone to the pool (2026-10-25): K-142 weighted clusters dropped, K-145…K-147 (authentication, rate limiting,
 external authorization) to the icebox, K-141 to M6. `plans/M5-pools.md` (Active, approved) has decisions D1–D10 and steps
-1–13. Step 1 (the plan) is committed; step 2 (K-910 route names) is in progress.
+1–13. Steps 1 (the plan) and 2 (K-910 route names) are committed; step 3 (lanes
+in `worker.Pool`) is in progress. The agent commits each item itself after a green `make check` until the end of
+M5; the PR waits for the user's OK.
 
 ## Next up: how to continue in a fresh session
 
 1. **Git first:** `git checkout feat/m5-pools`; `git log --oneline -3` shows the `docs:` commit of the plan on top
    of K-148.
-2. **Step 2, K-910 route names:** `routes[].name` in `internal/config` (validation: unique in the config),
-   `RequestInfo.Route`, a `route` label in `internal/httpx/metrics.go` (targets keyed by virtual host, route and
-   cluster), `route` in `access_log`; `docs/config.md`, `docs/metrics.md`. Then step 3, the lanes in
-   `internal/worker/pool.go` (D2): read `architecture.md` § 4–5 and the pool tests first.
+2. **Step 3, lanes in `worker.Pool`** (plan D2): read `architecture.md` § 4–5, `internal/worker/pool.go` and its
+   tests first. Replace the unbuffered jobs channel with a dispatcher (per-lane queues, idle slots, one mutex);
+   `Pool.Lane(LaneConfig)`; keep the existing pool tests green; synctest tests for ordering, limits, timeouts and
+   the hand-over race; compare a Go benchmark of `Exec` and `make bench` with the K-148 numbers.
 
 ## Open questions (need a decision from the user)
 
 None. D4 (overload) will bring its names and defaults to the user after step 6's measurement.
 
 ## Resolved decisions
+
+- 2026-10-25 — M5: the user lets the agent commit each item itself after a green `make check`, until the end of the
+  milestone. The PR (push, `gh pr create`) still needs the user's OK.
 
 - 2026-10-25 — Q14: the user approved `plans/M5-pools.md` as a whole, with its schema changes (route `name`;
   `route.max_workers`, `priority`, `queue_timeout`; `php_workers.retry_after`; `pool.max_workers`,

@@ -226,7 +226,7 @@ Every filter works in any of the three places. Each place builds its own instanc
 **`access_log`** writes one line per request to kest's log (stderr, in `log.format`), with `component=access`
 and the listener's name: `method`, `path` (without the query string, which may hold secrets), `proto`, `status`,
 `bytes` (of the body), `duration`, `remote` (the client's IP, from `client_ip` when a trusted proxy reported it),
-`request_id`, `virtual_host`, `cluster` and `user_agent`. It takes no config.
+`request_id`, `virtual_host`, `route` (the route's `name`), `cluster` and `user_agent`. It takes no config.
 
 **`recovery`** turns a panic in kest below it into a `500` with the stack in the log, instead of a dropped
 connection. If the response had started, the connection is cut, so that the client doesn't mistake a partial
@@ -386,6 +386,7 @@ Every route has a `match` and exactly one action.
 
 | Field | |
 |---|---|
+| `name` | Optional. Up to 64 letters, digits, `_`, `.` or `-`, unique in the whole config. Labels the route's requests in the metrics (`route`) and the access log. |
 | `match.prefix` | The path starts with this value; must start with `/` |
 | `match.path` | The path equals this value; must start with `/` |
 | `filters` | Filters for the requests of this route, after the virtual host's, before the action; see [Filters](#filters) |

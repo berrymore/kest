@@ -13,8 +13,9 @@ import (
 var nameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 
 type validator struct {
-	src  *source
-	errs Errors
+	src    *source
+	errs   Errors
+	routes map[string]bool // route names, unique in the whole config
 }
 
 func (v *validator) errorf(path, format string, args ...any) {
@@ -22,7 +23,7 @@ func (v *validator) errorf(path, format string, args ...any) {
 }
 
 func (c *Config) validate() error {
-	v := &validator{src: c.src}
+	v := &validator{src: c.src, routes: make(map[string]bool)}
 
 	switch c.Version {
 	case SchemaVersion:
@@ -200,6 +201,9 @@ func (v *validator) filters(path string, filters []Extension) {
 }
 
 func (v *validator) route(path string, r *Route, clusters map[string]bool) {
+	if r.Name != "" {
+		v.name(path, r.Name, v.routes, "route")
+	}
 	v.filters(path, r.Filters)
 	m := r.Match
 	switch {

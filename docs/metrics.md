@@ -17,8 +17,9 @@ The admin API has no authentication: keep it on a loopback or private address.
 Every label value comes from the config or from a small fixed set, never from a request, so the number of series
 stays bounded:
 
-- `listener`, `virtual_host`, `cluster`: names from the config. Routes have no names, so requests are counted by
-  virtual host and cluster. `cluster` is set when the request reaches a route's cluster: it is empty for
+- `listener`, `virtual_host`, `route`, `cluster`: names from the config. `route` is the `name` of the route the
+  router chose, empty when the route has none: name the routes you want to tell apart, such as two routes to the
+  same cluster. `cluster` is set when the request reaches a route's cluster: it is empty for
   `direct_response` and `redirect` routes, for requests that match no route, and for requests that a filter of the
   virtual host or the route answers itself. `virtual_host` is empty when no virtual host matches the request's host.
   Requests that a filter of the listener answers itself (CORS preflights from `cors`) don't reach the router and
@@ -33,8 +34,8 @@ stays bounded:
 
 | Metric | Type | Labels | |
 |---|---|---|---|
-| `kest_http_requests_total` | counter | `listener`, `virtual_host`, `cluster`, `code` | Requests, counted when the response is done. |
-| `kest_http_request_duration_seconds` | histogram | `listener`, `virtual_host`, `cluster` | From choosing the virtual host until the response is done: the filters of the virtual host and the route, the wait for a worker and the worker's time. Buckets from 5 ms to 60 s. |
+| `kest_http_requests_total` | counter | `listener`, `virtual_host`, `route`, `cluster`, `code` | Requests, counted when the response is done. |
+| `kest_http_request_duration_seconds` | histogram | `listener`, `virtual_host`, `route`, `cluster` | From choosing the virtual host until the response is done: the filters of the virtual host and the route, the wait for a worker and the worker's time. Buckets from 5 ms to 60 s. |
 | `kest_http_requests_in_flight` | gauge | `listener` | Requests being served now. |
 
 ## TLS
@@ -80,6 +81,9 @@ sum by (cluster) (rate(kest_http_requests_total{code=~"5.."}[5m]))
 
 # 99th percentile latency, by cluster
 histogram_quantile(0.99, sum by (cluster, le) (rate(kest_http_request_duration_seconds_bucket[5m])))
+
+# 99th percentile latency of each named route
+histogram_quantile(0.99, sum by (route, le) (rate(kest_http_request_duration_seconds_bucket{route!=""}[5m])))
 
 # Pool saturation: busy workers out of all live ones
 sum by (cluster) (kest_pool_workers{state="working"})

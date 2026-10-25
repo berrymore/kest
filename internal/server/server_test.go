@@ -352,7 +352,7 @@ func TestMetrics(t *testing.T) {
 		t.Fatalf("GET /ping: %d", code)
 	}
 	if got := metricstest.Value(t, s.Metrics(), "kest_http_requests_total",
-		"listener", "main", "virtual_host", "default", "cluster", "", "code", "200"); got != 1 {
+		"listener", "main", "virtual_host", "default", "route", "", "cluster", "", "code", "200"); got != 1 {
 		t.Errorf("requests = %v, want 1", got)
 	}
 	if got := metricstest.Value(t, s.Metrics(), "go_goroutines"); got <= 0 {

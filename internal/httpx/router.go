@@ -16,7 +16,8 @@ import (
 
 // Router selects a virtual host by the request's Host and runs its filters,
 // then selects the first route whose match fits the request path and runs
-// the route's filters and its action.
+// the route's filters and its action. Requests are counted by virtual host,
+// route name and cluster.
 type Router struct {
 	exact    map[string]*virtualHost
 	suffixes []suffixHost // longest suffix first
@@ -54,21 +55,25 @@ func newRouter(vhosts []config.VirtualHost, clusters ClusterLookup, m *listenerM
 	errs *config.Errors) *Router {
 	rt := &Router{
 		exact:  make(map[string]*virtualHost),
-		noHost: m.target("", "").instrument(http.NotFoundHandler()),
+		noHost: m.target("", "", "").instrument(http.NotFoundHandler()),
 	}
 	for i := range vhosts {
 		cfg := &vhosts[i]
 		vh := &virtualHost{}
 		filters := buildFilters(cfg.Filters, bc, errs)
 		for j := range cfg.Routes {
-			r := newRoute(&cfg.Routes[j], clusters)
-			if a := cfg.Routes[j].Route; a != nil {
-				r.handler = m.target(cfg.Name, a.Cluster).routed(r.handler)
+			rc := &cfg.Routes[j]
+			r := newRoute(rc, clusters)
+			if rc.Route != nil {
+				r.handler = m.target(cfg.Name, rc.Name, rc.Route.Cluster).routed(r.handler)
 			}
-			r.handler = Chain(r.handler, buildFilters(cfg.Routes[j].Filters, bc, errs)...)
+			r.handler = Chain(r.handler, buildFilters(rc.Filters, bc, errs)...)
+			if rc.Name != "" {
+				r.handler = m.target(cfg.Name, rc.Name, "").chosen(r.handler)
+			}
 			vh.routes = append(vh.routes, r)
 		}
-		vh.handler = m.target(cfg.Name, "").instrument(Chain(http.HandlerFunc(vh.dispatch), filters...))
+		vh.handler = m.target(cfg.Name, "", "").instrument(Chain(http.HandlerFunc(vh.dispatch), filters...))
 		for _, d := range cfg.Domains {
 			switch {
 			case d == "*":

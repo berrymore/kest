@@ -33,18 +33,19 @@ func init() {
 	})
 }
 
-// seenCluster is the cluster that see_cluster saw in the last request's info.
-var seenCluster string
+// seenRoute and seenCluster are the route and cluster that see_cluster saw in
+// the last request's info.
+var seenRoute, seenCluster string
 
 func init() {
-	// see_cluster records the request's cluster once the rest of the chain has served it.
+	// see_cluster records the request's route and cluster once the rest of the chain has served it.
 	httpx.Filters.Register(registry.Factory[httpx.Filter]{
 		Type: "see_cluster",
 		Build: func(registry.BuildContext, any) (httpx.Filter, error) {
 			return func(next http.Handler) http.Handler {
 				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					next.ServeHTTP(w, r)
-					seenCluster = httpx.Info(r).Cluster
+					seenRoute, seenCluster = httpx.Info(r).Route, httpx.Info(r).Cluster
 				})
 			}, nil
 		},
@@ -310,7 +311,7 @@ func TestVirtualHostAndRouteFilters(t *testing.T) {
 }
 
 // A response that a filter of a virtual host or a route makes itself counts
-// without a cluster, and the request's info names none.
+// without a cluster, and the request's info names none; it names the route.
 func TestFilterAnswerCountsWithoutCluster(t *testing.T) {
 	reg := metrics.NewRegistry()
 	h, err := httpx.NewHandler(loadHTTP(t, `
@@ -322,7 +323,8 @@ func TestFilterAnswerCountsWithoutCluster(t *testing.T) {
         - name: site
           domains: ["*"]
           routes:
-            - match: {prefix: /tea}
+            - name: tea
+              match: {prefix: /tea}
               filters: [{type: teapot}]
               route: {cluster: app}
             - match: {prefix: /}
@@ -331,16 +333,18 @@ func TestFilterAnswerCountsWithoutCluster(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHandler: %v", err)
 	}
-	if code := get(t, h, "localhost", "/tea").Code; code != http.StatusTeapot || seenCluster != "" {
-		t.Errorf("/tea = %d with cluster %q, want 418 without one", code, seenCluster)
+	if code := get(t, h, "localhost", "/tea").Code; code != http.StatusTeapot || seenRoute != "tea" || seenCluster != "" {
+		t.Errorf("/tea = %d with route %q, cluster %q; want 418 from route tea without a cluster", code, seenRoute,
+			seenCluster)
 	}
-	if code := get(t, h, "localhost", "/coffee").Code; code != http.StatusOK || seenCluster != "app" {
-		t.Errorf("/coffee = %d with cluster %q, want 200 from app", code, seenCluster)
+	if code := get(t, h, "localhost", "/coffee").Code; code != http.StatusOK || seenRoute != "" || seenCluster != "app" {
+		t.Errorf("/coffee = %d with route %q, cluster %q; want 200 from app, no route name", code, seenRoute,
+			seenCluster)
 	}
-	for _, tt := range []struct{ cluster, code string }{{"", "418"}, {"app", "200"}} {
-		if got := metricstest.Value(t, reg, "kest_http_requests_total",
-			"listener", "main", "virtual_host", "site", "cluster", tt.cluster, "code", tt.code); got != 1 {
-			t.Errorf("requests{cluster %q, %s} = %v, want 1", tt.cluster, tt.code, got)
+	for _, tt := range []struct{ route, cluster, code string }{{"tea", "", "418"}, {"", "app", "200"}} {
+		if got := metricstest.Value(t, reg, "kest_http_requests_total", "listener", "main", "virtual_host", "site",
+			"route", tt.route, "cluster", tt.cluster, "code", tt.code); got != 1 {
+			t.Errorf("requests{route %q, cluster %q, %s} = %v, want 1", tt.route, tt.cluster, tt.code, got)
 		}
 	}
 }
@@ -394,8 +398,12 @@ func TestMetrics(t *testing.T) {
         - name: site
           domains: ["localhost"]
           routes:
-            - match: {path: /ping}
+            - name: ping
+              match: {path: /ping}
               direct_response: {status: 202}
+            - name: admin
+              match: {prefix: /api/admin/}
+              route: {cluster: app}
             - match: {prefix: /api/}
               route: {cluster: app}
             - match: {prefix: /gone}
@@ -409,6 +417,7 @@ func TestMetrics(t *testing.T) {
 		{"localhost", "/api/a"},
 		{"localhost", "/api/b"},
 		{"localhost", "/api/fail"},
+		{"localhost", "/api/admin/x"},
 		{"localhost", "/gone"},
 		{"localhost", "/nothing"},
 		{"other.org", "/"},
@@ -420,25 +429,31 @@ func TestMetrics(t *testing.T) {
 	}
 
 	for _, tt := range []struct {
-		vhost, cluster, code string
-		want                 float64
+		vhost, route, cluster, code string
+		want                        float64
 	}{
-		{"site", "", "202", 1},     // direct_response
-		{"site", "app", "200", 2},  // two requests to /api/
-		{"site", "app", "502", 1},  // after a 103
-		{"site", "gone", "503", 1}, // unknown cluster
-		{"site", "", "404", 1},     // no route in the virtual host
-		{"", "", "404", 1},         // no virtual host
+		{"site", "ping", "", "202", 1},     // direct_response
+		{"site", "", "app", "200", 2},      // two requests to /api/
+		{"site", "", "app", "502", 1},      // after a 103
+		{"site", "admin", "app", "200", 1}, // a named route to the same cluster: a series of its own
+		{"site", "", "gone", "503", 1},     // unknown cluster
+		{"site", "", "", "404", 1},         // no route in the virtual host
+		{"", "", "", "404", 1},             // no virtual host
 	} {
-		got := metricstest.Value(t, reg, "kest_http_requests_total",
-			"listener", "main", "virtual_host", tt.vhost, "cluster", tt.cluster, "code", tt.code)
+		got := metricstest.Value(t, reg, "kest_http_requests_total", "listener", "main", "virtual_host", tt.vhost,
+			"route", tt.route, "cluster", tt.cluster, "code", tt.code)
 		if got != tt.want {
-			t.Errorf("requests{%s, %s, %s} = %v, want %v", tt.vhost, tt.cluster, tt.code, got, tt.want)
+			t.Errorf("requests{%s, %s, %s, %s} = %v, want %v", tt.vhost, tt.route, tt.cluster, tt.code, got, tt.want)
 		}
 	}
-	if got := metricstest.Value(t, reg, "kest_http_request_duration_seconds",
-		"listener", "main", "virtual_host", "site", "cluster", "app"); got != 3 {
-		t.Errorf("duration observations = %v, want 3", got)
+	for _, tt := range []struct {
+		route string
+		want  float64
+	}{{"", 3}, {"admin", 1}} {
+		if got := metricstest.Value(t, reg, "kest_http_request_duration_seconds",
+			"listener", "main", "virtual_host", "site", "route", tt.route, "cluster", "app"); got != tt.want {
+			t.Errorf("duration observations of route %q = %v, want %v", tt.route, got, tt.want)
+		}
 	}
 	if got := metricstest.Value(t, reg, "kest_http_requests_in_flight", "listener", "main"); got != 0 {
 		t.Errorf("requests in flight after the requests = %v, want 0", got)

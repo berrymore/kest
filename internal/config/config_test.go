@@ -323,10 +323,10 @@ listeners:
       virtual_hosts:
         - name: a
           domains: ["*"]
-          routes: [{match: {prefix: /}, direct_response: {}}]
+          routes: [{name: r, match: {prefix: /}, direct_response: {}}]
         - name: a
           domains: ["*"]
-          routes: [{match: {prefix: /}, direct_response: {}}]
+          routes: [{name: r, match: {prefix: /}, direct_response: {}}, {name: "r 2", match: {prefix: /}, direct_response: {}}]
   - name: main
     address: 127.0.0.1:9001
 clusters:
@@ -337,6 +337,8 @@ clusters:
 				"listeners[0].address: address 127.0.0.1:9000 is already used by admin.address",
 				`listeners[0].http.virtual_hosts[1].name: duplicate virtual host name "a"`,
 				`listeners[0].http.virtual_hosts[1].domains[0]: domain "*" is already used by listeners[0].http.virtual_hosts[0].domains[0]`,
+				`kest.yaml:13:27: listeners[0].http.virtual_hosts[1].routes[0].name: duplicate route name "r"`,
+				`kest.yaml:13:79: listeners[0].http.virtual_hosts[1].routes[1].name: invalid name "r 2"`,
 				"kest.yaml:14:5: listeners[1].http: required",
 				`kest.yaml:14:11: listeners[1].name: duplicate listener name "main"`,
 				"kest.yaml:18:5: clusters[1].type: required",

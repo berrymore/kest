@@ -95,7 +95,8 @@ listeners:
           routes:
             - match: { prefix: /healthz }
               direct_response: { status: 200, body: "ok" }
-            - match: { prefix: /reports/ }
+            - name: reports      # optional, unique: labels metrics and access log lines
+              match: { prefix: /reports/ }
               route: { cluster: php_heavy, timeout: 120s }
             - match: { prefix: / }
               filters:       # after the router chose this route: files of public/ without PHP
@@ -177,7 +178,7 @@ func Build[T any](c *Category[T], ext *config.Extension, bc BuildContext) (T, er
 // internal/httpx: filters are plain middleware for now (open question Q-A).
 type Filter func(next http.Handler) http.Handler
 var Filters = registry.NewCategory[Filter]("http filter")
-// Every request carries an *httpx.RequestInfo (RequestID, VirtualHost, Cluster), set by the listener entry,
+// Every request carries an *httpx.RequestInfo (RequestID, VirtualHost, Route, Cluster), set by the listener entry,
 // the router and request_id; filters read it after the inner handler returns (access_log), whatever their
 // order. httpx.ResponseWriter records the status and body size; httpx.BeforeHeader edits a response header just
 // before it goes out (headers, cors, compression). RequestInfo.ClientIP/Scheme come from client_ip
@@ -376,14 +377,14 @@ test/bench/                  🟢 benchmark against RoadRunner: configs, loadgen
 
 - **Logs:** `log/slog`, text or JSON, level set in config. Worker stderr goes to logs line by line, tagged
   with `cluster` and `worker_pid` (🟢).
-- **Metrics (M3):** requests (count, latency, status) per listener, virtual host and cluster (routes have no
-  names); pool queue length
-  and wait time; workers by state; restarts by reason; worker memory. A hand-written core in
+- **Metrics (M3):** requests (count, latency, status) per listener, virtual host, route name (M5) and cluster;
+  pool queue length and wait time; workers by state; restarts by reason; worker memory. A hand-written core in
   `internal/metrics` with lock-free updates and series resolved when the graph is built; `GET /metrics` serves
   the Prometheus text format 0.0.4 (ADR-0007). `server.New` creates the registry (with Go and process metrics)
-  and hands it to components in `BuildContext`. `httpx` wraps each virtual host and counts a request under the cluster
-  its route reached, if any (`routed` marks it in `RequestInfo`; labels: listener, virtual host, cluster, status
-  code from a per-target array) and counts in-flight requests per listener; `php_workers`
+  and hands it to components in `BuildContext`. `httpx` wraps each virtual host and counts a request under the named
+  route it chose and the cluster that route reached, if any (`chosen` and `routed` mark them in `RequestInfo`;
+  labels: listener, virtual host, route, cluster, status code from a per-target array) and counts in-flight requests
+  per listener; `php_workers`
   observes its pool (`worker.Observer`) and reads states, queue and memory at scrape time. M4 adds
   `kest_tls_*` (certificate expiry, failed handshakes) per listener.
 - **Tracing:** OpenTelemetry later; the `request_id` filter exists (M3).

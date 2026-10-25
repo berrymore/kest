@@ -177,7 +177,7 @@ end to end. The user can look at it before the rest.
 
 1. [x] Plan, roadmap and backlog updated; research notes: RoadRunner's `dynamic_allocator` and `send`, Envoy's route
    matching, Symfony's `X-Sendfile` (this change) — acceptance: the user approves the plan.
-2. [ ] K-910 route names and the `route` label — acceptance: two named routes to one cluster show as two series;
+2. [x] K-910 route names and the `route` label — acceptance: two named routes to one cluster show as two series;
    names are validated unique; `access_log` writes the route; `docs/config.md` and `docs/metrics.md` updated.
 3. [ ] K-151 lanes in `worker.Pool` (D2): dispatcher, per-lane queues, `max_workers`, priority, queue timeout;
    synctest tests for ordering, limits, timeouts, the hand-over race and stop; the existing pool tests unchanged
@@ -221,3 +221,6 @@ end to end. The user can look at it before the rest.
   `http-foundation` 8.1.9 `BinaryFileResponse::prepare()` (the vendor directory of `playground/symfony`). Notes in
   `research/roadrunner.md` and `research/envoy.md`.
 - 2026-10-25 — The user approved the plan (Q14) and the `docs:` commit; step 2 started.
+- 2026-10-25 — Step 2 (K-910): a named route labels every request it serves, also those its `direct_response`,
+  `redirect` or filters answer (`static`); the router marks the route when it is chosen (`chosen`) and the cluster
+  when it is reached (`routed`). `examples/php-hello` names its routes; its e2e test checks the series.

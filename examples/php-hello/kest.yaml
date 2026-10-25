@@ -29,9 +29,11 @@ listeners:
         - name: default
           domains: ["*"]
           routes:
-            - match: { path: /healthz }
+            - name: healthz         # names label the routes' metrics and access log lines
+              match: { path: /healthz }
               direct_response: { status: 200, body: "ok\n" }
-            - match: { prefix: / }
+            - name: app
+              match: { prefix: / }
               filters:
                 - type: static      # files of public/ are served by kest; everything else goes to PHP
                   config: { dir: public }

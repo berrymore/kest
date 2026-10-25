@@ -194,8 +194,8 @@ IDs start at K-140: the milestones were renumbered on 2026-10-25 (ADR-0008), and
 - [ ] K-143 `sendfile` filter: PHP answers `X-Sendfile`, kest sends the file from configured directories, with
   ranges and conditional requests (plan D6; RoadRunner's `send` middleware ✅ in `research/roadrunner.md`).
 - [ ] K-140 Route matches on method, headers and query parameters, and regular-expression paths (RE2) (plan D7).
-- [ ] K-910 Optional route `name`, and a `route` label on the HTTP metrics (M3 plan D2): today two routes to the
-  same cluster on one virtual host can't be told apart in metrics (plan D1).
+- [x] K-910 Optional route `name`, unique in the config, and a `route` label on the HTTP metrics and in
+  `access_log` (plan D1; 2026-10-25).
 - [ ] K-095 Count requests that listener filters answer themselves (CORS preflights) in the HTTP metrics: today
   only requests that reach the router are counted per virtual host and cluster. Moved from M4 on 2026-10-25 (plan D8).
 - [ ] K-152 Research: start workers by forking a booted PHP process (copy on write, milliseconds instead of the

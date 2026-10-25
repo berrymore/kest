@@ -220,6 +220,9 @@ type VirtualHost struct {
 
 // Route is a match rule and exactly one action.
 type Route struct {
+	// Name is optional and unique in the config; it labels the route's
+	// metrics and access log lines.
+	Name  string     `yaml:"name,omitempty"`
 	Match RouteMatch `yaml:"match"`
 	// Filters run after the virtual host's, before the action.
 	Filters        []Extension     `yaml:"filters,omitempty"`
