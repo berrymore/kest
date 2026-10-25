@@ -85,7 +85,7 @@ Longer term (M4+):
 | Term | Meaning in kest |
 |---|---|
 | **Listener** | Named network endpoint (address and protocol) that accepts connections |
-| **HTTP filter** | Middleware step in a listener's HTTP chain (request_id, access_log, cors, …) |
+| **HTTP filter** | Middleware step in the HTTP chain of a listener, a virtual host or a route (request_id, cors, …) |
 | **Router** | Implicit last step of the HTTP chain; picks a virtual host and a route |
 | **Virtual host** | Set of routes selected by the `Host` header (`domains`) |
 | **Route** | Match rule (prefix, path, …) plus an action: `route` to a cluster, `direct_response` or `redirect` |

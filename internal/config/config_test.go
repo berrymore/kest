@@ -592,3 +592,31 @@ func TestDumpRedacted(t *testing.T) {
 		t.Errorf("Dump after DumpRedacted:\n%s", plain)
 	}
 }
+
+// Secrets in the filters of virtual hosts and routes are redacted too.
+func TestDumpRedactedVirtualHostAndRouteFilters(t *testing.T) {
+	cfg, err := parse(t, `version: v1
+listeners:
+  - name: main
+    address: 127.0.0.1:0
+    http:
+      virtual_hosts:
+        - name: default
+          domains: ["*"]
+          filters: [{type: auth}]
+          routes: [{match: {prefix: /}, filters: [{type: auth}], direct_response: {status: 200}}]
+`, nil)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	vh := &cfg.Listeners[0].HTTP.VirtualHosts[0]
+	vh.Filters[0].SetDecoded(&secretConfig{Password: "hunter2-vhost"})
+	vh.Routes[0].Filters[0].SetDecoded(&secretConfig{Password: "hunter2-route"})
+	out, err := cfg.DumpRedacted()
+	if err != nil || strings.Contains(string(out), "hunter2") || strings.Count(string(out), "password: '[redacted]'") != 2 {
+		t.Errorf("DumpRedacted (%v):\n%s", err, out)
+	}
+	if plain, _ := cfg.Dump(); !strings.Contains(string(plain), "hunter2-vhost") || !strings.Contains(string(plain), "hunter2-route") {
+		t.Errorf("Dump after DumpRedacted:\n%s", plain)
+	}
+}

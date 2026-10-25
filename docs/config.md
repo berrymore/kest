@@ -172,7 +172,7 @@ in `kest_tls_handshake_errors_total` and logged at `debug` level, since scanners
 
 | Field | Default | |
 |---|---|---|
-| `filters` | none | HTTP filters, run in order before the router. Each is `{type, config}`; see [Filters](#filters). |
+| `filters` | none | HTTP filters, run in order before the router, for every request of the listener. Each is `{type, config}`; see [Filters](#filters). |
 | `protocols` | `[http1, http2]` with `tls`, `[http1]` without | The HTTP versions served. `http2` over TLS is negotiated with ALPN (h2); on a listener without `tls` it is h2c with prior knowledge, which load balancers and proxies use towards backends (not the `Upgrade: h2c` dance). PHP sees the version as the request's protocol (`2` in PSR-7). |
 | `normalize_path` | `true` | Remove `.` and `..` segments from the request path before the filters and the router see it (RFC 3986), so that `/public/../admin/` can't slip past a route for `/admin/`. `%2e%2e` counts as `..` and `%2F` as `/`, since paths are matched decoded. A path that changes reaches the cluster in its normalized form; an unchanged one keeps its original encoding. |
 | `merge_slashes` | `true` | Collapse repeated slashes: `//admin//x` is `/admin/x`. |
@@ -185,8 +185,14 @@ in `kest_tls_handshake_errors_total` and logged at `debug` level, since scanners
 
 ### Filters
 
-Built-in types: `request_id`, `access_log`, `recovery`, `client_ip`, `headers`, `cors`, `compression`. Put `recovery` first so that it covers the
-other filters too:
+Filters can be set in three places, and run in this order: those of the listener (`http.filters`), for every
+request; those of the virtual host the router chose (`virtual_hosts[].filters`); those of the route it chose
+(`routes[].filters`); then the route's action. A filter may answer a request itself instead of passing it on (CORS
+preflights): the rest of the chain and the action don't run, and the request counts in the
+[metrics](metrics.md) without a cluster.
+
+Built-in types: `request_id`, `access_log`, `recovery`, `client_ip`, `headers`, `cors`, `compression`. Put `recovery`
+first so that it covers the other filters too:
 
 ```yaml
 http:
@@ -194,7 +200,18 @@ http:
     - type: recovery
     - type: request_id
     - type: access_log
+  virtual_hosts:
+    - name: api
+      domains: [api.example.com]
+      filters:
+        - type: cors          # only for this virtual host
+          config: {allow_origins: [https://app.example.com]}
+      routes:
+        - match: {prefix: /}
+          route: {cluster: api}
 ```
+
+Every filter works in any of the three places. Each place builds its own instance from its config.
 
 **`request_id`** gives every request an ID: in a request header that the cluster sees (PHP reads it as
 `$request->getHeaderLine('X-Request-Id')`), in the same header of the response, and in the access log. A new ID is
@@ -318,6 +335,7 @@ streams. Only gzip: brotli and zstd would need dependencies.
 |---|---|---|
 | `name` | yes | Unique within the listener |
 | `domains` | yes | Hosts this virtual host serves |
+| `filters` | no | Filters for every request to this virtual host, after the listener's, before a route is chosen; see [Filters](#filters) |
 | `routes` | yes | Tried in order; the first match wins |
 
 A request's host is taken from the `Host` header, without the port, lowercased and without a trailing
@@ -339,6 +357,7 @@ Every route has a `match` and exactly one action.
 |---|---|
 | `match.prefix` | The path starts with this value; must start with `/` |
 | `match.path` | The path equals this value; must start with `/` |
+| `filters` | Filters for the requests of this route, after the virtual host's, before the action; see [Filters](#filters) |
 | `route` | Forward to a cluster |
 | `direct_response` | Answer without an upstream |
 | `redirect` | Answer with a redirect |

@@ -33,6 +33,35 @@ func init() {
 	})
 }
 
+// seenCluster is the cluster that see_cluster saw in the last request's info.
+var seenCluster string
+
+func init() {
+	// see_cluster records the request's cluster once the rest of the chain has served it.
+	httpx.Filters.Register(registry.Factory[httpx.Filter]{
+		Type: "see_cluster",
+		Build: func(registry.BuildContext, any) (httpx.Filter, error) {
+			return func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					next.ServeHTTP(w, r)
+					seenCluster = httpx.Info(r).Cluster
+				})
+			}, nil
+		},
+	})
+	// teapot answers 418 itself.
+	httpx.Filters.Register(registry.Factory[httpx.Filter]{
+		Type: "teapot",
+		Build: func(registry.BuildContext, any) (httpx.Filter, error) {
+			return func(http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(http.StatusTeapot)
+				})
+			}, nil
+		},
+	})
+}
+
 type traceConfig struct {
 	Name string `yaml:"name"`
 }
@@ -242,6 +271,80 @@ func TestFilterChainOrder(t *testing.T) {
 	}
 }
 
+// The filters of the listener run first, then those of the virtual host,
+// then those of the route that matches; other routes' filters don't run.
+func TestVirtualHostAndRouteFilters(t *testing.T) {
+	h, err := httpx.NewHandler(loadHTTP(t, `
+  - name: main
+    address: 127.0.0.1:0
+    http:
+      filters: [{type: header_trace, config: {name: listener}}]
+      virtual_hosts:
+        - name: site
+          domains: ["site.test"]
+          filters: [{type: header_trace, config: {name: vhost}}]
+          routes:
+            - match: {prefix: /a}
+              filters:
+                - {type: header_trace, config: {name: a1}}
+                - {type: header_trace, config: {name: a2}}
+              route: {cluster: app}
+            - match: {prefix: /}
+              route: {cluster: app}
+        - name: other
+          domains: ["*"]
+          routes: [{match: {prefix: /}, route: {cluster: app}}]
+`), lookup, registry.BuildContext{Logger: logging.Discard()})
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+	for _, tt := range []struct{ host, path, want string }{
+		{"site.test", "/a", "listener,vhost,a1,a2"},
+		{"site.test", "/b", "listener,vhost"},
+		{"other.test", "/a", "listener"},
+	} {
+		if got := get(t, h, tt.host, tt.path).Header().Get("X-Trace"); got != tt.want {
+			t.Errorf("%s%s: filters %q, want %q", tt.host, tt.path, got, tt.want)
+		}
+	}
+}
+
+// A response that a filter of a virtual host or a route makes itself counts
+// without a cluster, and the request's info names none.
+func TestFilterAnswerCountsWithoutCluster(t *testing.T) {
+	reg := metrics.NewRegistry()
+	h, err := httpx.NewHandler(loadHTTP(t, `
+  - name: main
+    address: 127.0.0.1:0
+    http:
+      filters: [{type: see_cluster}]
+      virtual_hosts:
+        - name: site
+          domains: ["*"]
+          routes:
+            - match: {prefix: /tea}
+              filters: [{type: teapot}]
+              route: {cluster: app}
+            - match: {prefix: /}
+              route: {cluster: app}
+`), lookup, registry.BuildContext{Name: "main", Logger: logging.Discard(), Metrics: reg})
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+	if code := get(t, h, "localhost", "/tea").Code; code != http.StatusTeapot || seenCluster != "" {
+		t.Errorf("/tea = %d with cluster %q, want 418 without one", code, seenCluster)
+	}
+	if code := get(t, h, "localhost", "/coffee").Code; code != http.StatusOK || seenCluster != "app" {
+		t.Errorf("/coffee = %d with cluster %q, want 200 from app", code, seenCluster)
+	}
+	for _, tt := range []struct{ cluster, code string }{{"", "418"}, {"app", "200"}} {
+		if got := metricstest.Value(t, reg, "kest_http_requests_total",
+			"listener", "main", "virtual_host", "site", "cluster", tt.cluster, "code", tt.code); got != 1 {
+			t.Errorf("requests{cluster %q, %s} = %v, want 1", tt.cluster, tt.code, got)
+		}
+	}
+}
+
 func TestNewHandlerErrors(t *testing.T) {
 	_, err := httpx.NewHandler(loadHTTP(t, `
   - name: main
@@ -253,11 +356,14 @@ func TestNewHandlerErrors(t *testing.T) {
       virtual_hosts:
         - name: default
           domains: ["*"]
-          routes: [{match: {prefix: /}, direct_response: {}}]
+          filters: [{type: nope}]
+          routes: [{match: {prefix: /}, filters: [{type: header_trace, config: {title: x}}], direct_response: {}}]
 `), lookup, registry.BuildContext{Logger: logging.Discard()})
 	want := []string{
 		`kest.yaml:8:18: listeners[0].http.filters[0].type: unknown http filter type "nope"`,
 		"kest.yaml:9:41: listeners[0].http.filters[1].config.title: unknown field",
+		`kest.yaml:13:28: listeners[0].http.virtual_hosts[0].filters[0].type: unknown http filter type "nope"`,
+		"kest.yaml:14:81: listeners[0].http.virtual_hosts[0].routes[0].filters[0].config.title: unknown field",
 	}
 	for _, w := range want {
 		if err == nil || !strings.Contains(err.Error(), w) {

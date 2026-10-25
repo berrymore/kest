@@ -21,7 +21,8 @@
                 │               ├─ filter: access_log                                   │
                 │               ├─ filter: …                                            │
                 │               └─ router (implicit, last)                              │
-                │                    │ vhost by Host, first matching route              │
+                │                    │ vhost by Host → its filters                      │
+                │                    │ first matching route → its filters               │
                 │                    ├─ direct_response, redirect                       │
                 │                    └─ route → Cluster                                 │
                 │                               ├─ php_workers ─▶ Pool ─▶ Relay ────────┼──▶ php worker.php × N
@@ -37,8 +38,8 @@ kest is a single Go binary. At startup it reads one YAML file and builds a graph
 
 - **Listeners** accept connections on an address and hand them to a protocol handler (HTTP first).
 - The **HTTP connection manager** runs a chain of **HTTP filters** (middleware), ending in the **router**.
-- The **router** selects a **virtual host** by `Host` and the first matching **route**, then runs its
-  action: forward to a **cluster**, return a **direct response** or a **redirect**. Paths are normalized before
+- The **router** selects a **virtual host** by `Host` and runs its filters, then the first matching **route**,
+  and runs its filters and its action: forward to a **cluster**, return a **direct response** or a **redirect**. Paths are normalized before
   the filters (`normalize_path`, `merge_slashes`).
 - **Clusters** are named upstreams of different types (`php_workers`, `static_files`; `wasm` later).
 - **Listeners** may terminate TLS (certificates by SNI, reloaded when their files change) and speak HTTP/2.
@@ -50,7 +51,8 @@ kest is a single Go binary. At startup it reads one YAML file and builds a graph
 
 1. The listener accepts a connection; the `net/http` server parses the request.
 2. HTTP filters run in config order (e.g. `request_id` → `access_log` → `cors`).
-3. The router picks a virtual host by `Host`, then the first route whose `match` fits.
+3. The router picks a virtual host by `Host` and runs its filters, then the first route whose `match` fits and runs
+   its filters. A filter may answer itself; then the request stops there.
 4. Action `route: {cluster: php_app, timeout: 30s}` → the request context gets the route timeout.
 5. The `php_workers` cluster encodes the request into a **payload** (`rrhttp.NewRequest`): `context` =
    request head (method, absolute URI, headers, cookies, remote IP, …) as JSON or protobuf (`codec`);
@@ -377,8 +379,9 @@ test/bench/                  🟢 benchmark against RoadRunner: configs, loadgen
   and wait time; workers by state; restarts by reason; worker memory. A hand-written core in
   `internal/metrics` with lock-free updates and series resolved when the graph is built; `GET /metrics` serves
   the Prometheus text format 0.0.4 (ADR-0007). `server.New` creates the registry (with Go and process metrics)
-  and hands it to components in `BuildContext`. `httpx` wraps each route (labels: listener, virtual host,
-  cluster, status code from a per-target array) and counts in-flight requests per listener; `php_workers`
+  and hands it to components in `BuildContext`. `httpx` wraps each virtual host and counts a request under the cluster
+  its route reached, if any (`routed` marks it in `RequestInfo`; labels: listener, virtual host, cluster, status
+  code from a per-target array) and counts in-flight requests per listener; `php_workers`
   observes its pool (`worker.Observer`) and reads states, queue and memory at scrape time. M4 adds
   `kest_tls_*` (certificate expiry, failed handshakes) per listener.
 - **Tracing:** OpenTelemetry later; the `request_id` filter exists (M3).

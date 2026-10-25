@@ -18,9 +18,11 @@ Every label value comes from the config or from a small fixed set, never from a 
 stays bounded:
 
 - `listener`, `virtual_host`, `cluster`: names from the config. Routes have no names, so requests are counted by
-  virtual host and cluster. `cluster` is empty for `direct_response` and `redirect` routes and for requests that
-  match no route; `virtual_host` is empty when no virtual host matches the request's host. Requests that a filter
-  answers itself (CORS preflights from `cors`) don't reach the router and aren't counted in `kest_http_requests_*`.
+  virtual host and cluster. `cluster` is set when the request reaches a route's cluster: it is empty for
+  `direct_response` and `redirect` routes, for requests that match no route, and for requests that a filter of the
+  virtual host or the route answers itself. `virtual_host` is empty when no virtual host matches the request's host.
+  Requests that a filter of the listener answers itself (CORS preflights from `cors`) don't reach the router and
+  aren't counted in `kest_http_requests_*`.
 - `code`: the HTTP status code of the response.
 - `state`, `reason`: the fixed values listed below.
 - `cert_file`: a TLS certificate file from the config.
@@ -32,7 +34,7 @@ stays bounded:
 | Metric | Type | Labels | |
 |---|---|---|---|
 | `kest_http_requests_total` | counter | `listener`, `virtual_host`, `cluster`, `code` | Requests, counted when the response is done. |
-| `kest_http_request_duration_seconds` | histogram | `listener`, `virtual_host`, `cluster` | From routing the request until its handler returns: the wait for a worker and the worker's time. Buckets from 5 ms to 60 s. |
+| `kest_http_request_duration_seconds` | histogram | `listener`, `virtual_host`, `cluster` | From choosing the virtual host until the response is done: the filters of the virtual host and the route, the wait for a worker and the worker's time. Buckets from 5 ms to 60 s. |
 | `kest_http_requests_in_flight` | gauge | `listener` | Requests being served now. |
 
 ## TLS

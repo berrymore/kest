@@ -14,12 +14,14 @@ import (
 type RequestInfo struct {
 	RequestID   string // set by the request_id filter
 	VirtualHost string // set by the router; empty if none matched
-	Cluster     string // set by the router; empty for direct responses and unrouted requests
+	Cluster     string // set by the router when the request reaches a route's cluster; empty otherwise
 	// ClientIP and Scheme are what a trusted proxy said about the client
 	// (the client_ip filter); empty when nothing did. Read them through
 	// ClientIP and Scheme.
 	ClientIP string
 	Scheme   string // "http" or "https"
+
+	target *targetMetrics // the routed cluster's metrics; nil until a route's cluster is reached
 }
 
 type infoKey struct{}

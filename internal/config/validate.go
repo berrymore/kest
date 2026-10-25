@@ -148,14 +148,7 @@ func (v *validator) http(path string, h *HTTP, clusters map[string]bool) {
 		v.errorf(path+".max_header_bytes", "must be between %s and %s, got %s", minHeaderBytes, maxHeaderBytes, h.MaxHeaderBytes)
 	}
 
-	for i := range h.Filters {
-		f := &h.Filters[i]
-		fpath := indexPath(path+".filters", i)
-		f.bind(v.src, fpath)
-		if f.Type == "" {
-			v.errorf(fpath+".type", "required")
-		}
-	}
+	v.filters(path, h.Filters)
 
 	if len(h.VirtualHosts) == 0 {
 		v.errorf(path+".virtual_hosts", "at least one virtual host is required")
@@ -184,6 +177,7 @@ func (v *validator) http(path string, h *HTTP, clusters map[string]bool) {
 			}
 		}
 
+		v.filters(vpath, vh.Filters)
 		if len(vh.Routes) == 0 {
 			v.errorf(vpath+".routes", "at least one route is required")
 		}
@@ -193,7 +187,20 @@ func (v *validator) http(path string, h *HTTP, clusters map[string]bool) {
 	}
 }
 
+// filters binds the filters of the block at path to their YAML paths.
+func (v *validator) filters(path string, filters []Extension) {
+	for i := range filters {
+		f := &filters[i]
+		fpath := indexPath(path+".filters", i)
+		f.bind(v.src, fpath)
+		if f.Type == "" {
+			v.errorf(fpath+".type", "required")
+		}
+	}
+}
+
 func (v *validator) route(path string, r *Route, clusters map[string]bool) {
+	v.filters(path, r.Filters)
 	m := r.Match
 	switch {
 	case m.Prefix == "" && m.Path == "":

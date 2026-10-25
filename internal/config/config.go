@@ -92,16 +92,32 @@ func (c *Config) DumpRedacted() ([]byte, error) {
 	}
 	out.Listeners = slices.Clone(c.Listeners)
 	for i := range out.Listeners {
-		if h := out.Listeners[i].HTTP; h != nil {
-			copied := *h
-			copied.Filters = slices.Clone(h.Filters)
-			for j := range copied.Filters {
-				copied.Filters[j] = copied.Filters[j].redacted()
-			}
-			out.Listeners[i].HTTP = &copied
+		h := out.Listeners[i].HTTP
+		if h == nil {
+			continue
 		}
+		copied := *h
+		copied.Filters = redactedFilters(h.Filters)
+		copied.VirtualHosts = slices.Clone(h.VirtualHosts)
+		for j := range copied.VirtualHosts {
+			vh := &copied.VirtualHosts[j]
+			vh.Filters = redactedFilters(vh.Filters)
+			vh.Routes = slices.Clone(vh.Routes)
+			for k := range vh.Routes {
+				vh.Routes[k].Filters = redactedFilters(vh.Routes[k].Filters)
+			}
+		}
+		out.Listeners[i].HTTP = &copied
 	}
 	return yaml.Dump(&out, yaml.WithIndent(2))
+}
+
+func redactedFilters(filters []Extension) []Extension {
+	out := slices.Clone(filters)
+	for i := range out {
+		out[i] = out[i].redacted()
+	}
+	return out
 }
 
 // Log configures the process logger.
@@ -165,7 +181,9 @@ const (
 
 // HTTP is the protocol block of an HTTP listener.
 type HTTP struct {
-	// Filters run in order before the router, which is always last.
+	// Filters run in order before the router, which is always last. Virtual
+	// hosts and routes have filters of their own, which run after the router
+	// has chosen them.
 	Filters []Extension `yaml:"filters,omitempty"`
 
 	// Protocols are the HTTP versions served: ProtocolHTTP1, ProtocolHTTP2.
@@ -194,12 +212,17 @@ type VirtualHost struct {
 	// Domains are exact hosts ("example.com"), suffix wildcards
 	// ("*.example.com") or "*" for any host. Ports are ignored when matching.
 	Domains []string `yaml:"domains"`
-	Routes  []Route  `yaml:"routes"`
+	// Filters run for every request to the virtual host, before the router
+	// chooses a route.
+	Filters []Extension `yaml:"filters,omitempty"`
+	Routes  []Route     `yaml:"routes"`
 }
 
 // Route is a match rule and exactly one action.
 type Route struct {
-	Match          RouteMatch      `yaml:"match"`
+	Match RouteMatch `yaml:"match"`
+	// Filters run after the virtual host's, before the action.
+	Filters        []Extension     `yaml:"filters,omitempty"`
 	Route          *RouteAction    `yaml:"route,omitempty"`
 	DirectResponse *DirectResponse `yaml:"direct_response,omitempty"`
 	Redirect       *Redirect       `yaml:"redirect,omitempty"`
