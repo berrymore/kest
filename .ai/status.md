@@ -1,10 +1,10 @@
 # Status
 
-_Last updated: 2026-10-25 (M4 narrowed by ADR-0008, waiting for the user's go-ahead for the PR)_
+_Last updated: 2026-10-25 (M4 narrowed by ADR-0008, PR #3 open for the user's review)_
 
 ## Current phase
 
-**M4 (HTTP edge features) is done and narrowed** on `feat/m4-http-edge`, not pushed and without a PR. The user
+**M4 (HTTP edge features) is done and narrowed** on `feat/m4-http-edge`, pushed, in PR #3. The user
 delegated the milestone on 2026-10-25, looked at the result, and found kest drifting towards nginx and Envoy.
 ADR-0008 (accepted) draws the line: kest is an application server behind a proxy; it takes on what concerns how
 the proxy talks to the application or what makes up for a weakness of PHP. So, before the merge, the `http_proxy`
@@ -18,18 +18,17 @@ responses from PHP (generators, `$chunkSize`, 103 Early Hints).
 
 ## In progress
 
-Nothing: the branch waits for the user's go-ahead for the PR.
+Nothing: PR #3 waits for the user's review.
 
 ## Next up: how to continue in a fresh session
 
 1. **Git first:** `git status` on `feat/m4-http-edge`; `git log --oneline main..HEAD` shows one commit per item
    (K-080…K-090, then the narrowing: K-085 removed, K-096, K-082 redone) and the `docs:` commits (ADR-0008 among
    them).
-2. **When the user agrees:** push the branch (`git push -u origin feat/m4-http-edge`; if SSH fails while the SSH
-   agent is locked: `git -c credential.helper= -c "credential.helper=!gh auth git-credential"
-   push https://github.com/berrymore/kest.git feat/m4-http-edge:feat/m4-http-edge`), `gh pr create` with the milestone summary,
-   ADR-0008 and the narrowing, the items, the decisions to review (Q10 below), how it was tested, and that the docs
-   review ran. Merge only on the user's go-ahead (`rules.md` § 9); run the docs review again if the branch changed.
+2. **PR #3 is open** (`gh pr view 3`). Merge only on the user's go-ahead: `gh pr merge 3 --squash
+   --delete-branch` (`rules.md` § 9); if the branch changed after the docs review, run it again first. If a push
+   over SSH fails while the SSH agent is locked: `git -c credential.helper= -c "credential.helper=!gh auth
+   git-credential" push https://github.com/berrymore/kest.git feat/m4-http-edge:feat/m4-http-edge`.
 3. **After the merge: M5 (Routing, filters and pools)** on a new branch `feat/m5-routing` from an updated `main`.
    Read `roadmap.md` § M5, `backlog.md` § M5 (K-140…K-147, K-095, K-905, K-908, K-910), ADR-0008 and `architecture.md`
    § 2–4 (`internal/httpx`: router, filter chain, metrics). First write `plans/M5-routing.md` and agree its scope
@@ -47,6 +46,11 @@ Nothing: the branch waits for the user's go-ahead for the PR.
   gRPC or WebSockets are needed sooner.
 
 ## Resolved decisions
+
+- 2026-10-25 — Filters stay nested (listener → virtual host → route), rather than on listeners only with
+  include/exclude paths in `static`: the router scopes every filter by host and path in one place, and a deny
+  route can't be bypassed by a filter that keeps its own path list. Turning a listener filter off on a route stays
+  K-141 (M5). The user then had the branch pushed and PR #3 opened.
 
 - 2026-10-25 — ADR-0008 accepted: kest is an application server behind a proxy, not an edge proxy. M4 narrowed
   before its merge (`http_proxy` removed, static files as a filter on routes, filters on virtual hosts and routes);

@@ -222,7 +222,8 @@ Steps 1–2 are the vertical slice: `curl --http2 -k https://localhost:8443/` ag
   The PHP example's `/robots.txt` now counts without a cluster. HTTP/2 and h2c stay core (nginx's `grpc_pass`,
   gRPC in M7); TLS and gzip stay as they are. K-095 moved to M5. After the narrowing `make check`,
   `make test-integration` and `make test-matrix` (PHP 8.3.36, 8.4.27, 8.5.12) are green; the docs review found 6
-  drifts, all fixed.
+  drifts, all fixed. The user asked whether filters should stay on listeners only, with include/exclude paths in
+  `static`; kept nested, since the router then scopes every filter by host and path in one place. PR #3.
 
 - 2026-10-25 — Step 12 done: README, getting started (RoadRunner mapping), operations (TLS, load balancers),
   architecture; the docs review found 19 drifts (one blocker: `docs/config.md` still said streaming was
