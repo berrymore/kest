@@ -176,7 +176,7 @@ Steps 1–2 are the vertical slice: `curl --http2 -k https://localhost:8443/` ag
 6. [x] **`cors`** (K-089) — acceptance: preflight answered by kest; disallowed origins get no CORS headers.
 7. [x] **Redirect action** (K-090).
 8. [x] **`compression`** (K-083) — acceptance: gzip round trip, streams flushed, HEAD/304/no-transform skipped.
-9. [ ] **Static files** (K-082) — acceptance: `php_workers.static` serves `public/` files with Range and ETag,
+9. [x] **Static files** (K-082) — acceptance: `php_workers.static` serves `public/` files with Range and ETag,
    PHP gets the rest, no escape from `dir`.
 10. [ ] **Streaming responses** (K-088) — acceptance: PHP integration test with a generator and with 103 Early
     Hints; a client that disconnects mid-stream stops it and the worker serves the next request.
@@ -196,6 +196,10 @@ Steps 1–2 are the vertical slice: `curl --http2 -k https://localhost:8443/` ag
 
 ## Log
 
+- 2026-10-25 — Step 9 (K-082) done as in D9 except for `os.Root`: it refuses absolute symlinks even inside the
+  directory, and Laravel's `php artisan storage:link` makes `public/storage` an absolute link out of `public/`.
+  Files are opened by name instead, symlinks followed as nginx does; `..` can't occur, since no segment that starts
+  with a dot is served. The cluster package is `internal/cluster/static` (type `static_files`).
 - 2026-10-25 — Step 8 (K-083) done as in D8. The header goes out on the first write, so a missing Content-Type is
   sniffed from the plain body (net/http would sniff the gzipped bytes).
 - 2026-10-25 — Step 7 (K-090) done as in D7. The request's scheme comes from `httpx.Scheme` (trusted proxies

@@ -6,6 +6,7 @@
 #   curl localhost:8080/
 #   curl 'localhost:8080/?name=kest'
 #   curl -d 'a=1&b[]=2' localhost:8080/info
+#   curl localhost:8080/robots.txt      # a file of public/, served without PHP
 #
 # Set KEST_ADDRESS and KEST_ADMIN_ADDRESS to listen elsewhere.
 version: v1
@@ -47,3 +48,5 @@ clusters:
       supervisor:
         exec_ttl: 30s       # kill a worker stuck on one request
         max_worker_memory: 128MB
+      static:
+        dir: public         # files here are served by kest; everything else goes to PHP

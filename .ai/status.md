@@ -10,7 +10,7 @@ on 2026-10-25 and asked not to open the PR before they have looked at the branch
 
 ## In progress
 
-M4, step 9 (K-082, static files).
+M4, step 10 (K-088, streaming responses).
 
 ## Next up: how to continue M4 in a fresh session
 

@@ -21,7 +21,8 @@ import (
 	"testing"
 
 	"github.com/berrymore/kest/internal/cluster"
-	_ "github.com/berrymore/kest/internal/cluster/phpworkers" // the extensions of cmd/kest/extensions.go
+	_ "github.com/berrymore/kest/internal/cluster/phpworkers"
+	_ "github.com/berrymore/kest/internal/cluster/static" // the extensions of cmd/kest/extensions.go
 	"github.com/berrymore/kest/internal/config"
 	_ "github.com/berrymore/kest/internal/filters/accesslog"
 	_ "github.com/berrymore/kest/internal/filters/clientip"

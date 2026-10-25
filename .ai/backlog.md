@@ -137,7 +137,10 @@ Milestone definitions: `roadmap.md`.
   still; `kest_tls_certificate_expiry_timestamp_seconds`, `kest_tls_handshake_errors_total`.
 - [x] K-081 HTTP/2 (h2 over TLS, h2c). `listeners[].http.protocols` (`http1`, `http2`; both with `tls`, `http1`
   without); h2c is prior knowledge through `http.Protocols`; the PHP e2e test sees protocol `2` both ways.
-- [ ] K-082 Static files route action / filter.
+- [x] K-082 Static files route action / filter. Done as `php_workers.static` (`dir`, `forbid: [.php]`, `headers`;
+  try the file, then PHP) and the `static_files` cluster type (`index`, 404/405), both on `internal/staticfiles`:
+  hidden paths refused except `/.well-known/`, symlinks followed, `http.ServeContent` with a weak ETag;
+  `examples/php-hello` serves `public/`.
 - [x] K-083 Compression filter. `compression`: gzip with pooled writers, `level`, `min_length`, `content_types`;
   the decision waits for the first write (sniffed Content-Type), flushes pass through, `HEAD`/`204`/`206`/`304`/
   `no-transform`/encoded responses are left alone.

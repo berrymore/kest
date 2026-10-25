@@ -82,7 +82,8 @@ internal/server/     builds the component graph; start/stop order; drain
 internal/httpx/      HTTP filter chain and router
 internal/listener/   HTTP listeners
 internal/filters/    built-in HTTP filters, one package each: requestid/, accesslog/, recovery/, clientip/, headers/, cors/, compression/
-internal/cluster/    cluster interface and registry category; phpworkers/ is the php_workers type
+internal/cluster/    cluster interface and registry category; phpworkers/ is the php_workers type, static/ static_files
+internal/staticfiles/ serving files from a directory (php_workers.static, static_files)
 internal/rrhttp/     HTTP ↔ RoadRunner HTTP payload (request context JSON/protobuf, forms, uploads, responses)
 internal/relay/      goridge frame codec and connection (RoadRunner worker protocol)
 internal/worker/     worker processes, pool, supervisor; workertest/ fakes, testdata/php/ for integration

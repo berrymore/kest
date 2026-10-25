@@ -17,6 +17,7 @@ import (
 	"github.com/berrymore/kest/internal/metrics"
 	"github.com/berrymore/kest/internal/registry"
 	"github.com/berrymore/kest/internal/rrhttp"
+	"github.com/berrymore/kest/internal/staticfiles"
 	"github.com/berrymore/kest/internal/worker"
 )
 
@@ -60,6 +61,8 @@ type Cluster struct {
 	logger  *slog.Logger
 
 	bodyRejected *metrics.Counter // requests turned away by the body budget
+
+	static *staticfiles.Files // nil without static.dir
 
 	watcher   *watcher // nil without reload.dirs
 	stopWatch context.CancelFunc
@@ -121,12 +124,21 @@ func newCluster(cfg *Config, configDir string, p pool, logger *slog.Logger) *Clu
 		bodyRejected: &metrics.Counter{},
 	}
 	c.watcher = newWatcher(cfg.Reload, configDir, c.Reset, logger)
+	if cfg.Static.Dir != "" {
+		c.static = staticfiles.New(staticfiles.Options{Dir: resolve(configDir, cfg.Static.Dir), Forbid: cfg.Static.Forbid,
+			Headers: cfg.Static.Headers})
+	}
 	return c
 }
 
 // Start starts the workers and returns once every one of them has booted,
 // then the file watcher of reload, if configured.
 func (c *Cluster) Start(ctx context.Context) error {
+	if c.static != nil {
+		if err := c.static.Check(); err != nil {
+			return err
+		}
+	}
 	if err := c.pool.Start(ctx); err != nil {
 		return withHint(err)
 	}
@@ -219,8 +231,12 @@ func (c *Cluster) Stop(ctx context.Context) error {
 	return c.pool.Stop(ctx)
 }
 
-// ServeHTTP passes the request to a worker and writes its response.
+// ServeHTTP serves a static file, or passes the request to a worker and
+// writes its response.
 func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if c.static != nil && c.static.Serve(w, r) {
+		return
+	}
 	// Reserve the body's memory before reading it: its length, or the
 	// largest allowed body when the length is unknown.
 	n := c.maxBody

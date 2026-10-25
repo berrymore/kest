@@ -13,6 +13,7 @@ import (
 	"github.com/berrymore/kest/internal/config"
 	"github.com/berrymore/kest/internal/relay"
 	"github.com/berrymore/kest/internal/rrhttp"
+	"github.com/berrymore/kest/internal/staticfiles"
 	"github.com/berrymore/kest/internal/worker"
 )
 
@@ -56,6 +57,19 @@ type Config struct {
 	Pool       Pool       `yaml:"pool"`
 	Supervisor Supervisor `yaml:"supervisor"`
 	Reload     Reload     `yaml:"reload"`
+	Static     Static     `yaml:"static"`
+}
+
+// Static serves the files of a directory without PHP: a GET or HEAD for a
+// file there is answered by kest, anything else goes to the workers.
+type Static struct {
+	// Dir is served, relative to the config file; empty means off.
+	Dir string `yaml:"dir,omitempty"`
+	// Forbid lists extensions never served, so the source of index.php
+	// doesn't leak; such requests go to PHP.
+	Forbid []string `yaml:"forbid"`
+	// Headers are added to every file served, such as Cache-Control.
+	Headers map[string]string `yaml:"headers,omitempty"`
 }
 
 // Reload replaces the workers when files change, for development (K-072).
@@ -121,6 +135,7 @@ func DefaultConfig() Config {
 			DestroyTimeout:  config.Duration(w.DestroyTimeout),
 		},
 		Reload: Reload{Patterns: []string{"*.php"}, Interval: config.Duration(time.Second), MaxFiles: 20000},
+		Static: Static{Forbid: []string{".php"}},
 		Supervisor: Supervisor{
 			TTL:             config.Duration(w.TTL),
 			IdleTTL:         config.Duration(w.IdleTTL),
@@ -208,6 +223,10 @@ func (c *Config) Validate() error {
 				add(fmt.Sprintf("%s[%d]", field, i), "invalid extension %q: want a dot and a name, like .php", ext)
 			}
 		}
+	}
+
+	if err := staticfiles.ValidateFields("static.", c.Static.Forbid, c.Static.Headers); err != nil {
+		errs = append(errs, unwrapAll(err)...)
 	}
 
 	wc := c.worker("", nil)

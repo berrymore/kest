@@ -395,7 +395,8 @@ implementation's options and is validated just as strictly.
 | `type` | yes | Implementation; see below |
 | `config` | depends on the type | Type-specific options |
 
-Built-in types: [`php_workers`](#php_workers). An unknown `type` is rejected with the list of known types.
+Built-in types: [`php_workers`](#php_workers), [`static_files`](#static_files). An unknown `type` is rejected
+with the list of known types.
 
 ### `php_workers`
 
@@ -494,6 +495,30 @@ makes one reset. Directories whose names start with a dot are skipped.
 A rewrite that keeps a file's size and lands within one tick of the file system's clock after a scan (a few
 milliseconds on Linux) isn't noticed until the next change.
 
+**`static`**
+
+Serve the files of your public directory without PHP, as nginx's `try_files $uri /index.php` or RoadRunner's
+`http.static` do: a `GET` or `HEAD` for a file in `dir` is answered by kest; everything else, missing files
+included, goes to the workers.
+
+```yaml
+      static:
+        dir: public
+        headers: {Cache-Control: "public, max-age=3600"}
+```
+
+| Field | Default | |
+|---|---|---|
+| `dir` | none (off) | The directory served; relative to the config file. |
+| `forbid` | `[.php]` | Extensions never served, so the source of `index.php` doesn't leak; such requests go to PHP. |
+| `headers` | none | Headers added to every file served (`{Name: value}`), such as `Cache-Control`. |
+
+Directories aren't served (`/` goes to PHP), nor are paths with a segment that starts with a dot (`.env`,
+`.git/`), except under `/.well-known/`. Symbolic links are followed, so Laravel's `public/storage` works.
+Responses support `Range`, `If-Modified-Since` and `If-None-Match` (a weak `ETag` from the file's size and
+modification time); the `Content-Type` comes from the extension. A static response counts in the cluster's
+metrics like any other.
+
 **Startup and shutdown.** kest starts every worker before it opens the listeners, and fails to start
 if one of them can't boot (the error shows the worker's exit status and the end of its stderr).
 Workers that crash later are replaced, with a growing delay (up to 30s) if they keep failing. A rolling
@@ -534,3 +559,27 @@ are not supported yet: a worker that streams is replaced and the request gets `5
 | `exec_ttl` or the route `timeout` expired | `504` |
 | The worker reported an error (`$worker->error()`) | `500` |
 | The worker crashed, broke the protocol, or sent an invalid or too large response | `502` |
+
+### `static_files`
+
+Serves the files of a directory: a static site, a single-page app's build, or assets on their own route.
+
+```yaml
+clusters:
+  - name: site
+    type: static_files
+    config:
+      dir: dist
+      headers: {Cache-Control: "public, max-age=600"}
+```
+
+| Field | Default | |
+|---|---|---|
+| `dir` | — | Required. The directory served; relative to the config file. |
+| `index` | `index.html` | The file served for a directory's path (`/`, `/docs/`); `/docs` redirects to `/docs/`. `""` serves no directories. |
+| `forbid` | none | Extensions never served. |
+| `headers` | none | Headers added to every file served. |
+
+A missing file gets `404`, methods other than `GET` and `HEAD` get `405`. Hidden paths, symbolic links,
+conditional and range requests work as in [`php_workers.static`](#php_workers). kest fails to start if `dir`
+doesn't exist.
