@@ -10,7 +10,7 @@ Work items live in `backlog.md` (IDs in brackets). Reprioritization is the user'
 | M2 | PHP HTTP — **MVP** | ✅ done 2026-10-25 |
 | M3 | Operability | ✅ done 2026-10-25 |
 | M4 | HTTP edge features (narrowed by ADR-0008) | ✅ done 2026-10-25 |
-| M5 | Routing, filters and pools | ⚪ |
+| M5 | Worker pools and routing to them | ⚪ |
 | M6 | WASM sandbox | ⚪ |
 | M7 | Protocols: gRPC, WebSockets and SSE | ⚪ |
 | M8 | Dynamic configuration | ⚪ |
@@ -110,21 +110,31 @@ Exit criteria:
 - A route with the `static` filter serves the files of `public/` without PHP; other routes and virtual hosts
   don't.
 
-## M5 — Routing, filters and pools
+## M5 — Worker pools and routing to them
 
-**Goal:** the core that sets kest apart, done well: several PHP pools, routing between them, and filters that take
-work off PHP before and after it.
+**Goal:** the core that sets kest apart, done well: a pool of PHP workers that one part of the application can't
+take down, and routes that send each request to the right place in it.
 
-Scope [K-140…, K-095, K-905, K-908, K-910]: route matches on method, headers, query and regular expressions; route
-names and a `route` metrics label; counting the answers of listener filters; per-route filter settings (turn off or change a listener filter); weighted clusters;
-`X-Sendfile`; fast rejection under overload; authentication (JWT, API keys), local rate limiting, external
-authorization through a PHP cluster; priority queues and a dynamic size within a pool.
+Scope [K-151, K-905, K-144, K-908, K-143, K-140, K-910, K-095, K-149, K-152]: lanes within a pool (a route's own
+queue, a limit on the workers it takes, priority, queue timeout); `Retry-After` and fast rejection under overload;
+a dynamic pool size; `X-Sendfile`; route matches on method, headers, query and regular expressions; route names and
+a `route` metrics label; counting the answers of listener filters; kest's CPU per request; research on starting
+workers by forking a booted one. Plan: `plans/M5-pools.md`. Narrowed with the user on 2026-10-25: weighted clusters
+dropped (K-142), authentication, rate limiting and external authorization to the icebox (K-145…K-147), per-route
+filter settings to M6 (K-141).
+
+Exit criteria:
+- A slow route limited to a few workers of a pool doesn't slow the pool's other routes; the metrics show where each
+  route waits.
+- Under overload, high-priority routes are served first; the rest get `503` with `Retry-After` fast.
+- A pool grows while requests wait and shrinks when the load ends.
+- PHP hands a file to kest with `X-Sendfile`; kest sends it with ranges, only from configured directories.
 
 ## M6 — WASM sandbox
 
-Scope [K-100…]: an ADR on the guest ABI; wazero runtime with a compilation cache; instance pools; memory and
-time limits; `wasm` cluster; `wasm` HTTP filter (on the filter model of M5); example modules (Go/TinyGo, Rust);
-latency benchmarks. Possibly PHP → WASM calls through RPC.
+Scope [K-100…, K-141]: an ADR on the guest ABI; wazero runtime with a compilation cache; instance pools; memory and
+time limits; `wasm` cluster; `wasm` HTTP filter, with per-route filter settings (K-141, moved from M5); example
+modules (Go/TinyGo, Rust); latency benchmarks. Possibly PHP → WASM calls through RPC.
 
 ## M7 — Protocols
 

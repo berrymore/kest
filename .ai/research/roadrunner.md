@@ -146,6 +146,13 @@ gopsutil v3.21.11 `process/process_{linux,darwin}.go`.
   No backoff.
 - **Error classes:** soft error → worker back to the pool; network/CRC/decode error → kill; exec_ttl → kill;
   worker stop request → replace and retry the request.
+- **Dynamic allocator** (`pool.dynamic_allocator: {max_workers, spawn_rate, idle_timeout}`,
+  [`pool/static_pool/dyn_allocator.go`](https://github.com/roadrunner-server/pool/blob/c0b00f97a646bf37ff9772be93ad5dfd6dfd1fe5/pool/static_pool/dyn_allocator.go),
+  checked 2026-10-25 for M5): `max_workers` counts the workers **above** `num_workers` (default 10), `spawn_rate`
+  defaults to 5 (at most 100), `idle_timeout` to 1m. It acts only after a request has waited the whole
+  `allocate_timeout` without a worker (`takeWorker` in `static_pool/pool.go`): then one batch of `spawn_rate`
+  workers starts (at most one batch per second), and the request waits another `allocate_timeout`. Every
+  `idle_timeout` without such a wait, one batch of idle extra workers stops.
 
 ## HTTP over the worker protocol ✅ (K-040, checked 2026-10-25)
 
@@ -294,8 +301,17 @@ prints the response to stdout and exits; reproduced with Symfony 8.1 in `playgro
 
 - Plugins are wired by the Endure container; the RPC plugin (goridge RPC over TCP, default `127.0.0.1:6001`)
   is used by the `rr` CLI (`reset`, `workers`) and by some PHP libraries.
-- RR server features kest doesn't plan yet: `server.user`/`group`, `server.on_init`, `pool.debug`,
-  `pool.dynamic_allocator` ✅ (seen in the sources above).
+- RR server features kest doesn't plan yet: `server.user`/`group`, `server.on_init`, `pool.debug`.
+
+## `sendfile` middleware ✅ (checked 2026-10-25 for M5)
+
+Source: `github.com/roadrunner-server/send/v6` v6.0.0 (in RR v3.0.1's `go.mod`),
+[`plugin.go`](https://github.com/roadrunner-server/send/blob/2eb1ec2076512e637827d619e900ac9dcbf23c4d/plugin.go).
+Enabled as `http.middleware: [sendfile]`. It buffers the whole worker response; if it has `X-Sendfile`, the header
+is removed and the file sent: any path whose `filepath.Clean` has no `..` (absolute paths anywhere are allowed, no
+directory limit), `403` for `..`, `404` when missing; `Content-Type` is always `application/octet-stream` (it
+overwrites the worker's), the status always `200`, no `Content-Length` set, no ranges or conditional requests, read
+in chunks of up to 10 MB. Only `X-Sendfile`, not `X-Accel-Redirect`.
 
 ## Questions
 

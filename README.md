@@ -132,7 +132,7 @@ Details: [`.ai/architecture.md`](.ai/architecture.md).
 | **M2** PHP HTTP — *MVP* ✅ | Serve PSR-7 apps through unmodified RoadRunner HTTP workers |
 | **M3** Operability ✅ | Metrics, admin API, rolling restarts, access logs, limits, benchmarks |
 | **M4** HTTP features ✅ | TLS, HTTP/2 and h2c, trusted proxies, static files, compression, CORS, redirects, streaming |
-| **M5** Routing, filters and pools | Richer matches, per-route settings of listener filters, traffic split, auth and limits before PHP, `X-Sendfile` |
+| **M5** Worker pools and routing | Lanes per route (worker limits, priorities, queue timeouts), fast rejection, dynamic pool size, `X-Sendfile`, richer matches |
 | **M6** WASM sandbox | wazero runtime, `wasm` clusters and filters |
 | **M7** Protocols | gRPC, WebSockets and SSE, unix sockets |
 | **M8** Dynamic config | Hot reload of the config file, config API |

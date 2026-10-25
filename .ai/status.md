@@ -1,41 +1,46 @@
 # Status
 
-_Last updated: 2026-10-25 (M4 merged, PR #3; codec benchmark K-148 merged; M5 not started)_
+_Last updated: 2026-10-25 (M5 on `feat/m5-pools`: plan approved, step 2 K-910 in progress)_
 
 ## Current phase
 
-**M4 (HTTP edge features) is done and merged** (PR #3, squashed into `main`). The user delegated the milestone
-on 2026-10-25, looked at the result, and found kest drifting towards nginx and Envoy.
-ADR-0008 (accepted) draws the line: kest is an application server behind a proxy; it takes on what concerns how
-the proxy talks to the application or what makes up for a weakness of PHP. So, before the merge, the `http_proxy`
-cluster was removed (K-085), filters can be set on virtual hosts and routes (K-096), and static files are the
-`static` filter on the route to PHP instead of `php_workers.static` and the `static_files` cluster (K-082).
-`plans/M4-http-edge.md` is the record: decisions D1–D12 (D9 and D11 superseded by D12), steps 1–13 and the log.
-kest terminates TLS (certificates by SNI, reloaded on change) and HTTP/2 (h2, h2c), normalizes paths before
-routing, takes the client IP from trusted proxies (`client_ip`), sets headers (`headers`), answers CORS (`cors`),
-gzips (`compression`), redirects (`redirect` action), serves the files of `public/` (`static`) and streams
-responses from PHP (generators, `$chunkSize`, 103 Early Hints).
+**M5 (Worker pools and routing to them) is in progress.** M4 (HTTP features behind a proxy, narrowed by
+ADR-0008) and K-148 are merged into `main`; `plans/M4-http-edge.md` is M4's record. ADR-0008 still draws the line
+for M5: kest is an application server behind a proxy, and takes on what concerns how the proxy talks to the
+application or what makes up for a weakness of PHP. M5 makes the pool the core: lanes per route (a worker limit, a
+priority, a queue timeout), fast rejection under overload, a dynamic size, `X-Sendfile`, richer route matches.
 
 ## In progress
 
-Nothing. M5 is next, but the user asked not to start it in the session that merged M4. K-148 (the codecs
-benchmarked with `ext-protobuf`) went to `main` on its own branch and PR after M4.
+**M5 — Worker pools and routing to them**, on `feat/m5-pools` (from `main` at the K-148 commit). The user narrowed
+the milestone to the pool (2026-10-25): K-142 weighted clusters dropped, K-145…K-147 (authentication, rate limiting,
+external authorization) to the icebox, K-141 to M6. `plans/M5-pools.md` (Active, approved) has decisions D1–D10 and steps
+1–13. Step 1 (the plan) is committed; step 2 (K-910 route names) is in progress.
 
 ## Next up: how to continue in a fresh session
 
-1. **Git first:** `git checkout main && git pull`; `git status` is clean, `git log --oneline -3` shows the K-148
-   squash commit on top and M4's below it.
-2. **M5 (Routing, filters and pools)** on a new branch `feat/m5-routing` from `main`, once the user says to start.
-   Read `roadmap.md` § M5, `backlog.md` § M5 (K-140…K-147, K-095, K-905, K-908, K-910), ADR-0008 and
-   `architecture.md` § 2–4 and § 8 (`internal/httpx`: router, filter chain, metrics). First write `plans/M5-routing.md` and
-   agree its scope with the user (vertical slice first). Research before designing: Envoy's route matching and
-   `typed_per_filter_config` ❓, RoadRunner's `sendfile` middleware ❓ (K-143).
+1. **Git first:** `git checkout feat/m5-pools`; `git log --oneline -3` shows the `docs:` commit of the plan on top
+   of K-148.
+2. **Step 2, K-910 route names:** `routes[].name` in `internal/config` (validation: unique in the config),
+   `RequestInfo.Route`, a `route` label in `internal/httpx/metrics.go` (targets keyed by virtual host, route and
+   cluster), `route` in `access_log`; `docs/config.md`, `docs/metrics.md`. Then step 3, the lanes in
+   `internal/worker/pool.go` (D2): read `architecture.md` § 4–5 and the pool tests first.
 
 ## Open questions (need a decision from the user)
 
-None.
+None. D4 (overload) will bring its names and defaults to the user after step 6's measurement.
 
 ## Resolved decisions
+
+- 2026-10-25 — Q14: the user approved `plans/M5-pools.md` as a whole, with its schema changes (route `name`;
+  `route.max_workers`, `priority`, `queue_timeout`; `php_workers.retry_after`; `pool.max_workers`,
+  `pool.scale_down_after`; the `sendfile` filter; `match.regex`, `methods`, `headers`, `query`; a `route` label on the
+  HTTP and pool metrics), and had it committed.
+
+- 2026-10-25 — M5 scope (the user): the pool is the focus. K-142 weighted clusters dropped (one kest runs one release;
+  A/B splits are sticky and PHP does them); K-145, K-146, K-147 to the icebox ("nice to have, the core first");
+  K-141 to M6; the rest of M5 kept, plus K-151 (lanes, per-route worker limits) and K-152 (research: forking booted
+  workers). M5 renamed "Worker pools and routing to them".
 
 - 2026-10-25 — K-148: the user had it committed on its own branch, PR #4 opened and merged (squash) without
   stopping. K-150 (the benchmark with OPcache and JIT, was Q13): not now. msgpack: the user asked, the agent
@@ -109,6 +114,11 @@ None.
 
 ## Session log (newest first, keep ~15)
 
+- **2026-10-25** — M5 planned with the user: scope narrowed to the pool (see Resolved decisions); verified RoadRunner's
+  `dynamic_allocator` (scales only after a full `allocate_timeout` wait) and `send` (no directory limit, no ranges),
+  Envoy's route matching (v1.40.1) and Symfony's `X-Sendfile` (keeps `Content-Length`, no ranges);
+  `plans/M5-pools.md` written (lanes, priorities, `Retry-After`, CoDel by experiment, dynamic size, `sendfile`,
+  matchers); roadmap, backlog, `context.md`, README updated. Branch `feat/m5-pools`, nothing committed.
 - **2026-10-25** — K-148: the user installed `ext-protobuf`; `make bench` re-run at M4 with and without it.
   With the extension `proto` is 1–4 % behind `json` (it was 30–35 %); PHP pays 14.4 µs per request for `json`,
   20.1 µs for `proto` with the extension, 135 µs without (`test/bench/codec.php`, new). RoadRunner is 8 % ahead on

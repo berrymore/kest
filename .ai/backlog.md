@@ -178,30 +178,29 @@ Milestone definitions: `roadmap.md`.
   instruments each virtual host and a route's cluster marks the request (`RequestInfo`), so the metrics need no
   lookup; `/config_dump` redacts their configs too.
 
-## M5 — Routing, filters and pools
+## M5 — Worker pools and routing to them
 
-IDs start at K-140: the milestones were renumbered on 2026-10-25 (ADR-0008), and WASM keeps its K-100 range.
+IDs start at K-140: the milestones were renumbered on 2026-10-25 (ADR-0008), and WASM keeps its K-100 range. Plan:
+`plans/M5-pools.md`. Narrowed with the user on 2026-10-25: the pool is the focus.
 
-- [ ] K-140 Route matches on method, headers and query parameters, and regular-expression paths (RE2).
-- [ ] K-141 Per-route filter settings: turn a listener filter off, or change its config, on a virtual host or a
-  route (Envoy's `typed_per_filter_config`).
-- [ ] K-142 Weighted clusters: split a route's requests between clusters by weight, such as a new release in a pool
-  of its own taking a share of the traffic.
-- [ ] K-143 `X-Sendfile` / `X-Accel-Redirect`: PHP names a file, kest sends it and the worker is free at once
-  (RoadRunner's `sendfile` middleware ❓).
-- [ ] K-144 Fast rejection under overload: when a pool can't take a request in time, answer `503` with
-  `Retry-After` at once instead of queueing it.
-- [ ] K-145 Authentication filters: JWT verification (keys from a file or a JWKS URL) and API keys; the verified
-  claims reach PHP as headers.
-- [ ] K-146 Local rate limiting filter: token buckets keyed by client IP, a header or the route.
-- [ ] K-147 External authorization through a cluster: a subrequest to a small PHP pool decides, and the headers it
-  returns go to the main request (Envoy's `ext_authz`).
-- [ ] K-905 Per-route priority queues within one pool (Q-F).
-- [ ] K-908 Dynamic pool size (RR `pool.dynamic_allocator`).
-- [ ] K-095 Count requests that listener filters answer themselves (CORS preflights) in the HTTP metrics: today
-  only requests that reach the router are counted per virtual host and cluster. Moved from M4 on 2026-10-25.
+- [ ] K-151 Lanes: a route's own queue in its cluster's pool, with `max_workers` (at most that many of the pool's
+  workers serve the route at once) and a `queue_timeout` (plan D2, D3).
+- [ ] K-905 Per-route priority within one pool (Q-F): a free worker takes the oldest request of the highest-priority
+  lane (plan D2).
+- [ ] K-144 Fast rejection under overload: `Retry-After` on every `503` of the pool, per-route `queue_timeout`, and
+  an adaptive queue timeout (CoDel) once a measurement shows it helps (plan D3, D4).
+- [ ] K-908 Dynamic pool size: extra workers start as soon as requests wait, not after `allocate_timeout` as in
+  RoadRunner's `pool.dynamic_allocator`, and stop when idle (plan D5).
+- [ ] K-143 `sendfile` filter: PHP answers `X-Sendfile`, kest sends the file from configured directories, with
+  ranges and conditional requests (plan D6; RoadRunner's `send` middleware ✅ in `research/roadrunner.md`).
+- [ ] K-140 Route matches on method, headers and query parameters, and regular-expression paths (RE2) (plan D7).
 - [ ] K-910 Optional route `name`, and a `route` label on the HTTP metrics (M3 plan D2): today two routes to the
-  same cluster on one virtual host can't be told apart in metrics.
+  same cluster on one virtual host can't be told apart in metrics (plan D1).
+- [ ] K-095 Count requests that listener filters answer themselves (CORS preflights) in the HTTP metrics: today
+  only requests that reach the router are counted per virtual host and cluster. Moved from M4 on 2026-10-25 (plan D8).
+- [ ] K-152 Research: start workers by forking a booted PHP process (copy on write, milliseconds instead of the
+  framework's boot); socket relays (K-029), a hook in the worker script, reconnecting after the fork. A note and
+  maybe an ADR draft, no code in M5 (plan D10).
 - [x] K-148 Benchmark the codecs with `ext-protobuf` (2026-10-25, before M5 started): `docs/benchmarks.md` re-run
   at M4 with and without the extension; `test/bench/codec.php` measures what each codec costs PHP. With the
   extension `json` stays 1–4 % ahead of `proto`, and kest and RoadRunner are even except on forms (K-149).
@@ -214,6 +213,10 @@ IDs start at K-140: the milestones were renumbered on 2026-10-25 (ADR-0008), and
   benchmark runs PHP without them, and the PSR-7 code `roadrunner/http` runs per request may gain more from JIT
   than from any codec. Proposed on 2026-10-25; the user: not now.
 
+- [-] K-142 Weighted clusters. Dropped on 2026-10-25: one kest runs one release of one application, so a split
+  between releases belongs to the proxy or the orchestrator, and an A/B split needs a sticky assignment that PHP
+  does itself (ADR-0008).
+
 ## M6 — WASM sandbox
 
 - [ ] K-100 Research and ADR: guest ABI (Proxy-Wasm, http-wasm, WASI stdin/stdout, custom).
@@ -221,6 +224,9 @@ IDs start at K-140: the milestones were renumbered on 2026-10-25 (ADR-0008), and
 - [ ] K-102 `wasm` cluster type.
 - [ ] K-103 `wasm` HTTP filter.
 - [ ] K-104 Example modules (Go/TinyGo, Rust) + benchmarks.
+- [ ] K-141 Per-route filter settings: turn a listener filter off, or change its config, on a virtual host or a
+  route (Envoy's `typed_per_filter_config`). Moved from M5 on 2026-10-25: the `wasm` filter extends the filter
+  model here.
 
 ## M7 — Protocols
 
@@ -256,3 +262,9 @@ IDs start at K-140: the milestones were renumbered on 2026-10-25 (ADR-0008), and
 - [ ] K-909 One-off command before workers start (RR `server.on_init`).
 - [ ] K-911 FastCGI listener: nginx's `fastcgi_pass` to kest in place of PHP-FPM, without touching the nginx
   config (`net/http/fcgi`; RoadRunner's `http.fcgi` ❓). A bonus, not a priority (2026-10-25).
+- [ ] K-145 Authentication filters: JWT verification (keys from a file or a JWKS URL) and API keys; the verified
+  claims reach PHP as headers. Moved from M5 on 2026-10-25: nice to have, the pool comes first.
+- [ ] K-146 Local rate limiting filter: token buckets keyed by client IP, a header or the route. Moved from M5 on
+  2026-10-25.
+- [ ] K-147 External authorization through a cluster: a subrequest to a small PHP pool decides, and the headers it
+  returns go to the main request (Envoy's `ext_authz`). Moved from M5 on 2026-10-25.
