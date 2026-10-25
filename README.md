@@ -121,9 +121,11 @@ Details: [`.ai/architecture.md`](.ai/architecture.md).
 | **M1** Worker pool ✅ | Language-agnostic process pool, supervisor, RoadRunner-compatible relay |
 | **M2** PHP HTTP — *MVP* ✅ | Serve PSR-7 apps through unmodified RoadRunner HTTP workers |
 | **M3** Operability ✅ | Metrics, admin API, rolling restarts, access logs, limits, benchmarks |
-| **M4** HTTP edge ✅ | TLS, HTTP/2, static files, compression, CORS, redirects, streaming, reverse-proxy clusters |
-| **M5** WASM sandbox | wazero runtime, `wasm` clusters and filters |
-| **M6** Dynamic config | Hot reload of the config file, config API |
+| **M4** HTTP features ✅ | TLS, HTTP/2 and h2c, trusted proxies, static files, compression, CORS, redirects, streaming |
+| **M5** Routing, filters and pools | Richer matches, per-route filters, traffic split, auth and limits before PHP, `X-Sendfile` |
+| **M6** WASM sandbox | wazero runtime, `wasm` clusters and filters |
+| **M7** Protocols | gRPC, WebSockets and SSE, unix sockets |
+| **M8** Dynamic config | Hot reload of the config file, config API |
 
 ## Try it
 
