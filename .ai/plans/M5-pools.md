@@ -1,7 +1,8 @@
 # Plan: M5 — Worker pools and routing to them
 
-- **Status:** Active. Approved by the user on 2026-10-25 as a whole, the **schema** decisions included (they change
-  the config file or the metrics); D4 brings its own names and defaults to the user after its measurement.
+- **Status:** Done (2026-10-25) on `feat/m5-pools`, committed locally; the PR waits for the user's local check. The
+  plan was approved by the user on 2026-10-25 as a whole, the **schema** decisions included (they change the config
+  file or the metrics); the user then delegated the rest of the milestone, D4's names and defaults included.
 - **Milestone:** M5
 - **Backlog:** K-151, K-905, K-144, K-908, K-143, K-140, K-910, K-095, K-149, K-152
 
@@ -209,7 +210,8 @@ end to end. The user can look at it before the rest.
 11. [x] K-149 profile and trim kest's CPU per request (D9) — acceptance: the profile and the before/after numbers in
     `docs/benchmarks.md`; whatever is changed, `make bench` doesn't get slower.
 12. [x] K-152 fork-based start, research (D10) — acceptance: a note in `research/`, an ADR draft if it is worth it.
-13. [ ] Docs review (`review.md`), `architecture.md` (§ 4 lanes, § 5 slot states, § 8 metrics, Q-F), then the PR.
+13. [x] Docs review (`review.md`), `architecture.md` (§ 4 lanes, § 5 slot states, § 8 metrics, Q-F), then the PR —
+    the PR after the user's local check, as they asked.
 
 ## Risks / open questions
 

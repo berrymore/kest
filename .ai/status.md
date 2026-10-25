@@ -1,37 +1,38 @@
 # Status
 
-_Last updated: 2026-10-25 (M5 on `feat/m5-pools`: steps 1–12 committed; step 13, the docs review, next)_
+_Last updated: 2026-10-25 (M5 done on `feat/m5-pools`, committed locally; waits for the user's local check, then PR)_
 
 ## Current phase
 
-**M5 (Worker pools and routing to them) is in progress.** M4 (HTTP features behind a proxy, narrowed by
-ADR-0008) and K-148 are merged into `main`; `plans/M4-http-edge.md` is M4's record. ADR-0008 still draws the line
-for M5: kest is an application server behind a proxy, and takes on what concerns how the proxy talks to the
-application or what makes up for a weakness of PHP. M5 makes the pool the core: lanes per route (a worker limit, a
-priority, a queue timeout), fast rejection under overload, a dynamic size, `X-Sendfile`, richer route matches.
+**M5 (Worker pools and routing to them) is done on its branch** `feat/m5-pools`, committed locally, not pushed: the
+user asked to finish it without them and to open no PR before they have checked the branch locally. M4 and K-148 are
+in `main`. ADR-0008 still draws the line: kest is an application server behind a proxy. M5 made the pool the core:
+lanes per route (`route.max_workers`, `priority`, `queue_timeout`), `Retry-After` and overload control
+(`pool.overload`, CoDel, on by default after a measurement), a dynamic size (`pool.max_workers`,
+`scale_down_after`), the `sendfile` filter, route names and matches on regex, method, headers and query, the
+listener filters' answers in the metrics, buffered relay reads; research on forking booted workers. The record is
+`plans/M5-pools.md` (decisions D1–D10, steps 1–13, the log).
 
 ## In progress
 
-**M5 — Worker pools and routing to them**, on `feat/m5-pools` (from `main` at the K-148 commit). The user narrowed
-the milestone to the pool (2026-10-25): K-142 weighted clusters dropped, K-145…K-147 (authentication, rate limiting,
-external authorization) to the icebox, K-141 to M6. `plans/M5-pools.md` (Active, approved) has decisions D1–D10 and steps
-1–13. Steps 1–4 are committed: the plan, K-910 route names, lanes in
-`worker.Pool` (`internal/worker/lane.go`), and route options to lanes (`route.max_workers`, `priority`,
-`queue_timeout`; `php_workers.retry_after`), and the slice end to end (`test/e2e/php_lanes_test.go`, the operations
-guide), overload control (`pool.overload`, on by default, decided by a measurement), and the dynamic pool size
-(`pool.max_workers`, `scale_down_after`), the `sendfile` filter, and route matching on regex, methods, headers and
-query, the listener filters' answers in the metrics, and K-149 (profile; buffered relay reads; `GOMAXPROCS`
-advice), and K-152 (research on forking booted workers, `research/prefork.md`). Step 13 is next. The user is away and asked to finish without them: commit locally, **no push, no PR**
-until they have checked the branch. The agent commits each item itself after a green `make check` until the end of
-M5; the PR waits for the user's OK.
+Nothing. The branch waits for the user's local check. Decisions taken while the user was away, for that review:
+D4's names and defaults (`pool.overload: {queue_timeout: 500ms, interval: 5s}`, on by default; lanes with
+`max_workers` or `queue_timeout` left out), the dynamic pool's boot limit (`max(1, workers/4)`), the `sendfile`
+details (absolute paths only, `dirs` themselves refused), the `GOMAXPROCS` advice (Q15), K-153 and K-154 in the
+backlog. `make check`, `make test-integration`, `make test-linux` and `make test-matrix` ran green (see the plan's
+log); `make bench` against RoadRunner did not run (no RoadRunner binary here): A/B runs of kest's binaries
+replaced it.
 
 ## Next up: how to continue in a fresh session
 
-1. **Git first:** `git checkout feat/m5-pools`; `git log --oneline -3` shows the `docs:` commit of the plan on top
-   of K-148.
-2. **Step 13:** the docs review (`review.md`: `make docs-check`, then the `docs-reviewer` agent over the branch),
-   fix what it finds, bring `architecture.md` up to date, mark the plan Done. Then stop: the user checks the branch
-   locally and gives the go-ahead before any push or PR.
+1. **Git first:** `git checkout feat/m5-pools`; `git log --oneline main..` shows the plan, one commit per item
+   (K-910, K-151/K-905, K-144, K-908, K-143, K-140, K-095, K-149, K-152) and the docs review.
+2. **If the user approves:** push the branch (`git push -u origin feat/m5-pools`; over HTTPS with `gh` as the
+   credential helper if SSH fails, see the memory notes), `gh pr create` with the decisions above in the description,
+   then after their go-ahead `gh pr merge --squash --delete-branch`, `git checkout main && git pull`, and mark M5
+   merged here and in `roadmap.md`. Run the docs review again first if the branch changed.
+3. **After the merge:** M6 (WASM sandbox) on a new branch `feat/m6-wasm`: read `roadmap.md` § M6, `backlog.md`
+   § M6 (K-100…K-104, K-141), ADR-0006; the first step is the guest ABI research and ADR (K-100). Q15 is open.
 
 ## Open questions (need a decision from the user)
 
@@ -130,11 +131,14 @@ M5; the PR waits for the user's OK.
 
 ## Session log (newest first, keep ~15)
 
-- **2026-10-25** — M5 planned with the user: scope narrowed to the pool (see Resolved decisions); verified RoadRunner's
-  `dynamic_allocator` (scales only after a full `allocate_timeout` wait) and `send` (no directory limit, no ranges),
-  Envoy's route matching (v1.40.1) and Symfony's `X-Sendfile` (keeps `Content-Length`, no ranges);
-  `plans/M5-pools.md` written (lanes, priorities, `Retry-After`, CoDel by experiment, dynamic size, `sendfile`,
-  matchers); roadmap, backlog, `context.md`, README updated. Branch `feat/m5-pools`, nothing committed.
+- **2026-10-25** — M5 planned with the user (scope narrowed to the pool) and implemented on `feat/m5-pools` (the user
+  delegated all steps, then left; no push, no PR):
+  K-910 route names; lanes in the pool (a dispatcher under one mutex, 3.1 → 1.8 µs per job) and on routes;
+  `Retry-After`; overload control decided by experiment in virtual time and with PHP (`loadgen -rate`, new): without
+  it overload collapses (7 of 40 requests/s served); dynamic pool size; `sendfile` (checked against Symfony's
+  `BinaryFileResponse`); route matchers; K-095; K-149 (most of the server's CPU is Go's idle threads spinning:
+  `GOMAXPROCS` 2–4 serves 25–35 % more on the laptop, Q15); K-152 research (forked workers: 1 ms and 4 MB against a
+  35 ms boot and 27 MB); the docs review.
 - **2026-10-25** — K-148: the user installed `ext-protobuf`; `make bench` re-run at M4 with and without it.
   With the extension `proto` is 1–4 % behind `json` (it was 30–35 %); PHP pays 14.4 µs per request for `json`,
   20.1 µs for `proto` with the extension, 135 µs without (`test/bench/codec.php`, new). RoadRunner is 8 % ahead on
@@ -196,7 +200,3 @@ M5; the PR waits for the user's OK.
   Commit and squash policy added to the rules.
 - **2026-10-24** — Installed golangci-lint 2.15.0 into `~/go/bin` (release binary, no brew); the user
   installed Composer.
-- **2026-10-24** — Resolved Q1–Q6 (English artifacts, `{type, config}`, MIT, PHP 8.3+ test floor,
-  no CI yet, git). Added LICENSE and the no-AI-attribution rule; `git init`, remote, first commit.
-- **2026-10-24** — Bootstrapped project docs: AGENTS.md, CLAUDE.md, README.md, `.ai/` (context, rules,
-  architecture, roadmap, backlog, ADR-0001…0006, M0 plan, RoadRunner/Envoy research notes).

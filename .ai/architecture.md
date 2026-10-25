@@ -2,10 +2,12 @@
 
 > A living document. It describes the **target** design and marks what is implemented.
 > Legend: 🟢 implemented · 🟡 in progress · ⚪ planned.
-> **Last reviewed: 2026-10-25 (M4 done, narrowed by ADR-0008).** Implemented: config loading and validation, extension
+> **Last reviewed: 2026-10-25 (M5 done on its branch).** Implemented: config loading and validation, extension
 > registry, server lifecycle, HTTP listeners with configurable limits, TLS (reloaded certificates) and HTTP/2/h2c,
-> path normalization, router with `direct_response` and `redirect`; the goridge relay and the worker pool with
-> rolling resets and streamed answers (`internal/relay`, `internal/worker`); the RoadRunner HTTP payload
+> path normalization, router with `direct_response` and `redirect`, route names and matches on regex, method,
+> headers and query; the goridge relay and the worker pool with rolling resets, streamed answers, lanes (worker
+> limits, priorities, queue timeouts), overload control and a dynamic size (`internal/relay`, `internal/worker`);
+> the RoadRunner HTTP payload
 > (`internal/rrhttp`); the cluster type `php_workers` (body budget, `reload`); the filters `request_id`,
 > `access_log`, `recovery`, `client_ip`, `headers`, `cors`, `compression`, `static`, `sendfile`, on listeners, virtual hosts and
 > routes;
@@ -451,5 +453,5 @@ at the start of M6.
 | Q-C | Streaming responses from PHP (SSE, large downloads) | ✅ M4 (K-088): `worker.Pool.ExecStream`; `php_workers` writes chunks as they come, 1xx as informational responses, STOP when the client goes away |
 | Q-D | Cluster interface: `http.Handler`, or a kest request/response type shared by php, wasm and proxy? | ✅ M4: `http.Handler` stays |
 | Q-E | Metrics: `prometheus/client_golang`, OpenTelemetry metrics, or a minimal custom exposition? | ✅ ADR-0007 (2026-10-25): a hand-written core with the Prometheus text format |
-| Q-F | Per-route priority and queueing inside one pool, on top of pool isolation | M5: lanes with a worker limit, strict priority and a queue timeout per route (`plans/M5-pools.md` D2) |
+| Q-F | Per-route priority and queueing inside one pool, on top of pool isolation | ✅ M5: lanes with a worker limit, strict priority and a queue timeout per route (`plans/M5-pools.md` D2) |
 | Q-G | PHP → kest RPC (RoadRunner's `rpc` plugin equivalent): needed for which PHP libraries? | Not for HTTP: `roadrunner/http` and `roadrunner/worker` don't use it (K-040); libraries for RR's KV, jobs, metrics, lock plugins do |

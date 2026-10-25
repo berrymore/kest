@@ -10,7 +10,7 @@ Work items live in `backlog.md` (IDs in brackets). Reprioritization is the user'
 | M2 | PHP HTTP — **MVP** | ✅ done 2026-10-25 |
 | M3 | Operability | ✅ done 2026-10-25 |
 | M4 | HTTP edge features (narrowed by ADR-0008) | ✅ done 2026-10-25 |
-| M5 | Worker pools and routing to them | ⚪ |
+| M5 | Worker pools and routing to them | ✅ done 2026-10-25 (on `feat/m5-pools`, merge after the user's review) |
 | M6 | WASM sandbox | ⚪ |
 | M7 | Protocols: gRPC, WebSockets and SSE | ⚪ |
 | M8 | Dynamic configuration | ⚪ |
