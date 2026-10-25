@@ -45,13 +45,16 @@ On Linux they die with kest even if kest is killed with SIGKILL.
 
 ## Probes
 
-- **Readiness: `GET /ready`** on the admin address. `200 ready` while kest serves; `503 starting` before
-  every worker has booted, `503 draining` once shutdown begins, and `503 not serving: <clusters>` while a cluster
-  has no live worker at all. A pool that is only replacing some workers still counts as serving. Point load
-  balancers here, and set `server.drain_delay` a little above their check interval, so that they stop sending
-  traffic before the listeners close.
-- **Liveness:** `GET /server_info` answers as long as the process runs. Don't use `/ready` for liveness: a
-  restart doesn't fix a cluster whose code fails to boot.
+- **Startup:** kest boots every worker before it opens the admin port and the listeners, so until then probes
+  get "connection refused". That can take up to `pool.start_timeout` (60s by default) if your application boots
+  slowly: give probes an initial delay, or a startup probe, at least that long.
+- **Readiness: `GET /ready`** on the admin address. `200 ready` while kest serves; `503 starting` for the moment
+  between the admin port and the listeners opening, `503 draining` once shutdown begins, and
+  `503 not serving: <clusters>` while a cluster has no live worker at all. A pool that is only replacing some
+  workers still counts as serving. Point load balancers here, and set `server.drain_delay` a little above their
+  check interval, so that they stop sending traffic before the listeners close.
+- **Liveness:** `GET /server_info` answers as long as the process serves, once it has started. Don't use
+  `/ready` for liveness: a restart doesn't fix a cluster whose code fails to boot.
 
 The admin API has no authentication. Keep it on `127.0.0.1` or a private network.
 

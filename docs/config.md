@@ -141,15 +141,15 @@ At least one listener is required.
 
 ### `listeners[].http`
 
-| Field | Required | |
+| Field | Default | |
 |---|---|---|
-| `filters` | no | HTTP filters, run in order before the router. Each is `{type, config}`; see [Filters](#filters). |
+| `filters` | none | HTTP filters, run in order before the router. Each is `{type, config}`; see [Filters](#filters). |
 | `read_header_timeout` | `10s` | How long a client may take to send the request line and headers; then the connection is closed. Protects against slow clients. `0s` turns it off. |
 | `read_timeout` | `0s` (off) | How long reading a whole request may take, body included. Off by default, since uploads on slow links take long; `php_workers` stops reading a body at the route `timeout` anyway (`408`). |
 | `write_timeout` | `0s` (off) | How long writing a response may take, counted from the end of the request headers. |
 | `idle_timeout` | `120s` | How long a keep-alive connection may wait for its next request. `0s`: no limit. |
 | `max_header_bytes` | `1MB` | Request line and headers together, 1KB–64MB; larger requests get `431`. |
-| `virtual_hosts` | yes | At least one |
+| `virtual_hosts` | — | Required, at least one |
 
 ### Filters
 
@@ -336,6 +336,9 @@ makes one reset. Directories whose names start with a dot are skipped.
 | `interval` | `1s` | How often to scan; at least `10ms`. |
 | `max_files` | `20000` | A scan that finds more matching files stops watching, with an error in the log. |
 
+A rewrite that keeps a file's size and lands within one tick of the file system's clock after a scan (a few
+milliseconds on Linux) isn't noticed until the next change.
+
 **Startup and shutdown.** kest starts every worker before it opens the listeners, and fails to start
 if one of them can't boot (the error shows the worker's exit status and the end of its stderr).
 Workers that crash later are replaced, with a growing delay (up to 30s) if they keep failing. A rolling
@@ -369,8 +372,10 @@ are not supported yet: a worker that streams is replaced and the request gets `5
 | Situation | Status |
 |---|---|
 | Request body over `max_request_body` | `413` |
+| Request body still arriving when the route `timeout` expires | `408` |
+| Request line and headers over `max_header_bytes` (from the listener) | `431` |
 | Malformed form body | `400` |
-| No free worker within `allocate_timeout`, queue full, or kest shutting down | `503` |
+| No free worker within `allocate_timeout`, queue full, `max_buffered_bodies` full, or kest shutting down | `503` |
 | `exec_ttl` or the route `timeout` expired | `504` |
 | The worker reported an error (`$worker->error()`) | `500` |
 | The worker crashed, broke the protocol, or sent an invalid or too large response | `502` |

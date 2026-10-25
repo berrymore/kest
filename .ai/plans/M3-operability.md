@@ -1,6 +1,8 @@
 # Plan: M3 — Operability
 
-- **Status:** Active (approved by the user 2026-10-25, D1–D10 included)
+- **Status:** Done (2026-10-25). Approved by the user with D1–D10; steps 8–12 (K-070, K-072, K-066, K-067, the
+  docs review and the PR) were done while the user was away, so the log below is the place to review those
+  choices.
 - **Milestone:** M3
 - **Backlog:** K-060…K-075 (K-060, K-071, K-073 done before this plan)
 
@@ -112,7 +114,7 @@ The first steps are the vertical slice: real metrics from a PHP app at `/metrics
 10. [x] **Operations guide** (K-067) — `docs/operations.md`: signals, rolling resets, metrics with example queries,
     probes, sizing, a systemd unit.
 11. [x] **Replace workers on file changes** (K-072).
-12. [ ] **Docs review** (`review.md`), then the PR.
+12. [x] **Docs review** (`review.md`), then the PR.
 
 ## Risks / open questions
 
@@ -124,20 +126,26 @@ The first steps are the vertical slice: real metrics from a PHP app at `/metrics
 
 ## Log
 
+- 2026-10-25 — Step 12: the docs review found 19 drifts (two blockers: the guide still listed metrics and resets
+  as missing, and the operations guide's probe advice ignored that the admin port opens only after every worker
+  has booted); all fixed. `make test-matrix` on PHP 8.5 found a race in K-072 (the watcher took its baseline in
+  its own goroutine, so a change right after `Start` could be missed): fixed in a follow-up commit.
 - 2026-10-25 — Step 10 (K-067) done: `docs/operations.md`.
 - 2026-10-25 — Step 9 (K-066) done: `docs/benchmarks.md`; RoadRunner 3.0.1 from its GitHub release (sha256 checked
-  against the release's digest), run from the scratchpad, not committed. A 1 MB body scenario was added to decide
-  K-069, which is dropped.
+  against the release's digest), run from the scratchpad, not committed. The kest binary was built at `f159a53`,
+  before any K-072 code. A 1 MB body scenario was added to decide K-069, which is dropped.
 - 2026-10-25 — Step 11 (K-072) done, before steps 9 and 10. Added `max_files` (bound) to the planned options;
   dot directories are skipped; a change must hold still for one scan before the reset.
-- 2026-10-25 — Step 8 (K-070) done as in D10; requests don't wait for the budget. The body can be in memory twice
+- 2026-10-25 — Step 8 (K-070) done as in D10; requests don't wait for the budget. Beyond D2:
+  `kest_pool_buffered_body_bytes` and `kest_pool_rejected_total{reason="body_budget"}`. The body can be in memory twice
   while it goes to a worker (K-069), and the budget counts it once.
 - 2026-10-25 — K-068 done (step 7). The delay applies to a signal, not to a fatal error.
 - 2026-10-25 — K-065 done (step 7, first half). Added beyond D9: `php_workers` sets a read deadline from the route
   timeout before it reads the body, so a slow sender gets `408` without a new option; `fail` answers it although
   `net/http` cancels the request context on the deadline.
 - 2026-10-25 — Step 6 (K-075) done: extension configs opt in to redaction with `config.Redactor`.
-- 2026-10-25 — Step 5 (K-064) done as in D5–D8. The router and the listener entry fill `httpx.RequestInfo`, so
+- 2026-10-25 — Step 5 (K-064) done as in D5–D8, except that `access_log` takes no config at all (D7 said `{}`;
+  a config block is rejected). The router and the listener entry fill `httpx.RequestInfo`, so
   `access_log` gets the virtual host and cluster in any filter order; a panic counts as a 500 in the HTTP metrics;
   `access_log` logs the path without the query string. `request_id` changes a copy of the request.
 - 2026-10-25 — Step 4 (K-063) done, with the surge of D4. A slot takes a handed-over process only between jobs; a

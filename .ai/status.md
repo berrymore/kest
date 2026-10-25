@@ -1,38 +1,34 @@
 # Status
 
-_Last updated: 2026-10-25 (M3)_
+_Last updated: 2026-10-25 (M3 done)_
 
 ## Current phase
 
-**M3 (operability) has started** on `feat/m3-operability`. M2 (PHP HTTP, MVP) is merged into `main` (PR #1,
-2026-10-25); `plans/M2-php-http.md` is its record. There is no M3 plan yet: the first M3 session fixed what the
-user's Symfony app in `playground/` (git-ignored, the user's sandbox) turned up, and added the docs review.
+**M3 (operability) is done** and merged into `main` (PR #2). `plans/M3-operability.md` is its record: the
+decisions D1–D10, the steps, and a log of what was done and where it deviated. kest now has Prometheus metrics
+(`/metrics`, ADR-0007), `/clusters`, `/config_dump`, `/ready` per cluster, rolling resets of the workers without
+failed requests (admin API, SIGHUP, and `reload` on file changes for development), the filters `request_id`,
+`access_log` and `recovery`, configurable server limits, a drain delay, a budget for buffered request bodies, a
+benchmark against RoadRunner (`docs/benchmarks.md`) and an operations guide (`docs/operations.md`).
 
-Done on the branch: **K-071** (a worker that prints to stdout gets an error that shows what it printed, plus a
-PHP hint), **K-073** (`make docs-check` and the milestone docs review in `review.md`), **K-060** (metrics:
-ADR-0007, a hand-written core with the Prometheus text format), **K-061** (`internal/metrics`; HTTP, pool, Go
-and process metrics), **K-062** (`GET /metrics`, `/ready` per cluster), **K-074** (`GET /clusters`) and **K-063**
-(rolling reset through the admin API and SIGHUP, zero failed requests under load: an M3 exit criterion) and
-**K-064** (filters `request_id`, `access_log`, `recovery`), **K-075** (`GET /config_dump`, env values redacted)
-**K-065** (server timeouts and header limit per listener; slow bodies get `408`), **K-068**
-(`server.drain_delay`), **K-070** (`max_buffered_bodies`), **K-072** (`php_workers.reload`) and **K-066**
-(`docs/benchmarks.md`: even with RoadRunner on the same codec, ahead with kest's default; K-069 dropped) and
-**K-067** (`docs/operations.md`).
-The plan is `plans/M3-operability.md` (Active).
+**Next: M4 (HTTP edge features).**
 
 ## In progress
 
-Nothing half-done.
+Nothing.
 
-## Next up: how to continue M3 in a fresh session
+## Next up: how to start M4 in a fresh session
 
-0. **Git:** `git switch feat/m3-operability`. One commit per backlog item. For M3 the user allows the agent to
-   commit each item itself once `make check` is green; the PR and the merge still wait for the user.
-1. **Read first:** this file → `plans/M3-operability.md` (Active: decisions D1–D10, steps) → `backlog.md` § M3
-   (K-060…K-075) → `architecture.md` § 4 and § 8 → ADR-0007 (metrics).
-2. **Continue with the plan's first open step.** The user approved the plan with D1–D10 and leaves technical
-   details to the agent; schema changes beyond the plan still need the user's OK.
-3. **End of M3:** the docs review (`review.md`) before `gh pr create`, and again before the merge if the branch
+0. **Git first:** make sure the M3 PR is merged (`gh pr list --state all`); `git switch main && git pull`; delete
+   the local `feat/m3-operability`; create `feat/m4-http-edge`. One commit per backlog item; ask before every commit
+   unless the user says otherwise for M4.
+1. **Read first:** this file → `roadmap.md` § M4 → `backlog.md` § M4 (K-080…K-088) → `architecture.md` § 2–4
+   and § 10 (Q-A filter model, Q-C streaming, Q-D cluster interface) → `plans/M3-operability.md` (log).
+2. **Write `plans/M4-http-edge.md`**, a vertical slice first (for example TLS + HTTP/2 on one listener, K-080 and
+   K-081). K-085 (`http_proxy` cluster) is the second cluster type: it reopens Q-D. Path normalization (K-086) and
+   trusted proxies (K-087) are security items worth doing early.
+3. Get the user's approval of the plan before writing code.
+4. **End of M4:** the docs review (`review.md`) before `gh pr create`, and again before the merge if the branch
    changed.
 
 ## Open questions (need a decision from the user)
@@ -41,9 +37,9 @@ None.
 
 ## Resolved decisions
 
-- 2026-10-25 — M3: the agent commits each item itself after a green `make check`, until the end of M3. Later
-  the user left the rest of M3 to the agent ("finish it to the end"): the remaining items, the docs review, pushing
-  the branch and opening the PR. Merging waits for the user's review.
+- 2026-10-25 — M3: the agent committed each item itself after a green `make check`; the user then left the rest of
+  M3 to the agent ("finish it to the end"), the PR included. The choices made while the user was away (K-070,
+  K-072, K-066, K-067 and the deviations in the plan's log) went in with the merge of PR #2.
 - 2026-10-25 — The M3 plan and its decisions D1–D10 approved as a whole (was Q9), including the schema changes
   it proposes; the user leaves technical details to the agent.
 - 2026-10-25 — Metrics (Q-E, was Q8): ADR-0007 accepted, a hand-written core in `internal/metrics` with the
@@ -83,46 +79,31 @@ None.
   built with, so when bumping Go, upgrade the linter too (or `go install` it with the local toolchain).
 - PHP 8.5.12 (brew, NTS) with `sockets`, `pcntl`, `posix`, `json`, `mbstring`, `openssl`; Composer 2.10.3
 - Also installed: Homebrew, Docker, git, gh (SSH protocol, logged in as `berrymore`)
-- Docker image `golang:1.27` (pulled 2026-10-24) runs `make test-linux`; `php:8.3-cli`, `php:8.4-cli`,
-  `php:8.5-cli` and `composer:2` (pulled 2026-10-25) build the `kest-test-php:<version>` images of `make test-matrix`
-- Load testing: `ab` (ApacheBench, ships with macOS); no `oha`/`wrk` installed
+- Docker image `golang:1.27` (pulled 2026-10-24) runs `make test-linux`; the `kest-test-php:8.3`, `8.4` and `8.5`
+  images of `make test-matrix` are built from `php:<version>-cli` and `composer:2`, which BuildKit keeps in its
+  cache rather than as tagged images
+- Load testing: `test/bench/loadgen` (`make bench`), `ab` (ships with macOS); no `oha`/`wrk`. `make bench` needs
+  RoadRunner's release binary (`RR=/path/to/rr`): none is installed; K-066 used 3.0.1 from the GitHub release.
 
 ## Session log (newest first, keep ~15)
 
-- **2026-10-25** — K-067: the operations guide.
-- **2026-10-25** — K-066: `make bench` against RoadRunner 3.0.1, 18 scenarios × 3 runs, no failed request.
-- **2026-10-25** — K-072: `php_workers.reload`, a polling watcher owned by the cluster, resets through K-063.
-- **2026-10-25** — K-070: a per-cluster budget for buffered request bodies. The user went to bed and left the rest
-  of M3 to the agent, PR included.
-- **2026-10-25** — K-068: `server.drain_delay`. Process: a `make check | grep` pipeline hid a lint failure and
-  let a commit through (fixed in a follow-up commit); commits now wait for `make check`'s own exit status.
-- **2026-10-25** — K-065: server limits per listener; a body read deadline from the route timeout. Found: on that
-  deadline `net/http` cancels the request context, and `fail` took it for a client that went away (empty 200).
-- **2026-10-25** — K-075: `GET /config_dump` through `Config.DumpRedacted` and `config.Redactor`.
-- **2026-10-25** — K-064: `request_id`, `access_log`, `recovery` in `internal/filters/`; `httpx.RequestInfo` and
-  `httpx.ResponseWriter`; php-hello turns the filters on.
-- **2026-10-25** — K-063: `Pool.Reset` with a surge; `POST /clusters/{name}/reset`, SIGHUP. Under load in e2e:
-  ~13 000 requests, none failed. Found in tests: a timestamp check broke under synctest's frozen clock; a reset
-  generation counter replaced it.
-- **2026-10-25** — K-074: `GET /clusters` through the optional `cluster.Reporter`.
-- **2026-10-25** — K-062: `GET /metrics`, `/ready` fails while a cluster has no live worker (`cluster.Prober`),
-  `docs/metrics.md` with example queries.
-- **2026-10-25** — K-061: `internal/metrics` (fuzzed against Prometheus's parser), HTTP metrics in the router,
-  `worker.Observer` and scrape-time collectors for pools, Go and process metrics; `BuildContext.Metrics`. The
-  binary grew by 0.1 MB; `expfmt` stays out of it.
-- **2026-10-25** — K-060: built the same metrics program on `client_golang`, VictoriaMetrics/metrics,
-  OpenTelemetry and a 187-line hand-written core; compared binary size, linked modules and update cost; checked
-  the prototype's output with Prometheus's own parser; checked that Prometheus 3 scrapes text 0.0.4 by default.
-  Drafted ADR-0007; the user accepted it and the test-only `expfmt`. Wrote `plans/M3-operability.md`; the user
-  approved it. Split K-062 into K-062, K-074, K-075.
+- **2026-10-25** — M3, after the user went to bed and left the rest to the agent, PR included: K-070 body budget,
+  K-072 `reload` (a baseline race found by `make test-matrix` on PHP 8.5, fixed), K-066 benchmark against
+  RoadRunner 3.0.1 (K-069 dropped), K-067 operations guide; the docs review (19 findings, all fixed); PR #2.
+- **2026-10-25** — M3 with the user: K-064 filters, K-075 `/config_dump`, K-065 server limits (a body read
+  deadline from the route timeout: `net/http` cancels the request context on it, so `fail` took a slow client for
+  a gone one), K-068 drain delay. Process: a `make check | grep` pipeline hid a lint failure once (a follow-up
+  commit fixed it); commits now wait for `make check`'s own exit status (`rules.md` § 9).
+- **2026-10-25** — M3 metrics and resets: ADR-0007 decided by experiment (`client_golang`, VictoriaMetrics,
+  OpenTelemetry and a hand-written core compared; accepted with `expfmt` as a test-only oracle); the M3 plan
+  approved; K-061 `internal/metrics` and instrumentation, K-062 `/metrics` and `/ready` per cluster, K-074
+  `/clusters`, K-063 rolling reset with a surge (zero failed requests under load; a timestamp check broke under
+  synctest's frozen clock, a generation counter replaced it).
 - **2026-10-25** — M3 started on `feat/m3-operability`. The user's Symfony 8.1 app in `playground/` didn't start:
   `symfony/runtime` reads `APP_RUNTIME` before `.env`, so the app ran as a plain script and printed HTML to
-  stdout, and kest's error showed 12 bytes of it. K-071: `worker.StdoutError` with the output (the rejected
-  header plus the rest of the pipe; also on a broken pipe) and a `php_workers` hint. K-073: `test/docs` drift
-  checks, which found `make vet`/`make clean` missing from AGENTS.md, a renamed make target in the backlog and an
-  item that never existed in the roadmap's M2 range; `review.md` and the `docs-reviewer` agent, whose dry run
-  found 9 more (no blockers), all fixed. Trigger: this file still said "waiting for review" after the M2 merge.
-  Added K-072 (replace workers on file changes).
+  stdout, and kest's error showed 12 bytes of it. K-071: `worker.StdoutError` with the output and a `php_workers`
+  hint. K-073: `test/docs` drift checks and the docs review (`review.md`, `docs-reviewer` agent), after this file
+  still said "waiting for review" with M2 merged.
 - **2026-10-25** — M2 implemented on `feat/m2-php-http`, autonomously (the user delegated research, plan, code,
   commits and the PR). K-040: RR v3 sends protobuf, the PHP library still reads JSON and answers in kind;
   protobuf costs 141 µs vs 28.5 µs per request in PHP without ext-protobuf. `rrhttp` (hand-written protobuf

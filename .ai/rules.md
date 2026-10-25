@@ -83,7 +83,8 @@ conflicts with a rule, follow the user, and if the instruction is durable, updat
 
 - The admin server binds to `127.0.0.1` by default.
 - Request header and body sizes are bounded by default.
-- Config dumps redact secrets (fields marked sensitive, env values).
+- The admin `/config_dump` redacts secrets: extension configs that may hold them implement `config.Redactor`
+  (php_workers: `env` values). `kest validate -dump` is local and shows everything.
 - Worker processes get a documented environment: `php_workers` passes kest's own (like RoadRunner; off with
   `inherit_env: false`), then the configured `env`, then the protocol variables (`RR_MODE`, `RR_RELAY`).
 
@@ -99,7 +100,8 @@ Workflow (set by the user on 2026-10-25):
   backlog first. Never batch several items into one commit.
 - **Ask before every commit**, unless the user has given other instructions for the current milestone (for
   example, "commit each item yourself once `make check` is green"). Such instructions last until the milestone
-  ends. Run `make check` before committing.
+  ends. Run `make check` before committing, and commit only on its own exit status: `make check | grep …`
+  reports grep's, and once let a failing check through.
 - **Merging goes through a pull request.** When the milestone is done, run the docs review (`.ai/review.md`) and
   fix its findings; ask; then push the branch and open a PR to `main` with `gh pr create` (summary of the
   milestone, its backlog items, how it was tested, that the docs review ran). The user reviews it. If the branch

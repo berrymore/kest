@@ -87,12 +87,12 @@ Hello, kest!
 $ curl localhost:9901/ready
 ready
 $ curl -s localhost:9901/metrics | grep 'kest_pool_workers{'
-kest_pool_workers{cluster="hello",state="starting"} 0
-kest_pool_workers{cluster="hello",state="ready"} 4
-kest_pool_workers{cluster="hello",state="working"} 0
-kest_pool_workers{cluster="hello",state="stopping"} 0
-kest_pool_workers{cluster="hello",state="backoff"} 0
-kest_pool_workers{cluster="hello",state="stopped"} 0
+kest_pool_workers{cluster="app",state="starting"} 0
+kest_pool_workers{cluster="app",state="ready"} 4
+kest_pool_workers{cluster="app",state="working"} 0
+kest_pool_workers{cluster="app",state="stopping"} 0
+kest_pool_workers{cluster="app",state="backoff"} 0
+kest_pool_workers{cluster="app",state="stopped"} 0
 ```
 
 The admin server (`localhost:9901`) also serves [metrics](metrics.md) for Prometheus.
@@ -175,6 +175,6 @@ kest has no RPC yet.
 | `http.raw_body` | `raw_body` | |
 | `http.internal_error_code` | — | kest answers 500, 502, 503 or 504 depending on what failed |
 
-Not there yet: TLS, HTTP/2, static files and the other HTTP middleware (M4), metrics and rolling
-restarts (M3), RPC, jobs, KV and the other RoadRunner plugins. Streaming responses
+Not there yet: TLS, HTTP/2, static files and the other HTTP middleware (M4), RPC, jobs, KV and the other
+RoadRunner plugins. Streaming responses
 (`PSR7Worker::$chunkSize`) aren't supported yet either.

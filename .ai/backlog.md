@@ -42,7 +42,7 @@ Milestone definitions: `roadmap.md`.
 - [x] K-027 Respawn with exponential backoff; pool health state.
 - [x] K-028 Integration test: PHP echo worker on `roadrunner/worker` (formerly `spiral/roadrunner-worker`;
   `testdata/php/` + composer; pin the package versions in `composer.lock`).
-- [ ] K-029 Unix socket / TCP relays (only if needed before M3).
+- [ ] K-029 Unix socket / TCP relays (only if a deployment needs them; pipes cover kest's workers so far).
 
 ## M2 — PHP HTTP (MVP)
 
@@ -77,7 +77,7 @@ Milestone definitions: `roadmap.md`.
 - [x] K-061 Metrics: requests, latency, status per listener/route/cluster; pool queue; worker states; restarts; memory.
   `internal/metrics` (fuzzed against `expfmt`, 7 ns per counter + histogram update), `kest_http_*` per listener,
   virtual host, cluster and code, `kest_pool_*` through `worker.Observer` and scrape-time collectors, a subset of
-  `go_*`/`process_*` (RSS on Linux only); not exposed yet (K-062).
+  `go_*`/`process_*` (RSS on Linux only).
 - [x] K-062 Admin: `/metrics` (split on 2026-10-25: `/clusters` is K-074, `/config_dump` K-075,
   `POST /clusters/{name}/reset` belongs to K-063). `/ready` must use `worker.Health() == Unhealthy` only: `Degraded` is normal for a moment whenever a worker is
   recycled (max_jobs, ttl).
@@ -176,3 +176,5 @@ Milestone definitions: `roadmap.md`.
 - [ ] K-907 Run workers as another user/group (RR `server.user` / `server.group`).
 - [ ] K-908 Dynamic pool size (RR `pool.dynamic_allocator`).
 - [ ] K-909 One-off command before workers start (RR `server.on_init`).
+- [ ] K-910 Optional route `name`, and a `route` label on the HTTP metrics (M3 plan D2): today two routes to the
+  same cluster on one virtual host can't be told apart in metrics.
