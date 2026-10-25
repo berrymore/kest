@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/berrymore/kest/internal/cluster"
+	"github.com/berrymore/kest/internal/httpx"
 	"github.com/berrymore/kest/internal/metrics"
 	"github.com/berrymore/kest/internal/registry"
 	"github.com/berrymore/kest/internal/rrhttp"
@@ -247,6 +248,15 @@ func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer c.cleanup(req)
+	// What a trusted proxy said about the client (client_ip), as
+	// RoadRunner's proxy_ip_parser passes it: in remoteAddr.
+	info := httpx.Info(r)
+	if info.ClientIP != "" {
+		req.RemoteAddr = info.ClientIP
+	}
+	if info.Scheme != "" {
+		req.SetScheme(info.Scheme)
+	}
 	for _, err := range req.UploadErrors() {
 		c.logger.Warn("upload not stored", "method", r.Method, "path", r.URL.Path, "err", err)
 	}

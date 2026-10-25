@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/berrymore/kest/internal/cluster"
+	"github.com/berrymore/kest/internal/httpx"
 	"github.com/berrymore/kest/internal/leaktest"
 	"github.com/berrymore/kest/internal/logging"
 	"github.com/berrymore/kest/internal/metrics"
@@ -106,6 +107,24 @@ func TestServeHTTP(t *testing.T) {
 	}
 	if ctx["method"] != "POST" || ctx["uri"] != "http://example.com/items?x=1" || ctx["parsed"] != true {
 		t.Errorf("request context %v", ctx)
+	}
+}
+
+// What a trusted proxy said about the client (httpx.RequestInfo, from
+// client_ip) reaches PHP as remoteAddr and the URI's scheme.
+func TestServeHTTPClientFromProxy(t *testing.T) {
+	p := &fakePool{exec: respond(relay.CodecJSON, `{"status":200}`, "")}
+	c := newTestCluster(t, nil, p)
+	r := httpx.WithRequestInfo(httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://example.com/a", http.NoBody))
+	info := httpx.Info(r)
+	info.ClientIP, info.Scheme = "198.51.100.7", "https"
+	serve(c, r)
+	var ctx map[string]any
+	if err := json.Unmarshal(p.last.Context, &ctx); err != nil {
+		t.Fatal(err)
+	}
+	if ctx["remoteAddr"] != "198.51.100.7" || ctx["uri"] != "https://example.com/a" {
+		t.Errorf("remoteAddr %v, uri %v; want the client's IP and an https URI", ctx["remoteAddr"], ctx["uri"])
 	}
 }
 

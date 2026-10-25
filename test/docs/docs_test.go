@@ -24,6 +24,7 @@ import (
 	_ "github.com/berrymore/kest/internal/cluster/phpworkers" // the extensions of cmd/kest/extensions.go
 	"github.com/berrymore/kest/internal/config"
 	_ "github.com/berrymore/kest/internal/filters/accesslog"
+	_ "github.com/berrymore/kest/internal/filters/clientip"
 	_ "github.com/berrymore/kest/internal/filters/recovery"
 	_ "github.com/berrymore/kest/internal/filters/requestid"
 	"github.com/berrymore/kest/internal/httpx"

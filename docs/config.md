@@ -185,8 +185,8 @@ in `kest_tls_handshake_errors_total` and logged at `debug` level, since scanners
 
 ### Filters
 
-Built-in types: `request_id`, `access_log`, `recovery`. Put `recovery` first so that it covers the other
-filters too:
+Built-in types: `request_id`, `access_log`, `recovery`, `client_ip`. Put `recovery` first so that it covers the
+other filters too:
 
 ```yaml
 http:
@@ -207,12 +207,36 @@ http:
 
 **`access_log`** writes one line per request to kest's log (stderr, in `log.format`), with `component=access`
 and the listener's name: `method`, `path` (without the query string, which may hold secrets), `proto`, `status`,
-`bytes` (of the body), `duration`, `remote` (the client's IP), `request_id`, `virtual_host`, `cluster` and
-`user_agent`. It takes no config.
+`bytes` (of the body), `duration`, `remote` (the client's IP, from `client_ip` when a trusted proxy reported it),
+`request_id`, `virtual_host`, `cluster` and `user_agent`. It takes no config.
 
 **`recovery`** turns a panic in kest below it into a `500` with the stack in the log, instead of a dropped
 connection. If the response had started, the connection is cut, so that the client doesn't mistake a partial
 response for a complete one. It takes no config.
+
+**`client_ip`** takes the client's IP from a forwarding header, when kest runs behind a load balancer or a proxy,
+but only from peers listed in `trusted_proxies`:
+
+```yaml
+- type: client_ip
+  config:
+    trusted_proxies: [10.0.0.0/8, 192.168.0.0/16, 127.0.0.1]
+    header: X-Forwarded-For
+```
+
+| Field | Default | |
+|---|---|---|
+| `trusted_proxies` | — | Required. The addresses (`192.0.2.10`, `2001:db8::1`) and networks (`10.0.0.0/8`) of the proxies allowed to tell the client's IP. |
+| `header` | `X-Forwarded-For` | Where the IP is: `X-Forwarded-For`, `Forwarded` (its `for=` parameters), or a header with one address set by the proxy, such as `X-Real-Ip` or `CF-Connecting-IP`. |
+
+When a request comes from a trusted proxy, kest reads the list from the end: the first address that isn't a trusted
+proxy is the client (if all of them are, the first one is). So a client can't choose its IP by sending
+`X-Forwarded-For` itself, which RoadRunner's `proxy_ip_parser` allows: it takes the first address. An entry that
+isn't an IP ends the search. A trusted proxy's `X-Forwarded-Proto: https` (one value, `http` or `https`) also sets
+the scheme. PHP sees the client's IP as the remote address (`REMOTE_ADDR`), as with RoadRunner, and the scheme in
+the request URI, so frameworks build `https://` links behind a TLS-terminating balancer. `access_log` logs the
+client's IP whatever the filter order. Requests from other peers keep the peer's address and their headers are
+ignored, not removed.
 
 ### `virtual_hosts[]`
 

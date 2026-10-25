@@ -1,6 +1,6 @@
 # Operations guide
 
-How to run kest in production: processes, TLS, signals, probes, deploys, sizing, monitoring and
+How to run kest in production: processes, TLS, load balancers, signals, probes, deploys, sizing, monitoring and
 troubleshooting. Option details are in the [configuration reference](config.md), metrics in
 [Metrics](metrics.md).
 
@@ -46,6 +46,13 @@ A listener with a `tls` block serves HTTPS ([`listeners[].tls`](config.md#listen
   kest's user read access to `archive/` and `live/`, or copy the files elsewhere in a deploy hook.
 - Ports below 1024 need `AmbientCapabilities=CAP_NET_BIND_SERVICE` in the systemd unit when kest runs as an
   unprivileged user.
+
+## Behind a load balancer
+
+Add the `client_ip` filter with the balancer's addresses in `trusted_proxies`, so that PHP, the access log and
+your rate limits see the client instead of the balancer, and so that PHP builds `https://` URLs when the balancer
+terminates TLS (`X-Forwarded-Proto`). Without it, PHP sees the balancer's address. Don't also configure your
+framework's trusted proxies with the balancer's address: PHP already sees the client as the remote address.
 
 ## Signals
 

@@ -145,8 +145,10 @@ Milestone definitions: `roadmap.md`.
   `merge_slashes`), so prefix routes can't be bypassed with `/a/../b`. `listeners[].http.normalize_path` and
   `merge_slashes`, both on by default, on the decoded path before the filters; a changed path is rewritten for
   the cluster too (fuzzed: idempotent, no dot segments or `//` left).
-- [ ] K-087 Trusted proxies: client IP from `X-Forwarded-For` / `Forwarded` for trusted peers, passed to PHP as
-  the `ipAddress` attribute that `roadrunner/http` reads (RR's `proxy_ip_parser` middleware).
+- [x] K-087 Trusted proxies: client IP from `X-Forwarded-For` / `Forwarded` for trusted peers, passed to PHP as
+  the `ipAddress` attribute that `roadrunner/http` reads (RR's `proxy_ip_parser` middleware). Done as the
+  `client_ip` filter: right-to-left walk over trusted hops, `X-Forwarded-Proto`; PHP gets the IP in `remoteAddr`
+  (what RR's `proxy_ip_parser` v6 does, not an attribute) and the scheme in the URI; `httpx.ClientIP`/`Scheme`.
 - [ ] K-088 Streaming responses from PHP workers (`STREAM` frames, `PSR7Worker::$chunkSize`, generator bodies)
   and 1xx informational responses (103 Early Hints); stop a stream when the client goes away (Q-C).
 - [ ] K-089 CORS filter (`cors`): preflight answered by kest, allowed origins with wildcards.

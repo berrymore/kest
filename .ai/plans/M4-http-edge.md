@@ -170,7 +170,7 @@ Steps 1–2 are the vertical slice: `curl --http2 -k https://localhost:8443/` ag
 2. [x] **HTTP/2** (K-081) — acceptance: e2e with h2 over TLS and h2c; PHP sees `HTTP/2.0`.
 3. [x] **Path normalization** (K-086) — acceptance: unit tests for dot segments, `%2e`, `//`; e2e: a deny route
    can't be bypassed.
-4. [ ] **`client_ip`** (K-087) — acceptance: spoofed `X-Forwarded-For` from an untrusted peer is ignored; PHP's
+4. [x] **`client_ip`** (K-087) — acceptance: spoofed `X-Forwarded-For` from an untrusted peer is ignored; PHP's
    `REMOTE_ADDR` and the access log show the client.
 5. [ ] **`headers`** (K-084).
 6. [ ] **`cors`** (K-089) — acceptance: preflight answered by kest; disallowed origins get no CORS headers.
@@ -196,6 +196,7 @@ Steps 1–2 are the vertical slice: `curl --http2 -k https://localhost:8443/` ag
 
 ## Log
 
+- 2026-10-25 — Step 4 (K-087) done as in D4. `httpx.IsToken` is shared by the filters that check header names.
 - 2026-10-25 — Step 3 (K-086) done as in D3.
 - 2026-10-25 — Step 2 (K-081) done as in D2: the vertical slice runs (`php-hello` over h2 and h2c). `php-hello`'s
   `/info` reports the protocol version.

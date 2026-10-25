@@ -4,7 +4,6 @@ package accesslog
 
 import (
 	"log/slog"
-	"net"
 	"net/http"
 	"time"
 
@@ -46,7 +45,7 @@ func New(logger *slog.Logger) httpx.Filter {
 					slog.Int("status", status),
 					slog.Int64("bytes", rw.BytesWritten()),
 					slog.Duration("duration", time.Since(start)),
-					slog.String("remote", remoteHost(r.RemoteAddr)),
+					slog.String("remote", httpx.ClientIP(r)),
 					slog.String("request_id", info.RequestID),
 					slog.String("virtual_host", info.VirtualHost),
 					slog.String("cluster", info.Cluster),
@@ -57,12 +56,4 @@ func New(logger *slog.Logger) httpx.Filter {
 			panicked = false
 		})
 	}
-}
-
-// remoteHost drops the port of a remote address.
-func remoteHost(addr string) string {
-	if host, _, err := net.SplitHostPort(addr); err == nil {
-		return host
-	}
-	return addr
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -94,5 +95,50 @@ listeners:
 	resp = do(t, http.DefaultClient, "http://"+h2cAddr+"/info")
 	if got := decodeInfo(t, resp); resp.Proto != "HTTP/1.1" || got.Protocol != "1.1" {
 		t.Errorf("HTTP/1.1 on the h2c listener: %s, PHP saw %+v", resp.Proto, got)
+	}
+}
+
+// Behind a trusted proxy, PHP and the access log see the client that the
+// proxy reported; a spoofed X-Forwarded-For from the client is ignored.
+func TestPHPClientIP(t *testing.T) {
+	hello := phpHello(t)
+	listenAddr, adminAddr := freeAddr(t), freeAddr(t)
+	configPath := filepath.Join(t.TempDir(), "kest.yaml")
+	writeFile(t, configPath, `version: v1
+admin: {address: "`+adminAddr+`"}
+listeners:
+  - name: main
+    address: "`+listenAddr+`"
+    http:
+      filters:
+        - type: access_log
+        - type: client_ip
+          config: {trusted_proxies: [127.0.0.1]}
+      virtual_hosts:
+        - name: default
+          domains: ["*"]
+          routes: [{match: {prefix: /}, route: {cluster: hello}}]
+`+helloCluster(hello))
+	k := serve(t, configPath, adminAddr)
+	defer k.stop(t)
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+listenAddr+"/info", http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Forwarded-For", "1.1.1.1, 198.51.100.1") // the client sent 1.1.1.1; our proxy appended the rest
+	req.Header.Set("X-Forwarded-Proto", "https")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got info
+	err = json.NewDecoder(resp.Body).Decode(&got)
+	resp.Body.Close()
+	if err != nil || got.Client != "198.51.100.1" || !strings.HasPrefix(got.URI, "https://") {
+		t.Errorf("PHP saw %+v (%v); want client 198.51.100.1 and an https URI", got, err)
+	}
+	if logs := k.logs.String(); !strings.Contains(logs, "remote=198.51.100.1") {
+		t.Errorf("the access log doesn't show the client:\n%s", logs)
 	}
 }

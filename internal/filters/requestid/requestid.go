@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/berrymore/kest/internal/config"
 	"github.com/berrymore/kest/internal/httpx"
@@ -52,7 +51,7 @@ func DefaultConfig() Config {
 
 // Validate reports an invalid header name.
 func (c *Config) Validate() error {
-	if !isToken(c.Header) {
+	if !httpx.IsToken(c.Header) {
 		return &config.FieldError{Field: "header", Msg: fmt.Sprintf("must be a valid HTTP header name, got %q", c.Header)}
 	}
 	return nil
@@ -100,24 +99,6 @@ func validIncoming(id string) bool {
 	}
 	for i := range len(id) {
 		if id[i] < 0x21 || id[i] > 0x7e {
-			return false
-		}
-	}
-	return true
-}
-
-// isToken reports whether s is an HTTP token (RFC 9110 § 5.6.2), as header
-// names are.
-func isToken(s string) bool {
-	if s == "" {
-		return false
-	}
-	for i := range len(s) {
-		c := s[i]
-		switch {
-		case 'a' <= c && c <= 'z', 'A' <= c && c <= 'Z', '0' <= c && c <= '9':
-		case strings.IndexByte("!#$%&'*+-.^_`|~", c) >= 0:
-		default:
 			return false
 		}
 	}
