@@ -96,7 +96,8 @@ Milestone definitions: `roadmap.md`.
 - [x] K-066 Benchmarks against RoadRunner; report in `docs/benchmarks.md`. `make bench` (`test/bench`: configs,
   `loadgen`, `run.sh`) against RoadRunner 3.0.1: even with the same codec, 42–54 % ahead on small requests with
   kest's default `json`, half the memory with 1 MB bodies.
-- [ ] K-067 Operations guide.
+- [x] K-067 Operations guide. `docs/operations.md`: running under systemd, signals, probes, deploys with rolling
+  resets, sizing, monitoring, logs, troubleshooting.
 - [-] K-069 Request frames copy context + body into one payload (one copy of the body per job). If K-066
   shows it matters, write the frame in segments instead (`relay.Writer` with several payload parts). Dropped on
   2026-10-25: with 1 MB bodies K-066 found kest 3–11 % ahead of RoadRunner, at half its memory; reopen if a

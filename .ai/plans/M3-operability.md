@@ -109,7 +109,7 @@ The first steps are the vertical slice: real metrics from a PHP app at `/metrics
 8. [x] **Buffered body budget** (K-070) — acceptance: concurrent large uploads past the budget get `503`, and
    memory stays under the budget.
 9. [x] **Benchmarks** (K-066, maybe K-069) — `docs/benchmarks.md` with the method and the numbers.
-10. [ ] **Operations guide** (K-067) — `docs/operations.md`: signals, rolling resets, metrics with example queries,
+10. [x] **Operations guide** (K-067) — `docs/operations.md`: signals, rolling resets, metrics with example queries,
     probes, sizing, a systemd unit.
 11. [x] **Replace workers on file changes** (K-072).
 12. [ ] **Docs review** (`review.md`), then the PR.
@@ -124,6 +124,7 @@ The first steps are the vertical slice: real metrics from a PHP app at `/metrics
 
 ## Log
 
+- 2026-10-25 — Step 10 (K-067) done: `docs/operations.md`.
 - 2026-10-25 — Step 9 (K-066) done: `docs/benchmarks.md`; RoadRunner 3.0.1 from its GitHub release (sha256 checked
   against the release's digest), run from the scratchpad, not committed. A 1 MB body scenario was added to decide
   K-069, which is dropped.
