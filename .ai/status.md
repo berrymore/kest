@@ -14,8 +14,8 @@ ADR-0007, a hand-written core with the Prometheus text format), **K-061** (`inte
 and process metrics), **K-062** (`GET /metrics`, `/ready` per cluster), **K-074** (`GET /clusters`) and **K-063**
 (rolling reset through the admin API and SIGHUP, zero failed requests under load: an M3 exit criterion) and
 **K-064** (filters `request_id`, `access_log`, `recovery`), **K-075** (`GET /config_dump`, env values redacted)
-**K-065** (server timeouts and header limit per listener; slow bodies get `408`) and **K-068**
-(`server.drain_delay`).
+**K-065** (server timeouts and header limit per listener; slow bodies get `408`), **K-068**
+(`server.drain_delay`) and **K-070** (`max_buffered_bodies`).
 The plan is `plans/M3-operability.md` (Active).
 
 ## In progress
@@ -39,7 +39,9 @@ None.
 
 ## Resolved decisions
 
-- 2026-10-25 — M3: the agent commits each item itself after a green `make check`, until the end of M3.
+- 2026-10-25 — M3: the agent commits each item itself after a green `make check`, until the end of M3. Later
+  the user left the rest of M3 to the agent ("finish it to the end"): the remaining items, the docs review, pushing
+  the branch and opening the PR. Merging waits for the user's review.
 - 2026-10-25 — The M3 plan and its decisions D1–D10 approved as a whole (was Q9), including the schema changes
   it proposes; the user leaves technical details to the agent.
 - 2026-10-25 — Metrics (Q-E, was Q8): ADR-0007 accepted, a hand-written core in `internal/metrics` with the
@@ -85,6 +87,8 @@ None.
 
 ## Session log (newest first, keep ~15)
 
+- **2026-10-25** — K-070: a per-cluster budget for buffered request bodies. The user went to bed and left the rest
+  of M3 to the agent, PR included.
 - **2026-10-25** — K-068: `server.drain_delay`. Process: a `make check | grep` pipeline hid a lint failure and
   let a commit through (fixed in a follow-up commit); commits now wait for `make check`'s own exit status.
 - **2026-10-25** — K-065: server limits per listener; a body read deadline from the route timeout. Found: on that

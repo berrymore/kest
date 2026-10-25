@@ -106,7 +106,7 @@ The first steps are the vertical slice: real metrics from a PHP app at `/metrics
 6. [x] **`/config_dump`** (K-075) — acceptance: env values never appear in the output.
 7. [x] **Server limits** (K-065) and **drain delay** (K-068) — acceptance: e2e for a slow client (read header
    timeout) and for `/ready` turning 503 during the delay while requests still succeed.
-8. [ ] **Buffered body budget** (K-070) — acceptance: concurrent large uploads past the budget get `503`, and
+8. [x] **Buffered body budget** (K-070) — acceptance: concurrent large uploads past the budget get `503`, and
    memory stays under the budget.
 9. [ ] **Benchmarks** (K-066, maybe K-069) — `docs/benchmarks.md` with the method and the numbers.
 10. [ ] **Operations guide** (K-067) — `docs/operations.md`: signals, rolling resets, metrics with example queries,
@@ -124,6 +124,8 @@ The first steps are the vertical slice: real metrics from a PHP app at `/metrics
 
 ## Log
 
+- 2026-10-25 — Step 8 (K-070) done as in D10; requests don't wait for the budget. The body can be in memory twice
+  while it goes to a worker (K-069), and the budget counts it once.
 - 2026-10-25 — K-068 done (step 7). The delay applies to a signal, not to a fatal error.
 - 2026-10-25 — K-065 done (step 7, first half). Added beyond D9: `php_workers` sets a read deadline from the route
   timeout before it reads the body, so a slow sender gets `408` without a new option; `fail` answers it although

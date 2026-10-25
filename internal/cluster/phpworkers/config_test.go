@@ -275,3 +275,14 @@ func TestRedacted(t *testing.T) {
 		t.Errorf("Redacted = %+v, config %+v", r, cfg.Env)
 	}
 }
+
+func TestConfigBodyBudget(t *testing.T) {
+	_, err := build(t, `      command: [php]
+      max_request_body: 32MB
+      max_buffered_bodies: 16MB
+`)
+	want := `kest.yaml:16:28: clusters[0].config.max_buffered_bodies: must be at least max_request_body (32MB), got 16MB`
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %v, want %s", err, want)
+	}
+}

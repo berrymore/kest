@@ -270,7 +270,8 @@ clusters:
 | `env` | none | Variables added to the workers' environment (`{NAME: value}`). |
 | `inherit_env` | `true` | Pass kest's own environment to the workers, as RoadRunner does. With `false`, workers get only `env` and the variables below. |
 | `codec` | `json` | How the request head is encoded: `json` or `proto`. See below. |
-| `max_request_body` | `16MB` | Larger request bodies get `413`. A body is read into memory (files of multipart uploads go to temp files) before the request waits for a worker, so up to `pool.workers + pool.max_queue_size` bodies can be held at once. RoadRunner's default is 1000 MB. |
+| `max_request_body` | `16MB` | Larger request bodies get `413`. A body is read into memory (files of multipart uploads go to temp files) before the request waits for a worker. RoadRunner's default is 1000 MB. |
+| `max_buffered_bodies` | `256MB` | The request body bytes the cluster holds at once, at least `max_request_body`. Each request reserves its `Content-Length` (or `max_request_body` when the length is unknown) before its body is read, until its response is written; one that doesn't fit gets `503` at once. Bodies count once, though a body can be in memory twice while it goes to a worker. |
 | `max_response_size` | `64MB` | A worker that sends a larger response (headers and body) is replaced, and the request gets `502`. At most `4GB`. |
 | `raw_body` | `false` | Send `application/x-www-form-urlencoded` and `multipart/form-data` bodies as they are instead of parsing them (RoadRunner's `http.raw_body`). |
 

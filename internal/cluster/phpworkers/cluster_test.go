@@ -317,6 +317,66 @@ func TestSlowBody(t *testing.T) {
 	}
 }
 
+// gatedPool holds every job until gate closes; unlike fakePool it is safe for
+// concurrent requests.
+type gatedPool struct {
+	*fakePool
+	gate    chan struct{}
+	entered chan struct{}
+}
+
+func (p *gatedPool) Exec(context.Context, worker.Payload) (worker.Payload, error) {
+	p.entered <- struct{}{}
+	<-p.gate
+	return worker.Payload{Codec: relay.CodecJSON, Context: []byte(`{"status":200}`)}, nil
+}
+
+// Bodies held at once stay within max_buffered_bodies; a request that
+// doesn't fit gets 503 at once.
+func TestBodyBudget(t *testing.T) {
+	p := &gatedPool{fakePool: &fakePool{}, gate: make(chan struct{}), entered: make(chan struct{}, 8)}
+	cfg := DefaultConfig()
+	cfg.Command = []string{"php"}
+	cfg.MaxRequestBody, cfg.MaxBufferedBodies = 100, 250
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	c := newCluster(&cfg, "", p, logging.Discard())
+
+	send := func(body io.Reader) chan int {
+		done := make(chan int, 1)
+		go func() {
+			r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", body)
+			r.Header.Set("Content-Type", "text/plain")
+			done <- serve(c, r).Code
+		}()
+		return done
+	}
+	first, second := send(strings.NewReader(strings.Repeat("a", 100))), send(strings.NewReader(strings.Repeat("b", 100)))
+	<-p.entered
+	<-p.entered
+	if code := <-send(strings.NewReader(strings.Repeat("c", 100))); code != http.StatusServiceUnavailable {
+		t.Errorf("a third 100-byte body = %d, want 503", code)
+	}
+	if code := <-send(io.MultiReader(strings.NewReader("unknown length"))); code != http.StatusServiceUnavailable {
+		t.Errorf("a body of unknown length (reserves max_request_body) = %d, want 503", code)
+	}
+	small := send(strings.NewReader(strings.Repeat("d", 50))) // fits: 250 of 250
+	<-p.entered
+	if used := c.bodies.used.Load(); used != 250 {
+		t.Errorf("bytes reserved = %d, want 250", used)
+	}
+	close(p.gate)
+	for _, done := range []chan int{first, second, small} {
+		if code := <-done; code != http.StatusOK {
+			t.Errorf("a request within the budget = %d, want 200", code)
+		}
+	}
+	if used, rejected := c.bodies.used.Load(), c.bodyRejected.Value(); used != 0 || rejected != 2 {
+		t.Errorf("after the requests: %d bytes reserved, %d rejected; want 0 and 2", used, rejected)
+	}
+}
+
 func TestNewRejectsInvalidConfig(t *testing.T) {
 	cfg := DefaultConfig()
 	_, err := New(&cfg, registry.BuildContext{Logger: logging.Discard()}, nil)

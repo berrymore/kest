@@ -9,9 +9,11 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/berrymore/kest/internal/cluster"
+	"github.com/berrymore/kest/internal/metrics"
 	"github.com/berrymore/kest/internal/registry"
 	"github.com/berrymore/kest/internal/rrhttp"
 	"github.com/berrymore/kest/internal/worker"
@@ -53,7 +55,34 @@ type Cluster struct {
 	pool    pool
 	opts    rrhttp.Options
 	maxBody int64
+	bodies  bodyBudget
 	logger  *slog.Logger
+
+	bodyRejected *metrics.Counter // requests turned away by the body budget
+}
+
+// bodyBudget bounds the bytes of request bodies held in memory at once
+// (K-070). Requests reserve before reading and don't wait: one that doesn't
+// fit is turned away.
+type bodyBudget struct {
+	limit int64
+	used  atomic.Int64
+}
+
+func (b *bodyBudget) reserve(n int64) bool {
+	for {
+		used := b.used.Load()
+		if used+n > b.limit {
+			return false
+		}
+		if b.used.CompareAndSwap(used, used+n) {
+			return true
+		}
+	}
+}
+
+func (b *bodyBudget) release(n int64) {
+	b.used.Add(-n)
 }
 
 // New builds a cluster from a validated config. bc.ConfigDir resolves
@@ -61,22 +90,30 @@ type Cluster struct {
 // environment. Nothing starts before Start.
 func New(cfg *Config, bc registry.BuildContext, environ []string) (*Cluster, error) {
 	reg := bc.MetricsRegistry()
+	pm := newPoolMetrics(reg, bc.Name)
 	wc := cfg.worker(bc.ConfigDir, environ)
-	wc.Observer = newPoolMetrics(reg, bc.Name)
+	wc.Observer = pm
 	p, err := worker.New(wc, bc.Logger)
 	if err != nil {
 		return nil, err
 	}
+	c := newCluster(cfg, bc.ConfigDir, p, bc.Logger)
+	c.bodyRejected = pm.rejected[reasonBodyBudget]
 	collectPool(reg, bc.Name, p)
-	return newCluster(cfg, bc.ConfigDir, p, bc.Logger), nil
+	reg.NewCollector("kest_pool_buffered_body_bytes",
+		"Request body bytes the cluster holds now, out of max_buffered_bodies.", metrics.TypeGauge,
+		[]string{"cluster"}, func(emit func(float64, ...string)) { emit(float64(c.bodies.used.Load()), bc.Name) })
+	return c, nil
 }
 
 func newCluster(cfg *Config, configDir string, p pool, logger *slog.Logger) *Cluster {
 	return &Cluster{
-		pool:    p,
-		opts:    cfg.requestOptions(configDir),
-		maxBody: int64(cfg.MaxRequestBody),
-		logger:  logger,
+		pool:         p,
+		opts:         cfg.requestOptions(configDir),
+		maxBody:      int64(cfg.MaxRequestBody),
+		bodies:       bodyBudget{limit: int64(cfg.MaxBufferedBodies)},
+		logger:       logger,
+		bodyRejected: &metrics.Counter{},
 	}
 }
 
@@ -156,6 +193,21 @@ func (c *Cluster) Stop(ctx context.Context) error {
 
 // ServeHTTP passes the request to a worker and writes its response.
 func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Reserve the body's memory before reading it: its length, or the
+	// largest allowed body when the length is unknown.
+	n := c.maxBody
+	if r.ContentLength >= 0 {
+		n = min(r.ContentLength, c.maxBody)
+	}
+	if !c.bodies.reserve(n) {
+		c.bodyRejected.Inc()
+		c.logger.Warn("request turned away: max_buffered_bodies is full", "method", r.Method, "path", r.URL.Path,
+			"body_bytes", n)
+		http.Error(w, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+		return
+	}
+	defer c.bodies.release(n)
+
 	r.Body = http.MaxBytesReader(w, r.Body, c.maxBody)
 	if deadline, ok := r.Context().Deadline(); ok {
 		// The route timeout bounds reading the body too: a client that sends

@@ -23,6 +23,9 @@ const (
 // DefaultMaxRequestBody bounds request bodies. RoadRunner allows 1000 MB.
 const DefaultMaxRequestBody = 16 << 20
 
+// DefaultMaxBufferedBodies bounds the request bodies a cluster holds at once.
+const DefaultMaxBufferedBodies = 256 << 20
+
 // Config is the config block of a php_workers cluster.
 type Config struct {
 	// Command runs one worker: the executable and its arguments.
@@ -38,6 +41,9 @@ type Config struct {
 	Codec string `yaml:"codec"`
 	// MaxRequestBody bounds request bodies; larger ones get 413.
 	MaxRequestBody config.ByteSize `yaml:"max_request_body"`
+	// MaxBufferedBodies bounds the bytes of request bodies that the cluster
+	// holds at once; a request that doesn't fit gets 503.
+	MaxBufferedBodies config.ByteSize `yaml:"max_buffered_bodies"`
 	// MaxResponseSize bounds a worker's response (headers and body); a
 	// worker that sends more is replaced and the request gets 502.
 	MaxResponseSize config.ByteSize `yaml:"max_response_size"`
@@ -85,10 +91,11 @@ type Supervisor struct {
 func DefaultConfig() Config {
 	w := worker.DefaultConfig()
 	return Config{
-		InheritEnv:      true,
-		Codec:           CodecJSON,
-		MaxRequestBody:  DefaultMaxRequestBody,
-		MaxResponseSize: config.ByteSize(w.MaxFrameSize),
+		InheritEnv:        true,
+		Codec:             CodecJSON,
+		MaxRequestBody:    DefaultMaxRequestBody,
+		MaxBufferedBodies: DefaultMaxBufferedBodies,
+		MaxResponseSize:   config.ByteSize(w.MaxFrameSize),
 		Pool: Pool{
 			Workers:         w.Workers,
 			MaxJobs:         w.MaxJobs,
@@ -160,6 +167,9 @@ func (c *Config) Validate() error {
 	}
 	if c.MaxRequestBody < 1 {
 		add("max_request_body", "must be positive, got %s", c.MaxRequestBody)
+	}
+	if c.MaxBufferedBodies < c.MaxRequestBody {
+		add("max_buffered_bodies", "must be at least max_request_body (%s), got %s", c.MaxRequestBody, c.MaxBufferedBodies)
 	}
 	for field, list := range map[string][]string{"uploads.forbid": c.Uploads.Forbid, "uploads.allow": c.Uploads.Allow} {
 		for i, ext := range list {

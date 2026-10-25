@@ -8,6 +8,9 @@ import (
 	"github.com/berrymore/kest/internal/worker"
 )
 
+// reasonBodyBudget labels requests that max_buffered_bodies turned away.
+const reasonBodyBudget worker.Reason = "body_budget"
+
 // poolMetrics counts a pool's events (it is the pool's worker.Observer). The
 // counters exist for every reason from the start; the maps are read only.
 type poolMetrics struct {
@@ -24,9 +27,9 @@ func newPoolMetrics(reg *metrics.Registry, cluster string) *poolMetrics {
 		replaced: make(map[worker.Reason]*metrics.Counter),
 	}
 	rejected := reg.NewCounterVec("kest_pool_rejected_total",
-		"Requests that got no worker: queue_full (max_queue_size callers waiting) or no_worker "+
-			"(none free within allocate_timeout).", "cluster", "reason")
-	for _, r := range []worker.Reason{worker.ReasonQueueFull, worker.ReasonNoWorker} {
+		"Requests turned away with 503: queue_full (max_queue_size callers waiting), no_worker "+
+			"(none free within allocate_timeout) or body_budget (max_buffered_bodies full).", "cluster", "reason")
+	for _, r := range []worker.Reason{worker.ReasonQueueFull, worker.ReasonNoWorker, reasonBodyBudget} {
 		m.rejected[r] = rejected.With(cluster, string(r))
 	}
 	replaced := reg.NewCounterVec("kest_pool_worker_restarts_total",
