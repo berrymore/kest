@@ -32,6 +32,9 @@ listeners:
             - match: { path: /healthz }
               direct_response: { status: 200, body: "ok\n" }
             - match: { prefix: / }
+              filters:
+                - type: static      # files of public/ are served by kest; everything else goes to PHP
+                  config: { dir: public }
               route: { cluster: hello, timeout: 30s }
 
 clusters:
@@ -48,5 +51,3 @@ clusters:
       supervisor:
         exec_ttl: 30s       # kill a worker stuck on one request
         max_worker_memory: 128MB
-      static:
-        dir: public         # files here are served by kest; everything else goes to PHP

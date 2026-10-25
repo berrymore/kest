@@ -5,9 +5,10 @@ An Envoy-inspired application server for PHP (and, later, WebAssembly), written 
 > **Status: experimental.** Milestones M0–M4 are done: kest serves PHP applications through pools of
 > unmodified RoadRunner PSR-7 workers (`roadrunner/http`), behind strictly validated Envoy-style routing, with
 > Prometheus metrics, rolling restarts without failed requests, access logs and request IDs, and bounded
-> resources. It terminates TLS (certificates reloaded on renewal) and HTTP/2, serves static files, compresses,
-> handles CORS and redirects, streams responses from PHP, and proxies to other HTTP services. A Symfony app runs on
-> it unchanged. A WASM sandbox is next. The goal is production quality; the plan is in
+> resources. It speaks HTTP/2 (h2c) to the proxy in front of it, takes the client's address from trusted proxies,
+> terminates TLS when needed, runs filters per listener, virtual host and route (CORS, headers, gzip, the files of
+> `public/`), redirects, and streams responses from PHP. A Symfony app runs on it unchanged. Routing, filters and
+> pools come next, then a WASM sandbox. The goal is production quality; the plan is in
 > [`.ai/roadmap.md`](.ai/roadmap.md).
 
 ## Why
@@ -25,6 +26,11 @@ kest puts the two ideas together:
   file, validated strictly before anything starts.
 - **Many pools in one process.** Route `/api` and `/reports` to different PHP pools, keep slow endpoints
   from starving fast ones, and give each pool its own limits.
+- **Work off PHP's hands.** Filters on a listener, a virtual host or a route act before and after PHP, so that PHP
+  keeps the business logic.
+- **Behind your proxy, not instead of it.** kest stands behind nginx, an ingress or a load balancer: it speaks
+  HTTP/1.1 and h2c to it and takes the client's address from it. Certificates for the internet, CDN-grade files
+  and proxying to other services stay with the proxy.
 - **WASM sandbox (planned).** Run small, isolated WebAssembly modules for hot paths, as handlers or HTTP
   filters, with hard memory and time limits.
 - **Built to be operated.** Admin API, metrics, structured logs, graceful shutdown and rolling restarts.
@@ -52,6 +58,9 @@ listeners:
             - match: { prefix: /reports/ }
               route: { cluster: php_heavy, timeout: 120s }
             - match: { prefix: / }
+              filters:
+                - type: static            # files of public/ without PHP
+                  config: { dir: public }
               route: { cluster: php_app, timeout: 30s }
 
 clusters:
@@ -93,18 +102,20 @@ kest validate -c kest.yaml   # strict validation with precise error paths
 kest serve -c kest.yaml
 ```
 
-HTTP filters (`recovery`, `request_id`, `access_log`, `client_ip`, `headers`, `cors`, `compression`) run before
-the router, in config order. Clusters: `php_workers`, `static_files`.
+HTTP filters (`recovery`, `request_id`, `access_log`, `client_ip`, `headers`, `cors`, `compression`, `static`) run
+in config order: the listener's, then those of the virtual host and of the route that the router picks. Clusters:
+`php_workers`.
 
 ## Architecture at a glance
 
 ```
                 ┌──────────────────────────────── kest ─────────────────────────────────┐
                 │                                                                       │
-  client ─────▶ │  listener ──▶ HTTP filters ──▶ router ──▶ cluster                     │
+  proxy ──────▶ │  listener ──▶ HTTP filters ──▶ router ──▶ cluster                     │
                 │   :8080       request_id,      vhosts,    ├─ php_workers ─▶ pool ─────┼──▶ php worker.php × N
-                │               access_log, …    routes     ├─ static_files ─▶ files    │
-                │                                           └─ wasm (planned) ─▶ wazero │
+                │               access_log, …    routes,    └─ wasm (planned) ─▶ wazero │
+                │                                and their                              │
+                │                                filters                                │
                 │                                                                       │
                 │  admin :9901 — /ready, /config_dump, /clusters, /metrics              │
                 └───────────────────────────────────────────────────────────────────────┘

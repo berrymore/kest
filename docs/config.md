@@ -110,7 +110,7 @@ Endpoints:
 | `GET /ready` | `200 ready` while serving traffic; `503 starting` / `503 draining` otherwise, and `503 not serving: <clusters>` while a cluster has no live worker (a pool whose workers are only being replaced still counts as serving) |
 | `GET /server_info` | JSON: version, commit, Go version, state, start time, uptime, config file |
 | `GET /config_dump` | The effective configuration as YAML, with every default filled in, like `kest validate -dump`, but with the values of every `env` map shown as `[redacted]` (`validate -dump` shows them) |
-| `GET /clusters` | JSON: every cluster with its `name`, `type`, whether it is `serving` (only for types that can be down: `php_workers`), and its `status`: for `php_workers` the pool's `health` (`healthy`, `degraded`, `unhealthy`), `queue_length`, and each worker's `slot`, `state`, `pid`, `jobs`, `started_at`, `age_seconds` and `memory_bytes` (when sampled); none for `static_files` |
+| `GET /clusters` | JSON: every cluster with its `name`, `type`, whether it is `serving` (only for types that can be down: `php_workers`), and its `status`: for `php_workers` the pool's `health` (`healthy`, `degraded`, `unhealthy`), `queue_length`, and each worker's `slot`, `state`, `pid`, `jobs`, `started_at`, `age_seconds` and `memory_bytes` (when sampled) |
 | `POST /clusters/{name}/reset` | Replace the cluster's workers one by one (a rolling restart, to deploy new code), and answer when done: `200 reset done`; `404` for an unknown cluster, `409` while a reset runs, `501` for a cluster type that can't, `503` while starting or draining, `500` with the reason when a new worker failed to boot (the reset stops there; the workers it didn't reach keep serving). A client that disconnects doesn't stop the reset. |
 | `GET /metrics` | Metrics in the Prometheus text format; see [Metrics](metrics.md) |
 
@@ -188,11 +188,11 @@ in `kest_tls_handshake_errors_total` and logged at `debug` level, since scanners
 Filters can be set in three places, and run in this order: those of the listener (`http.filters`), for every
 request; those of the virtual host the router chose (`virtual_hosts[].filters`); those of the route it chose
 (`routes[].filters`); then the route's action. A filter may answer a request itself instead of passing it on (CORS
-preflights): the rest of the chain and the action don't run, and the request counts in the
+preflights, files of `static`): the rest of the chain and the action don't run, and the request counts in the
 [metrics](metrics.md) without a cluster.
 
-Built-in types: `request_id`, `access_log`, `recovery`, `client_ip`, `headers`, `cors`, `compression`. Put `recovery`
-first so that it covers the other filters too:
+Built-in types: `request_id`, `access_log`, `recovery`, `client_ip`, `headers`, `cors`, `compression`, `static`. Put
+`recovery` first so that it covers the other filters too:
 
 ```yaml
 http:
@@ -329,6 +329,36 @@ A response isn't compressed when it already has a `Content-Encoding`, is a `HEAD
 `ETag`; every compressible response gets `Vary: Accept-Encoding`. Flushes go through, so streamed responses stay
 streams. Only gzip: brotli and zstd would need dependencies.
 
+**`static`** serves the files of your public directory without PHP, as nginx's `try_files $uri @app` or RoadRunner's
+`http.static` do: a `GET` or `HEAD` for a file in `dir` is answered by kest; anything else, missing files included,
+goes on to the route's action. Set it on the route that goes to PHP, so that it doesn't answer on other routes or
+virtual hosts:
+
+```yaml
+routes:
+  - match: {prefix: /admin/}
+    direct_response: {status: 403}     # no file of public/admin/ either
+  - match: {prefix: /}
+    filters:
+      - type: static
+        config:
+          dir: public
+          headers: {Cache-Control: "public, max-age=3600"}
+    route: {cluster: app}
+```
+
+| Field | Default | |
+|---|---|---|
+| `dir` | — | Required. The directory served; relative to the config file. `kest validate` fails if it isn't a directory. |
+| `forbid` | `[.php]` | Extensions never served, so the source of `index.php` doesn't leak; such requests go on. |
+| `headers` | none | Headers added to every file served (`{Name: value}`), such as `Cache-Control`. |
+
+Directories aren't served (`/` goes on), nor are paths with a segment that starts with a dot (`.env`, `.git/`),
+except under `/.well-known/`. Symbolic links are followed, so Laravel's `public/storage` works. Responses support
+`Range`, `If-Modified-Since` and `If-None-Match` (a weak `ETag` from the file's size and modification time); the
+`Content-Type` comes from the extension. A file counts in the metrics without a cluster, so the PHP cluster's
+latency is PHP's. When the proxy in front of kest can see the files, let it serve them instead.
+
 ### `virtual_hosts[]`
 
 | Field | Required | |
@@ -414,8 +444,7 @@ implementation's options and is validated just as strictly.
 | `type` | yes | Implementation; see below |
 | `config` | depends on the type | Type-specific options |
 
-Built-in types: [`php_workers`](#php_workers), [`static_files`](#static_files). An
-unknown `type` is rejected with the list of known types.
+Built-in type: [`php_workers`](#php_workers). An unknown `type` is rejected with the list of known types.
 
 ### `php_workers`
 
@@ -514,30 +543,6 @@ makes one reset. Directories whose names start with a dot are skipped.
 A rewrite that keeps a file's size and lands within one tick of the file system's clock after a scan (a few
 milliseconds on Linux) isn't noticed until the next change.
 
-**`static`**
-
-Serve the files of your public directory without PHP, as nginx's `try_files $uri /index.php` or RoadRunner's
-`http.static` do: a `GET` or `HEAD` for a file in `dir` is answered by kest; everything else, missing files
-included, goes to the workers.
-
-```yaml
-      static:
-        dir: public
-        headers: {Cache-Control: "public, max-age=3600"}
-```
-
-| Field | Default | |
-|---|---|---|
-| `dir` | none (off) | The directory served; relative to the config file. |
-| `forbid` | `[.php]` | Extensions never served, so the source of `index.php` doesn't leak; such requests go to PHP. |
-| `headers` | none | Headers added to every file served (`{Name: value}`), such as `Cache-Control`. |
-
-Directories aren't served (`/` goes to PHP), nor are paths with a segment that starts with a dot (`.env`,
-`.git/`), except under `/.well-known/`. Symbolic links are followed, so Laravel's `public/storage` works.
-Responses support `Range`, `If-Modified-Since` and `If-None-Match` (a weak `ETag` from the file's size and
-modification time); the `Content-Type` comes from the extension. A static response counts in the cluster's
-metrics like any other.
-
 **Startup and shutdown.** kest starts every worker before it opens the listeners, and fails to start
 if one of them can't boot (the error shows the worker's exit status and the end of its stderr).
 Workers that crash later are replaced, with a growing delay (up to 30s) if they keep failing. A rolling
@@ -589,27 +594,3 @@ forms to 10000 fields and 1000 multipart parts.
 | `exec_ttl` or the route `timeout` expired | `504` |
 | The worker reported an error (`$worker->error()`) | `500` |
 | The worker crashed, broke the protocol, or sent an invalid or too large response | `502` |
-
-### `static_files`
-
-Serves the files of a directory: a static site, a single-page app's build, or assets on their own route.
-
-```yaml
-clusters:
-  - name: site
-    type: static_files
-    config:
-      dir: dist
-      headers: {Cache-Control: "public, max-age=600"}
-```
-
-| Field | Default | |
-|---|---|---|
-| `dir` | — | Required. The directory served; relative to the config file. |
-| `index` | `index.html` | The file served for a directory's path (`/`, `/docs/`); `/docs` redirects to `/docs/`. `""` serves no directories. |
-| `forbid` | none | Extensions never served. |
-| `headers` | none | Headers added to every file served. |
-
-A missing file gets `404`, methods other than `GET` and `HEAD` get `405`. Hidden paths, symbolic links,
-conditional and range requests work as in [`php_workers.static`](#php_workers). kest fails to start if `dir`
-doesn't exist.

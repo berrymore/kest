@@ -6,8 +6,9 @@
 > registry, server lifecycle, HTTP listeners with configurable limits, TLS (reloaded certificates) and HTTP/2/h2c,
 > path normalization, router with `direct_response` and `redirect`; the goridge relay and the worker pool with
 > rolling resets and streamed answers (`internal/relay`, `internal/worker`); the RoadRunner HTTP payload
-> (`internal/rrhttp`); the cluster types `php_workers` (body budget, `reload`, `static`) and `static_files`; the
-> filters `request_id`, `access_log`, `recovery`, `client_ip`, `headers`, `cors`, `compression`;
+> (`internal/rrhttp`); the cluster type `php_workers` (body budget, `reload`); the filters `request_id`,
+> `access_log`, `recovery`, `client_ip`, `headers`, `cors`, `compression`, `static`, on listeners, virtual hosts and
+> routes;
 > metrics (`internal/metrics`); admin `/ready`, `/server_info`, `/config_dump`, `/clusters`,
 > `POST /clusters/{name}/reset`, `/metrics`.
 
@@ -16,7 +17,7 @@
 ```
                 ┌──────────────────────────────── kest ─────────────────────────────────┐
                 │                                                                       │
-  client ─────▶ │  Listener ──▶ HTTP connection manager                                 │
+  proxy ──────▶ │  Listener ──▶ HTTP connection manager                                 │
                 │               ├─ filter: request_id                                   │
                 │               ├─ filter: access_log                                   │
                 │               ├─ filter: …                                            │
@@ -26,8 +27,7 @@
                 │                    ├─ direct_response, redirect                       │
                 │                    └─ route → Cluster                                 │
                 │                               ├─ php_workers ─▶ Pool ─▶ Relay ────────┼──▶ php worker.php × N
-                │                               ├─ wasm (M6)  ─▶ wazero instances       │
-                │                               └─ static_files ─▶ a directory          │
+                │                               └─ wasm (M6)  ─▶ wazero instances       │
                 │                                                                       │
                 │  Admin server (127.0.0.1:9901): /ready /server_info /config_dump        │
                 │                                 /clusters /metrics                     │
@@ -41,7 +41,7 @@ kest is a single Go binary. At startup it reads one YAML file and builds a graph
 - The **router** selects a **virtual host** by `Host` and runs its filters, then the first matching **route**,
   and runs its filters and its action: forward to a **cluster**, return a **direct response** or a **redirect**. Paths are normalized before
   the filters (`normalize_path`, `merge_slashes`).
-- **Clusters** are named upstreams of different types (`php_workers`, `static_files`; `wasm` later).
+- **Clusters** are named upstreams of different types (`php_workers`; `wasm` later).
 - **Listeners** may terminate TLS (certificates by SNI, reloaded when their files change) and speak HTTP/2.
 - A `php_workers` cluster owns a **pool** of processes, talks to each one through a **relay**
   using a framed protocol (ADR-0003), and is watched by a **supervisor**.
@@ -98,6 +98,9 @@ listeners:
             - match: { prefix: /reports/ }
               route: { cluster: php_heavy, timeout: 120s }
             - match: { prefix: / }
+              filters:       # after the router chose this route: files of public/ without PHP
+                - type: static
+                  config: { dir: public }
               route: { cluster: php_app, timeout: 30s }
 
 clusters:
@@ -235,7 +238,7 @@ Layering (dependencies point down only):
 cmd/kest ─▶ server ─▶ config, registry ─▶ metrics
                   ─▶ listener
                   ─▶ httpx (filter chain, router, RequestInfo) ◀─ filters/*
-                  ─▶ cluster/* ─▶ httpx (RequestInfo, ClientIP, Scheme), staticfiles ─▶ httpx, config
+                  ─▶ cluster/* ─▶ httpx (RequestInfo, ClientIP, Scheme)
                                ─▶ rrhttp ─▶ worker ─▶ relay
                   ─▶ admin ─▶ metrics, cluster
 ```
@@ -253,7 +256,7 @@ cmd/kest ─▶ server ─▶ config, registry ─▶ metrics
    `errors.Join`); they come out located, as in `clusters[0].config.pool.workers: must be positive`.
 3. Register in `init()`: `cluster.Types.Register(registry.Factory[cluster.Cluster]{Type, NewConfig, Build})`
    (or `httpx.Filters`). `Build` must not start goroutines, bind or connect; that belongs in `Start`. It may read
-   files the config names and report a problem as a `*config.FieldError`, which
+   files the config names (the `static` filter's `dir`) and report a problem as a `*config.FieldError`, which
    `registry.Build` locates like a `Validate` error. Core components located by YAML path use
    `config.Config.ErrorAt` (TLS certificates in `server.New`).
 4. Blank-import the package from the binary, in `cmd/kest/extensions.go` (create it with the first
@@ -307,10 +310,10 @@ Stopped ──▶ Starting ──▶ Ready ⇄ Working ──▶ Stopping ──
 1. Parse flags → read file → parse YAML → expand env in scalars → strict decode → apply defaults → validate
    (including cross-references).
 2. `server.New` builds the component graph through the registry, decoding extension configs and reading the
-   files the config names (TLS certificates). No side effects, so `kest validate`
+   files the config names (TLS certificates, the `static` filter's `dir`). No side effects, so `kest validate`
    runs this step too and reports unreadable files with their YAML path.
-3. Start clusters (M2+: `php_workers` starts its pool and waits for every handshake, bounded by a startup timeout;
-   `php_workers.static` and `static_files` fail if their `dir` is missing).
+3. Start clusters (M2+: `php_workers` starts its pool and waits for every handshake, bounded by a startup
+   timeout).
 4. Start the admin server, then the listeners (bind ports; a TLS listener also starts its certificate checks,
    stopped in `Stop` after the drain). If anything fails to start, the components already started are stopped and
    `Run` returns the error.
@@ -353,10 +356,8 @@ internal/admin/              🟢 admin HTTP API
 internal/logging/            🟢 slog setup
 internal/cluster/            🟢 Cluster interface and registry category
 internal/leaktest/           🟢 goroutine-leak check for test binaries (goleak)
-internal/filters/            🟢 built-in HTTP filters, one package each: requestid/, accesslog/, recovery/, clientip/, headers/, cors/, compression/
-internal/cluster/phpworkers/ 🟢 php_workers: config, worker environment, pool lifecycle, HTTP handler, static files
-internal/cluster/static/     🟢 static_files: a directory served as a cluster
-internal/staticfiles/        🟢 serving files from a directory: hidden paths, forbidden extensions, conditional and range requests
+internal/filters/            🟢 built-in HTTP filters, one package each: requestid/, accesslog/, recovery/, clientip/, headers/, cors/, compression/, static/
+internal/cluster/phpworkers/ 🟢 php_workers: config, worker environment, pool lifecycle, HTTP handler
 internal/rrhttp/             🟢 HTTP ↔ RoadRunner HTTP payload (request context JSON/protobuf, form trees, responses)
 internal/worker/             🟢 process, pool, supervisor (language-agnostic); workertest/ has fake workers
 internal/relay/              🟢 goridge-compatible frame codec and Conn (pipes; sockets later, K-029)
@@ -416,7 +417,7 @@ at the start of M6.
 | Q-A | HTTP filter model: `func(http.Handler) http.Handler`, or Envoy-like decode/encode phases with per-filter state? | Middleware first; revisit when WASM filters arrive |
 | Q-B | Request body: buffer it whole (RR-style, bounded by `max_request_body` and per cluster by `max_buffered_bodies`) or stream it to the worker? | Buffered (M2). The RR protocol sends the body in the request frame, so streaming it would need a protocol extension |
 | Q-C | Streaming responses from PHP (SSE, large downloads) | ✅ M4 (K-088): `worker.Pool.ExecStream`; `php_workers` writes chunks as they come, 1xx as informational responses, STOP when the client goes away |
-| Q-D | Cluster interface: `http.Handler`, or a kest request/response type shared by php, wasm and proxy? | ✅ M4: `http.Handler` stays; `static_files` fits it without strain |
+| Q-D | Cluster interface: `http.Handler`, or a kest request/response type shared by php, wasm and proxy? | ✅ M4: `http.Handler` stays |
 | Q-E | Metrics: `prometheus/client_golang`, OpenTelemetry metrics, or a minimal custom exposition? | ✅ ADR-0007 (2026-10-25): a hand-written core with the Prometheus text format |
 | Q-F | Per-route priority and queueing inside one pool, on top of pool isolation | After M3 |
 | Q-G | PHP → kest RPC (RoadRunner's `rpc` plugin equivalent): needed for which PHP libraries? | Not for HTTP: `roadrunner/http` and `roadrunner/worker` don't use it (K-040); libraries for RR's KV, jobs, metrics, lock plugins do |

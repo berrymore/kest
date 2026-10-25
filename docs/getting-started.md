@@ -176,10 +176,11 @@ kest has no RPC yet.
 | `http.internal_error_code` | — | kest answers 500, 502, 503 or 504 depending on what failed |
 | `http.ssl` | `listeners[].tls` | certificates picked by SNI, reloaded when the files change; `http.ssl.redirect` is a `redirect: {scheme: https}` route on a plain listener |
 | `http.http2` | `listeners[].http.protocols` | `[http1, http2]` by default with TLS; `http2` without TLS is h2c |
-| `http.static` | `static` | `dir`, `forbid` (default `[.php]`), `headers`; hidden paths aren't served |
+| `http.static` | the `static` filter | on the route to PHP: `dir`, `forbid` (default `[.php]`), `headers`; hidden paths aren't served |
 | `http.middleware: [gzip]` | the `compression` filter | gzip only |
 | `http.middleware: [headers]` | the `headers` and `cors` filters | CORS preflights are answered by kest |
 | `http.trusted_subnets` | the `client_ip` filter | kest reads `X-Forwarded-For` from the right, so clients can't spoof it |
 
 Streaming responses (generators, `PSR7Worker::$chunkSize`) and 103 Early Hints work as with RoadRunner. Not there
-yet: client certificates (mTLS), ACME, RPC, jobs, KV and the other RoadRunner plugins.
+yet: gRPC, RPC, jobs, KV and the other RoadRunner plugins. Client certificates and ACME are left to the proxy in
+front of kest.

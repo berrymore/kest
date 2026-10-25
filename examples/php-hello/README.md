@@ -25,4 +25,5 @@ User-agent: *
 Each worker boots once and then serves requests in a loop, so anything set up before the loop is
 shared by every request that worker serves. `kest.yaml` explains the pool settings and turns on
 three filters: `recovery`, `request_id` (the `X-Request-Id` that `/info` shows) and `access_log` (a log line per
-request), and serves the files of `public/` itself (`static`). The full list is in [`docs/config.md`](../../docs/config.md#php_workers).
+request), and serves the files of `public/` itself (the `static` filter on the route to PHP). The options are in
+[`docs/config.md`](../../docs/config.md#php_workers).

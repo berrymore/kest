@@ -4,7 +4,6 @@ package main
 // isn't imported here is unknown to the binary.
 import (
 	_ "github.com/berrymore/kest/internal/cluster/phpworkers"
-	_ "github.com/berrymore/kest/internal/cluster/static"
 	_ "github.com/berrymore/kest/internal/filters/accesslog"
 	_ "github.com/berrymore/kest/internal/filters/clientip"
 	_ "github.com/berrymore/kest/internal/filters/compression"
@@ -12,4 +11,5 @@ import (
 	_ "github.com/berrymore/kest/internal/filters/headers"
 	_ "github.com/berrymore/kest/internal/filters/recovery"
 	_ "github.com/berrymore/kest/internal/filters/requestid"
+	_ "github.com/berrymore/kest/internal/filters/static"
 )

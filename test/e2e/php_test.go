@@ -170,9 +170,10 @@ func TestServePHPHelloExample(t *testing.T) {
 	}
 
 	_, metrics, err := get(t, "http://"+adminAddr+"/metrics")
-	// /robots.txt counts as a request to the cluster, but never reached a worker.
+	// /robots.txt and /healthz were answered by kest: they count without a cluster.
 	for _, want := range []string{
-		`kest_http_requests_total{listener="main",virtual_host="default",cluster="hello",code="200"} 504`,
+		`kest_http_requests_total{listener="main",virtual_host="default",cluster="hello",code="200"} 503`,
+		`kest_http_requests_total{listener="main",virtual_host="default",cluster="",code="200"} 2`,
 		`kest_http_requests_total{listener="main",virtual_host="default",cluster="hello",code="500"} 1`,
 		`kest_pool_workers{cluster="hello",state="ready"} 4`,
 		`kest_pool_wait_seconds_count{cluster="hello"} 504`,

@@ -12,8 +12,6 @@ import (
 	"net/http/httptest"
 	"net/http/httptrace"
 	"net/textproto"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -136,50 +134,6 @@ func TestServeHTTP(t *testing.T) {
 	}
 	if ctx["method"] != "POST" || ctx["uri"] != "http://example.com/items?x=1" || ctx["parsed"] != true {
 		t.Errorf("request context %v", ctx)
-	}
-}
-
-// With static.dir, files are served by kest and the rest goes to PHP.
-func TestStatic(t *testing.T) {
-	dir := t.TempDir()
-	for name, content := range map[string]string{"public/app.css": "body{}", "public/index.php": "<?php"} {
-		p := filepath.Join(dir, name)
-		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	p := &fakePool{exec: respond(relay.CodecJSON, `{"status":200}`, "php")}
-	cfg := DefaultConfig()
-	cfg.Command = []string{"php"}
-	cfg.Static.Dir = "public"
-	if err := cfg.Validate(); err != nil {
-		t.Fatal(err)
-	}
-	c := newCluster(&cfg, dir, p, logging.Discard())
-	if err := c.Start(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	for _, tt := range []struct{ method, path, want string }{
-		{http.MethodGet, "/app.css", "body{}"},
-		{http.MethodGet, "/index.php", "php"},
-		{http.MethodGet, "/", "php"},
-		{http.MethodGet, "/missing.css", "php"},
-		{http.MethodPost, "/app.css", "php"},
-	} {
-		if got := serve(c, httptest.NewRequestWithContext(t.Context(), tt.method, tt.path, http.NoBody)).Body.String(); got != tt.want {
-			t.Errorf("%s %s = %q, want %q", tt.method, tt.path, got, tt.want)
-		}
-	}
-	if err := c.Stop(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg.Static.Dir = "missing"
-	if err := newCluster(&cfg, dir, &fakePool{}, logging.Discard()).Start(t.Context()); err == nil {
-		t.Error("Start with a missing static.dir succeeded")
 	}
 }
 

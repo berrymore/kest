@@ -1,4 +1,4 @@
-package staticfiles
+package static
 
 import (
 	"net/http"
@@ -46,17 +46,8 @@ func writeTree(t *testing.T) string {
 	return dir
 }
 
-func open(t *testing.T, opts Options) *Files {
-	t.Helper()
-	f := New(opts)
-	if err := f.Check(); err != nil {
-		t.Fatal(err)
-	}
-	return f
-}
-
 // serve returns whether the files answered, and the response.
-func serve(t *testing.T, f *Files, method, target string, headers ...string) (bool, *httptest.ResponseRecorder) {
+func serve(t *testing.T, f *files, method, target string, headers ...string) (bool, *httptest.ResponseRecorder) {
 	t.Helper()
 	req := httptest.NewRequestWithContext(t.Context(), method, target, http.NoBody)
 	for _, h := range headers {
@@ -64,16 +55,16 @@ func serve(t *testing.T, f *Files, method, target string, headers ...string) (bo
 		req.Header.Set(name, value)
 	}
 	rec := httptest.NewRecorder()
-	return f.Serve(rec, req), rec
+	return f.serve(rec, req), rec
 }
 
 func TestServe(t *testing.T) {
 	dir := writeTree(t)
-	php := open(t, Options{Dir: dir, Forbid: []string{".php"}, Headers: map[string]string{"Cache-Control": "public, max-age=60"}})
-	site := open(t, Options{Dir: dir, Index: "index.html"})
+	php := newFiles(dir, []string{".php"}, map[string]string{"Cache-Control": "public, max-age=60"})
+	all := newFiles(dir, nil, nil)
 
 	for _, tt := range []struct {
-		files  *Files
+		files  *files
 		target string
 		served bool
 		status int
@@ -87,6 +78,7 @@ func TestServe(t *testing.T) {
 		{php, "/", false, 0, ""},
 		{php, "/docs/", false, 0, ""},
 		{php, "/docs", false, 0, ""},
+		{php, "//style.css", false, 0, ""},
 		{php, "/index.php", false, 0, ""},
 		{php, "/uploads/user/avatar.PHP", false, 0, ""},
 		{php, "/.env", false, 0, ""},
@@ -96,10 +88,8 @@ func TestServe(t *testing.T) {
 		{php, "/escape.txt", true, 200, "outside"},
 		{php, "/../outside/not-served.txt", false, 0, ""},
 		{php, "/missing.css", false, 0, ""},
-		{site, "/", true, 200, "<h1>home</h1>"},
-		{site, "/docs/", true, 200, "<h1>docs</h1>"},
-		{site, "/docs?x=1", true, 301, ""},
-		{site, "/index.php", true, 200, "<?php secret();"},
+		{all, "/index.php", true, 200, "<?php secret();"},
+		{all, "/index.html", true, 200, "<h1>home</h1>"},
 	} {
 		served, rec := serve(t, tt.files, http.MethodGet, tt.target)
 		if served != tt.served || (served && (rec.Code != tt.status || (tt.body != "" && rec.Body.String() != tt.body))) {
@@ -108,11 +98,7 @@ func TestServe(t *testing.T) {
 		}
 	}
 
-	_, rec := serve(t, site, http.MethodGet, "/docs?x=1")
-	if got := rec.Header().Get("Location"); got != "/docs/?x=1" {
-		t.Errorf("directory redirect to %q, want /docs/?x=1", got)
-	}
-	_, rec = serve(t, php, http.MethodGet, "/style.css")
+	_, rec := serve(t, php, http.MethodGet, "/style.css")
 	h := rec.Header()
 	if h.Get("Content-Type") != "text/css; charset=utf-8" || h.Get("Cache-Control") != "public, max-age=60" ||
 		!strings.HasPrefix(h.Get("Etag"), `W/"`) || h.Get("Last-Modified") == "" || h.Get("Content-Length") != "6" {
@@ -124,7 +110,7 @@ func TestServe(t *testing.T) {
 }
 
 func TestConditionalAndRange(t *testing.T) {
-	f := open(t, Options{Dir: writeTree(t)})
+	f := newFiles(writeTree(t), nil, nil)
 	_, first := serve(t, f, http.MethodGet, "/docs/guide.txt")
 	etag := first.Header().Get("Etag")
 
@@ -139,27 +125,5 @@ func TestConditionalAndRange(t *testing.T) {
 	_, rec = serve(t, f, http.MethodHead, "/docs/guide.txt")
 	if rec.Code != http.StatusOK || rec.Body.Len() != 0 || rec.Header().Get("Content-Length") != "10" {
 		t.Errorf("HEAD: %d, %d body bytes, length %s", rec.Code, rec.Body.Len(), rec.Header().Get("Content-Length"))
-	}
-}
-
-func TestCheck(t *testing.T) {
-	dir := writeTree(t)
-	for _, bad := range []string{filepath.Join(dir, "missing"), filepath.Join(dir, "style.css")} {
-		if err := New(Options{Dir: bad}).Check(); err == nil {
-			t.Errorf("Check(%s) succeeded", bad)
-		}
-	}
-}
-
-func TestValidateFields(t *testing.T) {
-	err := ValidateFields("static.", []string{".php", "php", ".a/b"}, map[string]string{"Bad Name": "x", "X-Ok": "a\nb"})
-	want := []string{
-		`static.forbid[1]: invalid extension "php": want a dot and a name, like .php`,
-		`static.forbid[2]: invalid extension ".a/b": want a dot and a name, like .php`,
-		`static.headers.Bad Name: invalid header name "Bad Name"`,
-		`static.headers.X-Ok: the value has control characters`,
-	}
-	if err == nil || err.Error() != strings.Join(want, "\n") {
-		t.Errorf("ValidateFields =\n%v\nwant\n%s", err, strings.Join(want, "\n"))
 	}
 }
