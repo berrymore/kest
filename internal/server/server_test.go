@@ -85,9 +85,8 @@ func (g *gateCluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func newServer(t *testing.T, extra string) *server.Server {
-	t.Helper()
-	src := `version: v1
+// serverConfig is the config of newServer, before its extra part.
+const serverConfig = `version: v1
 admin: {address: "127.0.0.1:0"}
 server: {drain_timeout: 2s}
 listeners:
@@ -107,7 +106,11 @@ listeners:
 clusters:
   - name: gate
     type: test_gate
-` + extra
+`
+
+func newServer(t *testing.T, extra string) *server.Server {
+	t.Helper()
+	src := serverConfig + extra
 	cfg, err := config.Parse([]byte(src), "kest.yaml", func(string) (string, bool) { return "", false })
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
@@ -381,4 +384,37 @@ func TestResetCluster(t *testing.T) {
 	}
 	hup <- syscall.SIGHUP
 	waitFor(t, func() bool { return gates["gate"].resets.Load() == 2 })
+}
+
+// During drain_delay, /ready fails while the listeners still serve new
+// requests; then the server drains and stops.
+func TestDrainDelay(t *testing.T) {
+	src := strings.Replace(serverConfig, "server: {drain_timeout: 2s}", "server: {drain_timeout: 2s, drain_delay: 1s}", 1)
+	cfg, err := config.Parse([]byte(src), "kest.yaml", func(string) (string, bool) { return "", false })
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := server.New(cfg, logging.Discard())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancel, done := run(t, s)
+	listener := "http://" + s.ListenerAddr("main").String()
+	adminURL := "http://" + s.AdminAddr().String()
+
+	start := time.Now()
+	cancel()
+	waitFor(t, func() bool {
+		code, _ := get(t, adminURL+"/ready")
+		return code == http.StatusServiceUnavailable
+	})
+	if code, body := get(t, listener+"/ping"); code != http.StatusOK || body != "pong" {
+		t.Errorf("/ping during the drain delay = %d %q, want 200", code, body)
+	}
+	if err := <-done; err != nil {
+		t.Errorf("Run: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed < time.Second {
+		t.Errorf("stopped after %s, want at least the 1s drain delay", elapsed)
+	}
 }

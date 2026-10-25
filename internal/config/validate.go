@@ -44,6 +44,9 @@ func (c *Config) validate() error {
 	if c.Server.DrainTimeout.Std() < 0 {
 		v.errorf("server.drain_timeout", "must not be negative")
 	}
+	if c.Server.DrainDelay < 0 {
+		v.errorf("server.drain_delay", "must not be negative")
+	}
 
 	clusters := v.clusters(c.Clusters)
 	v.listeners(c.Listeners, c.Admin.Address, clusters)

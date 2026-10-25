@@ -292,7 +292,7 @@ Stopped ──▶ Starting ──▶ Ready ⇄ Working ──▶ Stopping ──
 
 **Shutdown** (SIGINT / SIGTERM, or a fatal error from a running component)
 
-1. `/ready` → `503 draining`.
+1. `/ready` → `503 draining`; on a signal, the listeners keep serving for `server.drain_delay` (default 0s).
 2. Listeners stop accepting and drain in-flight requests in parallel, within `drain_timeout`; then the
    remaining connections are closed (logged as a warning, not an error).
 3. Clusters stop, within the same budget again (M1: stop frame, then SIGKILL after `destroy_timeout`).

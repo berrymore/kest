@@ -175,6 +175,13 @@ loop:
 	cancelResets()
 	resets.Wait()
 
+	if delay := s.cfg.Server.DrainDelay.Std(); runErr == nil && delay > 0 {
+		// /ready fails at once; the listeners serve on while load balancers
+		// take the instance out.
+		s.state.Store(admin.StateDraining)
+		s.logger.Info("waiting before draining", "drain_delay", delay.String())
+		time.Sleep(delay)
+	}
 	stopErr := s.shutdown(ctx, started)
 	if stopErr == nil {
 		s.logger.Info("kest stopped")

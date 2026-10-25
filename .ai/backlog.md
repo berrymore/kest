@@ -97,8 +97,9 @@ Milestone definitions: `roadmap.md`.
 - [ ] K-067 Operations guide.
 - [ ] K-069 Request frames copy context + body into one payload (one copy of the body per job). If K-066
   shows it matters, write the frame in segments instead (`relay.Writer` with several payload parts).
-- [ ] K-068 Drain delay: after SIGTERM, keep serving with `/ready` = 503 for a configurable delay so load
-  balancers deregister the instance before listeners close.
+- [x] K-068 Drain delay: after SIGTERM, keep serving with `/ready` = 503 for a configurable delay so load
+  balancers deregister the instance before listeners close. `server.drain_delay` (default `0s`); not on a
+  fatal error.
 - [ ] K-070 Bound the memory held by buffered request bodies: `php_workers` reads a body (up to
   `max_request_body`) before it queues for a worker, so up to `(workers + max_queue_size) × max_request_body`
   can be in memory (16 GB with the defaults and 1000 waiting uploads). Admit before reading the body, or cap

@@ -120,9 +120,10 @@ The admin API has no authentication. Keep it on a loopback or private address.
 
 | Field | Default | |
 |---|---|---|
-| `drain_timeout` | `15s` | After SIGINT/SIGTERM, how long in-flight requests may take to finish before their connections are closed. The same budget then applies to stopping clusters. `0s` closes immediately. |
+| `drain_delay` | `0s` | After SIGINT/SIGTERM, how long the listeners keep serving new requests while `/ready` already answers `503 draining`, so that load balancers stop sending traffic before connections close. Set it to a bit more than the load balancer's health check interval. |
+| `drain_timeout` | `15s` | After SIGINT/SIGTERM (and the `drain_delay`), how long in-flight requests may take to finish before their connections are closed. The same budget then applies to stopping clusters. `0s` closes immediately. |
 
-Shutdown order: `/ready` switches to `503 draining`; listeners stop accepting and drain; clusters stop;
+Shutdown order: `/ready` switches to `503 draining`; the `drain_delay` passes; listeners stop accepting and drain; clusters stop;
 the admin server stops last. A second SIGINT/SIGTERM terminates the process immediately. SIGHUP resets
 the workers of every cluster, like `POST /clusters/{name}/reset`, and logs the outcome; the configuration is
 not reloaded.

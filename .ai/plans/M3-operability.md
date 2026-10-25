@@ -104,7 +104,7 @@ The first steps are the vertical slice: real metrics from a PHP app at `/metrics
 5. [x] **Filters** (K-064) — `request_id`, `access_log`, `recovery` in `internal/filters/<name>/`, documented in
    `docs/config.md`. Acceptance: e2e sees the ID in PHP's `$_SERVER`, in the response and in the access log.
 6. [x] **`/config_dump`** (K-075) — acceptance: env values never appear in the output.
-7. [ ] **Server limits** (K-065) and **drain delay** (K-068) — acceptance: e2e for a slow client (read header
+7. [x] **Server limits** (K-065) and **drain delay** (K-068) — acceptance: e2e for a slow client (read header
    timeout) and for `/ready` turning 503 during the delay while requests still succeed.
 8. [ ] **Buffered body budget** (K-070) — acceptance: concurrent large uploads past the budget get `503`, and
    memory stays under the budget.
@@ -124,6 +124,7 @@ The first steps are the vertical slice: real metrics from a PHP app at `/metrics
 
 ## Log
 
+- 2026-10-25 — K-068 done (step 7). The delay applies to a signal, not to a fatal error.
 - 2026-10-25 — K-065 done (step 7, first half). Added beyond D9: `php_workers` sets a read deadline from the route
   timeout before it reads the body, so a slow sender gets `408` without a new option; `fail` answers it although
   `net/http` cancels the request context on the deadline.

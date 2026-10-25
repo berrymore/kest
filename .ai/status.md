@@ -14,7 +14,8 @@ ADR-0007, a hand-written core with the Prometheus text format), **K-061** (`inte
 and process metrics), **K-062** (`GET /metrics`, `/ready` per cluster), **K-074** (`GET /clusters`) and **K-063**
 (rolling reset through the admin API and SIGHUP, zero failed requests under load: an M3 exit criterion) and
 **K-064** (filters `request_id`, `access_log`, `recovery`), **K-075** (`GET /config_dump`, env values redacted)
-and **K-065** (server timeouts and header limit per listener; slow bodies get `408`).
+**K-065** (server timeouts and header limit per listener; slow bodies get `408`) and **K-068**
+(`server.drain_delay`).
 The plan is `plans/M3-operability.md` (Active).
 
 ## In progress
@@ -84,6 +85,8 @@ None.
 
 ## Session log (newest first, keep ~15)
 
+- **2026-10-25** — K-068: `server.drain_delay`. Process: a `make check | grep` pipeline hid a lint failure and
+  let a commit through (fixed in a follow-up commit); commits now wait for `make check`'s own exit status.
 - **2026-10-25** — K-065: server limits per listener; a body read deadline from the route timeout. Found: on that
   deadline `net/http` cancels the request context, and `fail` took it for a client that went away (empty 200).
 - **2026-10-25** — K-075: `GET /config_dump` through `Config.DumpRedacted` and `config.Redactor`.

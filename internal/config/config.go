@@ -106,6 +106,10 @@ type Admin struct {
 
 // Server holds process-wide settings.
 type Server struct {
+	// DrainDelay is how long the listeners keep serving after SIGTERM, with
+	// /ready answering 503, so that load balancers stop sending traffic
+	// before connections close. "0s" starts draining at once.
+	DrainDelay Duration `yaml:"drain_delay"`
 	// DrainTimeout is how long in-flight requests may take to finish after
 	// shutdown begins. "0s" closes connections immediately.
 	DrainTimeout *Duration `yaml:"drain_timeout"`

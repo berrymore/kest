@@ -284,3 +284,58 @@ listeners:
 		t.Errorf("a normal request after it: %d %q, %v", code, body, err)
 	}
 }
+
+// After SIGTERM, kest keeps serving for drain_delay while /ready fails.
+func TestDrainDelay(t *testing.T) {
+	listenAddr, adminAddr := freeAddr(t), freeAddr(t)
+	configPath := filepath.Join(t.TempDir(), "kest.yaml")
+	config := `version: v1
+admin: {address: "` + adminAddr + `"}
+server: {drain_delay: 1s}
+listeners:
+  - name: main
+    address: ` + listenAddr + `
+    http:
+      virtual_hosts:
+        - name: default
+          domains: ["*"]
+          routes:
+            - match: {prefix: /}
+              direct_response: {body: "ok"}
+`
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	k := serve(t, configPath, adminAddr)
+	start := time.Now()
+	if err := k.cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if code, _, err := get(t, "http://"+adminAddr+"/ready"); err == nil && code == http.StatusServiceUnavailable {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("/ready didn't turn 503")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if code, body, err := get(t, "http://"+listenAddr+"/"); err != nil || code != http.StatusOK || body != "ok" {
+		t.Errorf("a request during the drain delay: %d %q, %v", code, body, err)
+	}
+	select {
+	case err := <-k.exited:
+		if err != nil {
+			t.Errorf("kest exited with %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("kest didn't exit")
+	}
+	if elapsed := time.Since(start); elapsed < time.Second {
+		t.Errorf("exited after %s, want at least the 1s drain delay", elapsed)
+	}
+	if !strings.Contains(k.logs.String(), `msg="waiting before draining" drain_delay=1s`) {
+		t.Errorf("logs:\n%s", k.logs.String())
+	}
+}
