@@ -220,7 +220,9 @@ Steps 1–2 are the vertical slice: `curl --http2 -k https://localhost:8443/` ag
   static files inside a worker pool, a reverse proxy nobody needs behind nginx. ADR-0008 (accepted) draws the
   line; `http_proxy` and `static_files` are removed, `static` is a filter, filters work on virtual hosts and routes.
   The PHP example's `/robots.txt` now counts without a cluster. HTTP/2 and h2c stay core (nginx's `grpc_pass`,
-  gRPC in M7); TLS and gzip stay as they are.
+  gRPC in M7); TLS and gzip stay as they are. K-095 moved to M5. After the narrowing `make check`,
+  `make test-integration` and `make test-matrix` (PHP 8.3.36, 8.4.27, 8.5.12) are green; the docs review found 6
+  drifts, all fixed.
 
 - 2026-10-25 — Step 12 done: README, getting started (RoadRunner mapping), operations (TLS, load balancers),
   architecture; the docs review found 19 drifts (one blocker: `docs/config.md` still said streaming was

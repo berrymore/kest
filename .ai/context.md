@@ -36,8 +36,8 @@ Longer term (M4+):
 6. **A professional upstream for the proxy in front** (ADR-0008): HTTP/1.1 and HTTP/2 (h2c), the client's
    address from trusted proxies, streamed responses, the files of `public/` that the proxy can't see (M4);
    gRPC, WebSockets and SSE, unix sockets (M7).
-7. **Routing, filters and pools** that take work off PHP: richer matches, filters per route, traffic split
-   between pools, authentication and limits before PHP, `X-Sendfile`, fast rejection under overload (M5).
+7. **Routing, filters and pools** that take work off PHP: richer matches, per-route settings of listener
+   filters, traffic split between pools, authentication and limits before PHP, `X-Sendfile`, fast rejection under overload (M5).
 8. **WASM sandbox** on wazero: `wasm` clusters (handlers), `wasm` HTTP filters, possibly functions
    callable from PHP (M6).
 9. Dynamic configuration: hot reload without dropping connections (M8).

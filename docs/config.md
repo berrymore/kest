@@ -188,8 +188,9 @@ in `kest_tls_handshake_errors_total` and logged at `debug` level, since scanners
 Filters can be set in three places, and run in this order: those of the listener (`http.filters`), for every
 request; those of the virtual host the router chose (`virtual_hosts[].filters`); those of the route it chose
 (`routes[].filters`); then the route's action. A filter may answer a request itself instead of passing it on (CORS
-preflights, files of `static`): the rest of the chain and the action don't run, and the request counts in the
-[metrics](metrics.md) without a cluster.
+preflights, files of `static`): the rest of the chain and the action don't run. In the [metrics](metrics.md), such
+an answer from a virtual host's or a route's filter counts with an empty `cluster`; one from a listener's filter
+isn't counted (it never reaches the router).
 
 Built-in types: `request_id`, `access_log`, `recovery`, `client_ip`, `headers`, `cors`, `compression`, `static`. Put
 `recovery` first so that it covers the other filters too:
@@ -356,8 +357,8 @@ routes:
 Directories aren't served (`/` goes on), nor are paths with a segment that starts with a dot (`.env`, `.git/`),
 except under `/.well-known/`. Symbolic links are followed, so Laravel's `public/storage` works. Responses support
 `Range`, `If-Modified-Since` and `If-None-Match` (a weak `ETag` from the file's size and modification time); the
-`Content-Type` comes from the extension. A file counts in the metrics without a cluster, so the PHP cluster's
-latency is PHP's. When the proxy in front of kest can see the files, let it serve them instead.
+`Content-Type` comes from the extension. On a route, a file counts in the metrics without a cluster, so the PHP
+cluster's latency is PHP's. When the proxy in front of kest can see the files, let it serve them instead.
 
 ### `virtual_hosts[]`
 

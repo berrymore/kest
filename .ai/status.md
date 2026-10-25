@@ -31,7 +31,7 @@ Nothing: the branch waits for the user's go-ahead for the PR.
    ADR-0008 and the narrowing, the items, the decisions to review (Q10 below), how it was tested, and that the docs
    review ran. Merge only on the user's go-ahead (`rules.md` § 9); run the docs review again if the branch changed.
 3. **After the merge: M5 (Routing, filters and pools)** on a new branch `feat/m5-routing` from an updated `main`.
-   Read `roadmap.md` § M5, `backlog.md` § M5 (K-140…K-147, K-905, K-908, K-910), ADR-0008 and `architecture.md`
+   Read `roadmap.md` § M5, `backlog.md` § M5 (K-140…K-147, K-095, K-905, K-908, K-910), ADR-0008 and `architecture.md`
    § 2–4 (`internal/httpx`: router, filter chain, metrics). First write `plans/M5-routing.md` and agree its scope
    with the user (vertical slice first). Research before designing: Envoy's route matching and
    `typed_per_filter_config` ❓, RoadRunner's `sendfile` middleware ❓ (K-143).

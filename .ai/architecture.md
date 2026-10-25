@@ -181,7 +181,8 @@ var Filters = registry.NewCategory[Filter]("http filter")
 // the router and request_id; filters read it after the inner handler returns (access_log), whatever their
 // order. httpx.ResponseWriter records the status and body size; httpx.BeforeHeader edits a response header just
 // before it goes out (headers, cors, compression). RequestInfo.ClientIP/Scheme come from client_ip
-// (httpx.ClientIP, httpx.Scheme). Built in: request_id, access_log, recovery, client_ip, headers, cors, compression.
+// (httpx.ClientIP, httpx.Scheme). Built in: request_id, access_log, recovery, client_ip, headers, cors, compression,
+// static.
 
 // internal/cluster: the name lives in config/BuildContext, not on the interface.
 type Cluster interface {
@@ -419,5 +420,5 @@ at the start of M6.
 | Q-C | Streaming responses from PHP (SSE, large downloads) | ✅ M4 (K-088): `worker.Pool.ExecStream`; `php_workers` writes chunks as they come, 1xx as informational responses, STOP when the client goes away |
 | Q-D | Cluster interface: `http.Handler`, or a kest request/response type shared by php, wasm and proxy? | ✅ M4: `http.Handler` stays |
 | Q-E | Metrics: `prometheus/client_golang`, OpenTelemetry metrics, or a minimal custom exposition? | ✅ ADR-0007 (2026-10-25): a hand-written core with the Prometheus text format |
-| Q-F | Per-route priority and queueing inside one pool, on top of pool isolation | After M3 |
+| Q-F | Per-route priority and queueing inside one pool, on top of pool isolation | M5 (K-905) |
 | Q-G | PHP → kest RPC (RoadRunner's `rpc` plugin equivalent): needed for which PHP libraries? | Not for HTTP: `roadrunner/http` and `roadrunner/worker` don't use it (K-040); libraries for RR's KV, jobs, metrics, lock plugins do |

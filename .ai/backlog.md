@@ -173,8 +173,6 @@ Milestone definitions: `roadmap.md`.
 - [-] K-093 Precompressed static files: serve `file.gz` (and `.br`) next to `file` when the client accepts it.
   Dropped: static files stay basic (ADR-0008).
 - [-] K-094 Passive health checks for `http_proxy` (outlier detection). Dropped with K-085 (ADR-0008).
-- [ ] K-095 Count requests that listener filters answer themselves (CORS preflights) in the HTTP metrics: today
-  only requests that reach the router are counted per virtual host and cluster.
 - [x] K-096 Filters on virtual hosts and routes (`virtual_hosts[].filters`, `routes[].filters`), run after the
   router has chosen them; a response one of them makes counts with an empty `cluster` (ADR-0008). The router
   instruments each virtual host and a route's cluster marks the request (`RequestInfo`), so the metrics need no
@@ -200,6 +198,8 @@ IDs start at K-140: the milestones were renumbered on 2026-10-25 (ADR-0008), and
   returns go to the main request (Envoy's `ext_authz`).
 - [ ] K-905 Per-route priority queues within one pool (Q-F).
 - [ ] K-908 Dynamic pool size (RR `pool.dynamic_allocator`).
+- [ ] K-095 Count requests that listener filters answer themselves (CORS preflights) in the HTTP metrics: today
+  only requests that reach the router are counted per virtual host and cluster. Moved from M4 on 2026-10-25.
 - [ ] K-910 Optional route `name`, and a `route` label on the HTTP metrics (M3 plan D2): today two routes to the
   same cluster on one virtual host can't be told apart in metrics.
 

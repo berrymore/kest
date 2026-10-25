@@ -23,11 +23,12 @@ func newListenerMetrics(reg *metrics.Registry, listener string) *listenerMetrics
 	return &listenerMetrics{
 		listener: listener,
 		requests: reg.NewCounterVec("kest_http_requests_total",
-			"HTTP requests by listener, virtual host, cluster and status code. The cluster is empty for direct "+
-				"responses and requests that match no route; the virtual host is empty when none matches.",
+			"HTTP requests by listener, virtual host, cluster and status code. The cluster is set when the request "+
+				"reached a route's cluster: it is empty for direct responses, redirects, answers of virtual host and "+
+				"route filters, and requests that match no route; the virtual host is empty when none matches.",
 			"listener", "virtual_host", "cluster", "code"),
 		duration: reg.NewHistogramVec("kest_http_request_duration_seconds",
-			"Time from routing an HTTP request to its handler's return, in seconds.",
+			"Time from choosing an HTTP request's virtual host to its handler's return, in seconds.",
 			metrics.DurationBuckets, "listener", "virtual_host", "cluster"),
 		inFlight: reg.NewGaugeVec("kest_http_requests_in_flight",
 			"HTTP requests being served, by listener.", "listener").With(listener),

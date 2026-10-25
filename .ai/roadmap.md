@@ -115,8 +115,8 @@ Exit criteria:
 **Goal:** the core that sets kest apart, done well: several PHP pools, routing between them, and filters that take
 work off PHP before and after it.
 
-Scope [K-140…, K-905, K-908, K-910]: route matches on method, headers, query and regular expressions; route names
-and a `route` metrics label; per-route filter settings (turn off or change a listener filter); weighted clusters;
+Scope [K-140…, K-095, K-905, K-908, K-910]: route matches on method, headers, query and regular expressions; route
+names and a `route` metrics label; counting the answers of listener filters; per-route filter settings (turn off or change a listener filter); weighted clusters;
 `X-Sendfile`; fast rejection under overload; authentication (JWT, API keys), local rate limiting, external
 authorization through a PHP cluster; priority queues and a dynamic size within a pool.
 
