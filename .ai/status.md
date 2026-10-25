@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-10-25 (M4 merged, PR #3; M5 not started)_
+_Last updated: 2026-10-25 (M4 merged, PR #3; codec benchmark K-148 merged; M5 not started)_
 
 ## Current phase
 
@@ -18,12 +18,13 @@ responses from PHP (generators, `$chunkSize`, 103 Early Hints).
 
 ## In progress
 
-Nothing. M5 is next, but the user asked not to start it in the session that merged M4.
+Nothing. M5 is next, but the user asked not to start it in the session that merged M4. K-148 (the codecs
+benchmarked with `ext-protobuf`) went to `main` on its own branch and PR after M4.
 
 ## Next up: how to continue in a fresh session
 
-1. **Git first:** `git checkout main && git pull`; `git status` is clean, `git log --oneline -3` shows the M4
-   squash commit on top.
+1. **Git first:** `git checkout main && git pull`; `git status` is clean, `git log --oneline -3` shows the K-148
+   squash commit on top and M4's below it.
 2. **M5 (Routing, filters and pools)** on a new branch `feat/m5-routing` from `main`, once the user says to start.
    Read `roadmap.md` § M5, `backlog.md` § M5 (K-140…K-147, K-095, K-905, K-908, K-910), ADR-0008 and
    `architecture.md` § 2–4 and § 8 (`internal/httpx`: router, filter chain, metrics). First write `plans/M5-routing.md` and
@@ -36,6 +37,10 @@ None.
 
 ## Resolved decisions
 
+- 2026-10-25 — K-148: the user had it committed on its own branch, the PR opened and merged (squash) without
+  stopping. K-150 (the benchmark with OPcache and JIT, was Q13): not now. msgpack: the user asked, the agent
+  advised against it (`research/roadrunner.md`, the codec paragraph: `roadrunner/http` doesn't read it, goridge 4.6
+  deprecates it, at most ~2 µs of the 4.5 µs `json_decode` takes per request); nothing planned.
 - 2026-10-25 — The user merged PR #3 (M4). The schema changes D1–D8 and D12 (was Q10) went in with it as proposed.
   M6 WASM stays before M7 Protocols (was Q12).
 - 2026-10-25 — Filters stay nested (listener → virtual host → route), rather than on listeners only with
@@ -90,16 +95,25 @@ None.
 - golangci-lint 2.15.0 in `~/go/bin`: the prebuilt release binary from GitHub (sha256 verified), built
   with go1.27.0. golangci-lint refuses to lint a module whose `go` directive is newer than the Go it was
   built with, so when bumping Go, upgrade the linter too (or `go install` it with the local toolchain).
-- PHP 8.5.12 (brew, NTS) with `sockets`, `pcntl`, `posix`, `json`, `mbstring`, `openssl`; Composer 2.10.3
+- PHP 8.5.12 (brew, NTS) with `sockets`, `pcntl`, `posix`, `json`, `mbstring`, `openssl`, and `protobuf` 5.36.2
+  (PECL, loaded by the first line of `/opt/homebrew/etc/php/8.5/php.ini`; added 2026-10-25); OPcache is loaded but
+  `opcache.enable_cli` is off; Composer 2.10.3
 - Also installed: Homebrew, Docker, git, gh (SSH protocol, logged in as `berrymore`)
 - Docker image `golang:1.27` (pulled 2026-10-24) runs `make test-linux`; the `kest-test-php:8.3`, `8.4` and `8.5`
   images of `make test-matrix` are built from `php:<version>-cli` and `composer:2`, which BuildKit keeps in its
   cache rather than as tagged images
 - Load testing: `test/bench/loadgen` (`make bench`), `ab` (ships with macOS); no `oha`/`wrk`. `make bench` needs
-  RoadRunner's release binary (`RR=/path/to/rr`): none is installed; K-066 used 3.0.1 from the GitHub release.
+  RoadRunner's release binary (`RR=/path/to/rr`): none is installed; K-066 and K-148 downloaded 3.0.1 from the
+  GitHub release (`gh release download v3.0.1 -R roadrunner-server/roadrunner`, sha256 checked) into a scratch
+  directory. Without `ext-protobuf`: `PHPRC` pointing at a copy of `php.ini` without its first line.
 
 ## Session log (newest first, keep ~15)
 
+- **2026-10-25** — K-148: the user installed `ext-protobuf`; `make bench` re-run at M4 with and without it.
+  With the extension `proto` is 1–4 % behind `json` (it was 30–35 %); PHP pays 14.4 µs per request for `json`,
+  20.1 µs for `proto` with the extension, 135 µs without (`test/bench/codec.php`, new). RoadRunner is 8 % ahead on
+  forms with 16 clients, confirmed by an interleaved re-run: kest's server takes more CPU per request (K-149).
+  msgpack advised against; K-150 (OPcache and JIT) proposed, not now. Merged on the user's go-ahead (squash).
 - **2026-10-25** — Kept filters nested after the user asked about listener-only filters with paths in `static`;
   PR #3 opened, then merged (squash) on the user's go-ahead, WASM kept before protocols. M5 not started, as asked.
 - **2026-10-25** — The user looked at M4 and questioned the direction: kest was becoming an edge proxy. ADR-0008

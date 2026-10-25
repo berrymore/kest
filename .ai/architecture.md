@@ -369,7 +369,7 @@ docs/                        🟢 user documentation: getting started, config re
 test/e2e/                    🟢 end-to-end tests: build the binary with -race, run it against configs
 test/docker/                 🟢 the image of the PHP version matrix (make test-matrix)
 test/docs/                   🟢 docs drift checks against the code and the Makefile (make docs-check)
-test/bench/                  🟢 benchmark against RoadRunner: configs, loadgen, run.sh (make bench)
+test/bench/                  🟢 benchmark against RoadRunner: configs, loadgen, codec.php, run.sh (make bench)
 ```
 
 ## 8. Observability and admin 🟡

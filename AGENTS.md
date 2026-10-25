@@ -95,7 +95,7 @@ examples/            runnable configs: hello (no PHP), php-hello (PSR-7 worker)
 docs/                user documentation: getting started, config reference, metrics, operations, benchmarks
 test/e2e/            end-to-end tests against the real binary; testdata/symfony is the framework smoke test
 test/docs/           docs drift checks: the docs against the code and the Makefile
-test/bench/          the benchmark against RoadRunner: configs, a load generator, run.sh
+test/bench/          the benchmark against RoadRunner: configs, a load generator, codec cost in PHP, run.sh
 test/docker/         image for the PHP version matrix
 ```
 
