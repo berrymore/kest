@@ -1,7 +1,6 @@
 # Plan: M5 — Worker pools and routing to them
 
-- **Status:** Done (2026-10-25) on `feat/m5-pools`, committed locally; the PR waits for the user's local check. The
-  plan was approved by the user on 2026-10-25 as a whole, the **schema** decisions included (they change the config
+- **Status:** Done (2026-10-25), merged in PR #5 after the user checked the branch locally. The plan was approved by the user on 2026-10-25 as a whole, the **schema** decisions included (they change the config
   file or the metrics); the user then delegated the rest of the milestone, D4's names and defaults included.
 - **Milestone:** M5
 - **Backlog:** K-151, K-905, K-144, K-908, K-143, K-140, K-910, K-095, K-149, K-152

@@ -1,42 +1,33 @@
 # Status
 
-_Last updated: 2026-10-25 (M5 done on `feat/m5-pools`; PR #5 open, waiting for the user's go-ahead to merge)_
+_Last updated: 2026-10-25 (M5 merged, PR #5; M6 not started)_
 
 ## Current phase
 
-**M5 (Worker pools and routing to them) is done on its branch** `feat/m5-pools`: the user checked it locally,
-approved, and had it pushed; PR #5 is open. M4 and K-148 are
-in `main`. ADR-0008 still draws the line: kest is an application server behind a proxy. M5 made the pool the core:
-lanes per route (`route.max_workers`, `priority`, `queue_timeout`), `Retry-After` and overload control
-(`pool.overload`, CoDel, on by default after a measurement), a dynamic size (`pool.max_workers`,
-`scale_down_after`), the `sendfile` filter, route names and matches on regex, method, headers and query, the
-listener filters' answers in the metrics, buffered relay reads; research on forking booted workers. The record is
-`plans/M5-pools.md` (decisions D1–D10, steps 1–13, the log).
+**M5 (Worker pools and routing to them) is done and merged** (PR #5, squashed into `main`). ADR-0008 still draws
+the line: kest is an application server behind a proxy. M5 made the pool the core: lanes per route
+(`route.max_workers`, `priority`, `queue_timeout`), `Retry-After` and overload control (`pool.overload`, CoDel, on
+by default after a measurement), a dynamic size (`pool.max_workers`, `scale_down_after`), the `sendfile` filter,
+route names and matches on regex, method, headers and query, the listener filters' answers in the metrics, buffered
+relay reads; research on forking booted workers (`research/prefork.md`). `plans/M5-pools.md` is the record
+(decisions D1–D10, steps 1–13, the log). The user checked the decisions taken while they were away and approved
+them. `make bench` against RoadRunner did not run during M5 (no RoadRunner binary); A/B runs of kest's binaries
+stood in for it.
 
 ## In progress
 
-Nothing. PR #5 waits for the user's go-ahead to merge. Decisions taken while the user was away (the user checked
-them locally and approved):
-D4's names and defaults (`pool.overload: {queue_timeout: 500ms, interval: 5s}`, on by default; lanes with
-`max_workers` or `queue_timeout` left out), the dynamic pool's boot limit (`max(1, workers/4)`), the `sendfile`
-details (absolute paths only, `dirs` themselves refused), the `GOMAXPROCS` advice (Q15), K-153 and K-154 in the
-backlog. `make check`, `make test-integration`, `make test-linux` and `make test-matrix` ran green (see the plan's
-log); `make bench` against RoadRunner did not run (no RoadRunner binary here): A/B runs of kest's binaries
-replaced it.
+Nothing. M6 is next; the user hasn't said to start it.
 
 ## Next up: how to continue in a fresh session
 
-1. **Git first:** `git checkout feat/m5-pools`; `git log --oneline main..` shows the plan, the items (K-910,
-   K-151/K-905, K-144, K-908, K-143, K-140, K-095, K-149, K-152) and the docs review. Not quite one commit per item,
-   which the PR description must say: K-151 and K-905 share their pool commit (a046563) and, with K-144's
-   `Retry-After` and `queue_timeout`, the route commit (4ff430e), as plan steps 3–4 bundled them; K-151's PHP test is
-   its own commit (b57cb92), K-144's overload control too (c70475d).
-2. **PR #5** (https://github.com/berrymore/kest/pull/5) is open. After the user's go-ahead:
-   `gh pr merge 5 --squash --delete-branch`, `git checkout main && git pull`, and mark M5
-   merged here, in `roadmap.md`, in `plans/M5-pools.md` (Status) and in `architecture.md` (Last reviewed). Run the
-   docs review again first if the branch changed.
-3. **After the merge:** M6 (WASM sandbox) on a new branch `feat/m6-wasm`: read `roadmap.md` § M6, `backlog.md`
-   § M6 (K-100…K-104, K-141), ADR-0006; the first step is the guest ABI research and ADR (K-100). Q15 is open.
+1. **Git first:** `git checkout main && git pull`; `git status` is clean, `git log --oneline -3` shows M5's squash
+   commit on top.
+2. **M6 (WASM sandbox)** on a new branch `feat/m6-wasm` from `main`, once the user says to start. Read
+   `roadmap.md` § M6, `backlog.md` § M6 (K-100…K-104, K-141), ADR-0006 and `architecture.md` § 9. First write
+   `plans/M6-wasm.md` and agree its scope with the user (vertical slice first). The first step is the guest ABI
+   research and ADR (K-100: Proxy-Wasm, http-wasm, WASI stdin/stdout, custom); K-141 (per-route filter settings)
+   moved here from M5.
+3. **Q15** (below) is open: ask the user when it fits.
 
 ## Open questions (need a decision from the user)
 
@@ -49,7 +40,8 @@ replaced it.
 
 ## Resolved decisions
 
-- 2026-10-25 — The user checked `feat/m5-pools` locally ("all fine") and had it pushed and PR #5 opened.
+- 2026-10-25 — The user checked `feat/m5-pools` locally ("all fine"), had it pushed, PR #5 opened, and merged
+  (squash).
 - 2026-10-25 — M5: the user lets the agent commit each item itself after a green `make check`, until the end of the
   milestone, then delegated all the remaining steps ("do all the steps"): the agent decides (D4's names and defaults
   included) and records the choices for the PR review. Push and PR only after the user's OK.
@@ -137,7 +129,7 @@ replaced it.
 ## Session log (newest first, keep ~15)
 
 - **2026-10-25** — M5 planned with the user (scope narrowed to the pool) and implemented on `feat/m5-pools` (the user
-  delegated all steps, then left; no push, no PR):
+  delegated all steps, then left; they checked it locally, then PR #5, merged):
   K-910 route names; lanes in the pool (a dispatcher under one mutex, 3.1 → 1.8 µs per job) and on routes;
   `Retry-After`; overload control decided by experiment in virtual time and with PHP (`loadgen -rate`, new): without
   it overload collapses (7 of 40 requests/s served); dynamic pool size; `sendfile` (checked against Symfony's

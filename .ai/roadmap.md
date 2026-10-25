@@ -10,7 +10,7 @@ Work items live in `backlog.md` (IDs in brackets). Reprioritization is the user'
 | M2 | PHP HTTP — **MVP** | ✅ done 2026-10-25 |
 | M3 | Operability | ✅ done 2026-10-25 |
 | M4 | HTTP edge features (narrowed by ADR-0008) | ✅ done 2026-10-25 |
-| M5 | Worker pools and routing to them | ✅ done 2026-10-25 (on `feat/m5-pools`, merge after the user's review) |
+| M5 | Worker pools and routing to them | ✅ done 2026-10-25 |
 | M6 | WASM sandbox | ⚪ |
 | M7 | Protocols: gRPC, WebSockets and SSE | ⚪ |
 | M8 | Dynamic configuration | ⚪ |
@@ -121,7 +121,7 @@ a dynamic pool size; `X-Sendfile`; route matches on method, headers, query and r
 a `route` metrics label; counting the answers of listener filters; kest's CPU per request; research on starting
 workers by forking a booted one. Plan: `plans/M5-pools.md`. Narrowed with the user on 2026-10-25: weighted clusters
 dropped (K-142), authentication, rate limiting and external authorization to the icebox (K-145…K-147), per-route
-filter settings to M6 (K-141).
+filter settings to M6 (K-141). Merged in PR #5.
 
 Exit criteria:
 - A slow route limited to a few workers of a pool doesn't slow the pool's other routes; the metrics show where each
