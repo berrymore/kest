@@ -32,7 +32,9 @@ Vision, goals, non-goals and glossary: `.ai/context.md`.
 - Significant decision made → write an ADR in `.ai/decisions/` (status `Proposed` until the user accepts).
 - Architecture changed → update `.ai/architecture.md` in the same change.
 
-Docs that drift from the code are worse than no docs. Keep them true, short and current.
+Docs that drift from the code are worse than no docs. Keep them true, short and current. `make docs-check`
+catches the mechanical drift on every `make check`; the docs review (`.ai/review.md`) catches the rest before a
+milestone merges.
 
 The user may run `/clear` at any point after a handoff. `.ai/status.md` → **Next up** must always let a
 fresh session continue without the chat history: concrete first step, files to read, open decisions.
@@ -51,8 +53,13 @@ Keep this table in sync with the Makefile (`make help` lists every target).
 | PHP packages of test projects and examples | `make php-deps` (composer install in every directory of `PHP_PROJECTS`) |
 | Unit tests on Linux (needs Docker) | `make test-linux` (Linux-only code paths; run when touching them) |
 | PHP version matrix on Linux (needs Docker) | `make test-matrix` (`make test-integration` on PHP 8.3, 8.4, 8.5; image in `test/docker`) |
+| Benchmark against RoadRunner | `RR=/path/to/rr make bench` (`test/bench`; results in `docs/benchmarks.md`) |
+| Docs drift checks | `make docs-check` (links, make targets, IDs, layout, config reference; also part of `make test`) |
+| Milestone docs review | before the PR and before the merge: `.ai/review.md` |
+| Vet | `make vet` (`go vet` with the `integration` and `e2e` tags) |
 | Lint | `make lint` (golangci-lint 2.15.0 pinned; config in `.golangci.yml`) |
 | Format | `make fmt` |
+| Clean | `make clean` (removes `bin/`) |
 | Run | `./bin/kest serve -c examples/hello/kest.yaml` |
 | Validate a config | `./bin/kest validate -c FILE [-dump]` |
 
@@ -66,24 +73,29 @@ Module `github.com/berrymore/kest`, Go 1.27. Package responsibilities and the ta
 ```
 AGENTS.md            this file (CLAUDE.md imports it)
 README.md            user-facing overview
-.ai/                 agent workspace: status, rules, architecture, roadmap, backlog, plans, ADRs, research
+.ai/                 agent workspace: status, rules, architecture, roadmap, backlog, plans, ADRs, research, review
+.claude/agents/      docs-reviewer: the reviewer of the milestone docs review (.ai/review.md)
 cmd/kest/            CLI: serve, validate, version
 internal/config/     YAML loading, env expansion, strict decoding, defaults, validation, dump
 internal/registry/   compiled-in extension categories and factories
 internal/server/     builds the component graph; start/stop order; drain
 internal/httpx/      HTTP filter chain and router
 internal/listener/   HTTP listeners
+internal/filters/    built-in HTTP filters, one package each: requestid/, accesslog/, recovery/
 internal/cluster/    cluster interface and registry category; phpworkers/ is the php_workers type
 internal/rrhttp/     HTTP ↔ RoadRunner HTTP payload (request context JSON/protobuf, forms, uploads, responses)
 internal/relay/      goridge frame codec and connection (RoadRunner worker protocol)
 internal/worker/     worker processes, pool, supervisor; workertest/ fakes, testdata/php/ for integration
 internal/admin/      admin API
+internal/metrics/    metrics core and Prometheus text exposition (ADR-0007); metricstest/ reads it back in tests
 internal/logging/    slog setup
 internal/buildinfo/  version information
 internal/leaktest/   goroutine-leak check for tests (TestMain)
 examples/            runnable configs: hello (no PHP), php-hello (PSR-7 worker)
-docs/                user documentation: getting started, config reference
+docs/                user documentation: getting started, config reference, metrics, operations, benchmarks
 test/e2e/            end-to-end tests against the real binary; testdata/symfony is the framework smoke test
+test/docs/           docs drift checks: the docs against the code and the Makefile
+test/bench/          the benchmark against RoadRunner: configs, a load generator, run.sh
 test/docker/         image for the PHP version matrix
 ```
 
@@ -119,8 +131,9 @@ Full workflow: `.ai/rules.md` § 9.
 - **One branch per milestone** from `main`: `feat/m<N>-<slug>`. Nothing is committed to `main` directly.
 - **One commit per backlog item** (`K-NNN` in the subject), plus separate `docs:` commits for plans and status.
 - **Ask before every commit**, unless the user said otherwise for the current milestone. `make check` first.
-- **Merge via PR:** at the end of the milestone, ask, push the branch, `gh pr create`; after the user's review
-  and go-ahead, `gh pr merge --squash --delete-branch`.
+- **Merge via PR:** at the end of the milestone, run the docs review (`.ai/review.md`: `make docs-check` plus the
+  `docs-reviewer` agent) and fix what it finds, ask, push the branch, `gh pr create`; after the user's review and
+  go-ahead (and another docs review if the branch changed), `gh pr merge --squash --delete-branch`.
 - Conventional Commits (`feat(config): …`, `fix(worker): …`, `docs: …`).
 - No CI yet: the user develops alone and locally. Run the checks from the Commands table yourself
   before declaring work done.
@@ -138,3 +151,4 @@ Full workflow: `.ai/rules.md` § 9.
 | `.ai/plans/` | Step-by-step plans for the active milestone/feature |
 | `.ai/decisions/` | Architecture Decision Records (`NNNN-title.md`) |
 | `.ai/research/` | Notes on prior art: RoadRunner, Envoy, protocols |
+| `.ai/review.md` | Milestone docs review: when, how, checklist (reviewer: `.claude/agents/docs-reviewer.md`) |

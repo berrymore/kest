@@ -266,3 +266,23 @@ func TestDump(t *testing.T) {
 		}
 	}
 }
+
+func TestRedacted(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Env = map[string]string{"DB_PASSWORD": "hunter2"}
+	r, ok := cfg.Redacted().(*Config)
+	if !ok || r.Env["DB_PASSWORD"] != config.Redacted || cfg.Env["DB_PASSWORD"] != "hunter2" {
+		t.Errorf("Redacted = %+v, config %+v", r, cfg.Env)
+	}
+}
+
+func TestConfigBodyBudget(t *testing.T) {
+	_, err := build(t, `      command: [php]
+      max_request_body: 32MB
+      max_buffered_bodies: 16MB
+`)
+	want := `kest.yaml:16:28: clusters[0].config.max_buffered_bodies: must be at least max_request_body (32MB), got 16MB`
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %v, want %s", err, want)
+	}
+}

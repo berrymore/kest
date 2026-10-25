@@ -10,6 +10,7 @@
 package config
 
 import (
+	"slices"
 	"time"
 
 	"go.yaml.in/yaml/v4"
@@ -24,8 +25,12 @@ const (
 	DefaultLogFormat    = "text"
 	DefaultAdminAddress = "127.0.0.1:9901"
 	DefaultDrainTimeout = 15 * time.Second
-	DefaultRouteTimeout = 30 * time.Second
-	DefaultStatus       = 200
+
+	DefaultReadHeaderTimeout = 10 * time.Second
+	DefaultIdleTimeout       = 120 * time.Second
+	DefaultMaxHeaderBytes    = ByteSize(1 << 20)
+	DefaultRouteTimeout      = 30 * time.Second
+	DefaultStatus            = 200
 )
 
 // Config is the whole configuration file.
@@ -55,6 +60,39 @@ func (c *Config) Dump() ([]byte, error) {
 	return yaml.Dump(c, yaml.WithIndent(2))
 }
 
+// Redactor is implemented by extension configs that may hold secrets, such
+// as environment variables: Redacted returns a copy to show instead.
+type Redactor interface {
+	Redacted() any
+}
+
+// Redacted is what DumpRedacted shows in place of a secret.
+const Redacted = "[redacted]"
+
+// DumpRedacted is Dump with every decoded extension config that implements
+// Redactor replaced by its Redacted copy, for the admin API. Call it after
+// the server graph is built: a config block that wasn't decoded is shown as
+// Redacted, since nothing knows what it holds.
+func (c *Config) DumpRedacted() ([]byte, error) {
+	out := *c
+	out.Clusters = slices.Clone(c.Clusters)
+	for i := range out.Clusters {
+		out.Clusters[i].Extension = out.Clusters[i].redacted()
+	}
+	out.Listeners = slices.Clone(c.Listeners)
+	for i := range out.Listeners {
+		if h := out.Listeners[i].HTTP; h != nil {
+			copied := *h
+			copied.Filters = slices.Clone(h.Filters)
+			for j := range copied.Filters {
+				copied.Filters[j] = copied.Filters[j].redacted()
+			}
+			out.Listeners[i].HTTP = &copied
+		}
+	}
+	return yaml.Dump(&out, yaml.WithIndent(2))
+}
+
 // Log configures the process logger.
 type Log struct {
 	Level  string `yaml:"level"`  // debug | info | warn | error
@@ -68,6 +106,10 @@ type Admin struct {
 
 // Server holds process-wide settings.
 type Server struct {
+	// DrainDelay is how long the listeners keep serving after SIGTERM, with
+	// /ready answering 503, so that load balancers stop sending traffic
+	// before connections close. "0s" starts draining at once.
+	DrainDelay Duration `yaml:"drain_delay"`
 	// DrainTimeout is how long in-flight requests may take to finish after
 	// shutdown begins. "0s" closes connections immediately.
 	DrainTimeout *Duration `yaml:"drain_timeout"`
@@ -83,7 +125,15 @@ type Listener struct {
 // HTTP is the protocol block of an HTTP listener.
 type HTTP struct {
 	// Filters run in order before the router, which is always last.
-	Filters      []Extension   `yaml:"filters,omitempty"`
+	Filters []Extension `yaml:"filters,omitempty"`
+
+	// Server limits. 0s turns a timeout off.
+	ReadHeaderTimeout *Duration `yaml:"read_header_timeout"` // reading a request's headers
+	ReadTimeout       *Duration `yaml:"read_timeout"`        // reading a whole request, body included
+	WriteTimeout      *Duration `yaml:"write_timeout"`       // from the end of the headers to the end of the response
+	IdleTimeout       *Duration `yaml:"idle_timeout"`        // a keep-alive connection waiting for its next request
+	MaxHeaderBytes    ByteSize  `yaml:"max_header_bytes"`    // request line and headers
+
 	VirtualHosts []VirtualHost `yaml:"virtual_hosts"`
 }
 
@@ -146,6 +196,23 @@ func (c *Config) applyDefaults() {
 		h := c.Listeners[i].HTTP
 		if h == nil {
 			continue
+		}
+		for _, d := range []struct {
+			field **Duration
+			def   time.Duration
+		}{
+			{&h.ReadHeaderTimeout, DefaultReadHeaderTimeout},
+			{&h.ReadTimeout, 0},
+			{&h.WriteTimeout, 0},
+			{&h.IdleTimeout, DefaultIdleTimeout},
+		} {
+			if *d.field == nil {
+				v := Duration(d.def)
+				*d.field = &v
+			}
+		}
+		if h.MaxHeaderBytes == 0 {
+			h.MaxHeaderBytes = DefaultMaxHeaderBytes
 		}
 		for j := range h.VirtualHosts {
 			vh := &h.VirtualHosts[j]

@@ -42,7 +42,7 @@ Milestone definitions: `roadmap.md`.
 - [x] K-027 Respawn with exponential backoff; pool health state.
 - [x] K-028 Integration test: PHP echo worker on `roadrunner/worker` (formerly `spiral/roadrunner-worker`;
   `testdata/php/` + composer; pin the package versions in `composer.lock`).
-- [ ] K-029 Unix socket / TCP relays (only if needed before M3).
+- [ ] K-029 Unix socket / TCP relays (only if a deployment needs them; pipes cover kest's workers so far).
 
 ## M2 — PHP HTTP (MVP)
 
@@ -63,32 +63,72 @@ Milestone definitions: `roadmap.md`.
   (`-tags e2e,integration`, run by `make test-integration`).
 - [x] K-046 Framework smoke test (Symfony RoadRunner runtime or Laravel Octane RR worker). Symfony 7.4 on
   `runtime/roadrunner-symfony-nyholm` 1.0.0 (`spiral/roadrunner-http` 3.6), both codecs: `test/e2e/symfony_test.go`.
-- [x] K-047 Docker e2e environment with a PHP version matrix (8.3 / 8.4 / 8.5), runnable locally
-  (`make e2e-matrix`); reused by CI later. `make test-matrix`: `test/docker` image (php:<v>-cli + sockets, Go,
+- [x] K-047 Docker e2e environment with a PHP version matrix (8.3 / 8.4 / 8.5), runnable locally;
+  reused by CI later. `make test-matrix`: `test/docker` image (php:<v>-cli + sockets, Go,
   Composer) runs `make test-integration` on a copy of the tree; green on 8.3.36, 8.4.27, 8.5.12 (linux/arm64).
 - [x] K-048 Getting-started guide in `docs/`. `docs/getting-started.md` (checked by running it verbatim),
   README, AGENTS.md.
 
 ## M3 — Operability
 
-- [ ] K-060 Choose the metrics approach (Q-E) → ADR.
-- [ ] K-061 Metrics: requests, latency, status per listener/route/cluster; pool queue; worker states; restarts; memory.
-- [ ] K-062 Admin: `/config_dump` (with redaction), `/clusters`, `POST /clusters/{name}/reset`, `/metrics`.
-  `/ready` must use `worker.Health() == Unhealthy` only: `Degraded` is normal for a moment whenever a worker is
+- [x] K-060 Choose the metrics approach (Q-E) → ADR. ADR-0007, accepted 2026-10-25: a hand-written core in
+  `internal/metrics` with the Prometheus text format, `expfmt` as a test-only oracle; measured against
+  `client_golang`, VictoriaMetrics/metrics and OpenTelemetry.
+- [x] K-061 Metrics: requests, latency, status per listener/route/cluster; pool queue; worker states; restarts; memory.
+  `internal/metrics` (fuzzed against `expfmt`, 7 ns per counter + histogram update), `kest_http_*` per listener,
+  virtual host, cluster and code, `kest_pool_*` through `worker.Observer` and scrape-time collectors, a subset of
+  `go_*`/`process_*` (RSS on Linux only).
+- [x] K-062 Admin: `/metrics` (split on 2026-10-25: `/clusters` is K-074, `/config_dump` K-075,
+  `POST /clusters/{name}/reset` belongs to K-063). `/ready` must use `worker.Health() == Unhealthy` only: `Degraded` is normal for a moment whenever a worker is
   recycled (max_jobs, ttl).
-- [ ] K-063 Rolling reset without failed requests (admin and SIGHUP).
-- [ ] K-064 Filters: `access_log`, `request_id`, `recovery`.
-- [ ] K-065 Per-route timeouts; max header and body sizes; slow-client protection (server timeouts).
-- [ ] K-066 Benchmarks against RoadRunner; report in `docs/benchmarks.md`.
-- [ ] K-067 Operations guide.
-- [ ] K-069 Request frames copy context + body into one payload (one copy of the body per job). If K-066
-  shows it matters, write the frame in segments instead (`relay.Writer` with several payload parts).
-- [ ] K-068 Drain delay: after SIGTERM, keep serving with `/ready` = 503 for a configurable delay so load
-  balancers deregister the instance before listeners close.
-- [ ] K-070 Bound the memory held by buffered request bodies: `php_workers` reads a body (up to
+  Done: `GET /metrics`; `/ready` answers `503 not serving: <clusters>` through the optional `cluster.Prober`;
+  `docs/metrics.md`.
+- [x] K-063 Rolling reset without failed requests (admin and SIGHUP). `Pool.Reset` with a surge (D4); the e2e
+  test serves ~13 000 requests from 16 clients during an admin reset and a SIGHUP reset of `php-hello` with none
+  failed; a reset to code that doesn't boot stops and leaves the old workers serving.
+- [x] K-064 Filters: `access_log`, `request_id`, `recovery`. In `internal/filters/`, on `httpx.RequestInfo` and
+  `httpx.ResponseWriter`; `examples/php-hello` turns them on, and its e2e test sees the ID in PHP, in the response
+  and in the access log.
+- [x] K-065 Per-route timeouts; max header and body sizes; slow-client protection (server timeouts).
+  `http.read_header_timeout`, `read_timeout`, `write_timeout`, `idle_timeout`, `max_header_bytes` per listener
+  (defaults: the old fixed values); `php_workers` stops reading a body at the route timeout (`408`). Route
+  timeouts and `max_request_body` existed already.
+- [x] K-066 Benchmarks against RoadRunner; report in `docs/benchmarks.md`. `make bench` (`test/bench`: configs,
+  `loadgen`, `run.sh`) against RoadRunner 3.0.1: even with the same codec, 42–54 % ahead on small requests with
+  kest's default `json`, half the memory with 1 MB bodies.
+- [x] K-067 Operations guide. `docs/operations.md`: running under systemd, signals, probes, deploys with rolling
+  resets, sizing, monitoring, logs, troubleshooting.
+- [-] K-069 Request frames copy context + body into one payload (one copy of the body per job). If K-066
+  shows it matters, write the frame in segments instead (`relay.Writer` with several payload parts). Dropped on
+  2026-10-25: with 1 MB bodies K-066 found kest 3–11 % ahead of RoadRunner, at half its memory; reopen if a
+  profile shows the copy.
+- [x] K-068 Drain delay: after SIGTERM, keep serving with `/ready` = 503 for a configurable delay so load
+  balancers deregister the instance before listeners close. `server.drain_delay` (default `0s`); not on a
+  fatal error.
+- [x] K-070 Bound the memory held by buffered request bodies: `php_workers` reads a body (up to
   `max_request_body`) before it queues for a worker, so up to `(workers + max_queue_size) × max_request_body`
   can be in memory (16 GB with the defaults and 1000 waiting uploads). Admit before reading the body, or cap
   the buffered bytes per cluster. (Found in M2; RR reads up to 1000 MB per request the same way.)
+  Done: `max_buffered_bodies` (default 256MB), reserved before the body is read; `503` and
+  `kest_pool_rejected_total{reason="body_budget"}` when full.
+- [x] K-071 Clear error when a worker prints to stdout outside the protocol: show what it printed (the rejected
+  header plus what is left in the pipe, up to 256 bytes; also when the pipe broke because a plain script printed
+  and exited) and, from `php_workers`, a hint: no RoadRunner loop, `display_errors=stderr`, Symfony's
+  `APP_RUNTIME` in `env` or `extra.runtime.class` rather than `.env` (`research/roadrunner.md`, Framework
+  runtimes). Found on 2026-10-25 with a Symfony app in `playground/`.
+- [x] K-072 Development mode: replace workers when PHP files change (RoadRunner's `reload` plugin): watched
+  directories and patterns, debounce, a rolling replacement on top of K-063. Until then code changes need a
+  restart of kest. Added to M3 with the user's OK on 2026-10-25. Done: `php_workers.reload` (`dirs`, `patterns`,
+  `interval`, `max_files`), a scan by name, size and mtime, one reset once a change holds still.
+- [x] K-073 Docs drift checks and the milestone docs review: `test/docs` (`make docs-check`, part of
+  `make test`) checks links, make targets, IDs, the ADR index, the layout, the config reference, tool versions,
+  status dates; `.ai/review.md` and the `docs-reviewer` agent run before every milestone PR and merge. Asked for
+  on 2026-10-25 after `status.md` still said "waiting for review" with M2 merged.
+- [x] K-074 Admin `/clusters`: each cluster's type and health, and its workers (slot, state, pid, jobs, age,
+  memory), from an optional interface that clusters implement. `cluster.Reporter`; the php-hello e2e test checks
+  the pids against the workers that served requests.
+- [x] K-075 Admin `/config_dump`: the effective config as YAML, with the `env` values of clusters redacted.
+  `config.Redactor` and `Config.DumpRedacted`; an undecoded block is hidden whole.
 
 ## M4 — HTTP edge features
 
@@ -136,3 +176,5 @@ Milestone definitions: `roadmap.md`.
 - [ ] K-907 Run workers as another user/group (RR `server.user` / `server.group`).
 - [ ] K-908 Dynamic pool size (RR `pool.dynamic_allocator`).
 - [ ] K-909 One-off command before workers start (RR `server.on_init`).
+- [ ] K-910 Optional route `name`, and a `route` label on the HTTP metrics (M3 plan D2): today two routes to the
+  same cluster on one virtual host can't be told apart in metrics.

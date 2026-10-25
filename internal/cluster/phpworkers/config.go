@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/berrymore/kest/internal/config"
 	"github.com/berrymore/kest/internal/relay"
@@ -23,6 +25,9 @@ const (
 // DefaultMaxRequestBody bounds request bodies. RoadRunner allows 1000 MB.
 const DefaultMaxRequestBody = 16 << 20
 
+// DefaultMaxBufferedBodies bounds the request bodies a cluster holds at once.
+const DefaultMaxBufferedBodies = 256 << 20
+
 // Config is the config block of a php_workers cluster.
 type Config struct {
 	// Command runs one worker: the executable and its arguments.
@@ -38,6 +43,9 @@ type Config struct {
 	Codec string `yaml:"codec"`
 	// MaxRequestBody bounds request bodies; larger ones get 413.
 	MaxRequestBody config.ByteSize `yaml:"max_request_body"`
+	// MaxBufferedBodies bounds the bytes of request bodies that the cluster
+	// holds at once; a request that doesn't fit gets 503.
+	MaxBufferedBodies config.ByteSize `yaml:"max_buffered_bodies"`
 	// MaxResponseSize bounds a worker's response (headers and body); a
 	// worker that sends more is replaced and the request gets 502.
 	MaxResponseSize config.ByteSize `yaml:"max_response_size"`
@@ -47,6 +55,20 @@ type Config struct {
 	Uploads    Uploads    `yaml:"uploads"`
 	Pool       Pool       `yaml:"pool"`
 	Supervisor Supervisor `yaml:"supervisor"`
+	Reload     Reload     `yaml:"reload"`
+}
+
+// Reload replaces the workers when files change, for development (K-072).
+type Reload struct {
+	// Dirs are watched recursively, relative to the config file; none means
+	// off. Directories whose names start with a dot are skipped.
+	Dirs []string `yaml:"dirs,omitempty"`
+	// Patterns match the names of the files to watch (path.Match).
+	Patterns []string `yaml:"patterns"`
+	// Interval is how often the directories are scanned.
+	Interval config.Duration `yaml:"interval"`
+	// MaxFiles bounds a scan; past it, watching stops with an error.
+	MaxFiles int `yaml:"max_files"`
 }
 
 // Uploads controls the temp files of uploaded files.
@@ -85,10 +107,11 @@ type Supervisor struct {
 func DefaultConfig() Config {
 	w := worker.DefaultConfig()
 	return Config{
-		InheritEnv:      true,
-		Codec:           CodecJSON,
-		MaxRequestBody:  DefaultMaxRequestBody,
-		MaxResponseSize: config.ByteSize(w.MaxFrameSize),
+		InheritEnv:        true,
+		Codec:             CodecJSON,
+		MaxRequestBody:    DefaultMaxRequestBody,
+		MaxBufferedBodies: DefaultMaxBufferedBodies,
+		MaxResponseSize:   config.ByteSize(w.MaxFrameSize),
 		Pool: Pool{
 			Workers:         w.Workers,
 			MaxJobs:         w.MaxJobs,
@@ -97,6 +120,7 @@ func DefaultConfig() Config {
 			StartTimeout:    config.Duration(w.StartTimeout),
 			DestroyTimeout:  config.Duration(w.DestroyTimeout),
 		},
+		Reload: Reload{Patterns: []string{"*.php"}, Interval: config.Duration(time.Second), MaxFiles: 20000},
 		Supervisor: Supervisor{
 			TTL:             config.Duration(w.TTL),
 			IdleTTL:         config.Duration(w.IdleTTL),
@@ -121,6 +145,18 @@ var yamlFields = map[string]string{
 	"ExecTTL":         "supervisor.exec_ttl",
 	"MaxWorkerMemory": "supervisor.max_worker_memory",
 	"WatchTick":       "supervisor.watch_tick",
+}
+
+// Redacted implements config.Redactor: values in env may be secrets.
+func (c *Config) Redacted() any {
+	out := *c
+	if len(c.Env) > 0 {
+		out.Env = make(map[string]string, len(c.Env))
+		for k := range c.Env {
+			out.Env[k] = config.Redacted
+		}
+	}
+	return &out
 }
 
 // Validate reports every invalid field as a *config.FieldError.
@@ -148,6 +184,23 @@ func (c *Config) Validate() error {
 	}
 	if c.MaxRequestBody < 1 {
 		add("max_request_body", "must be positive, got %s", c.MaxRequestBody)
+	}
+	for i, p := range c.Reload.Patterns {
+		if _, err := path.Match(p, ""); err != nil || p == "" {
+			add(fmt.Sprintf("reload.patterns[%d]", i), "invalid pattern %q", p)
+		}
+	}
+	if len(c.Reload.Dirs) > 0 && len(c.Reload.Patterns) == 0 {
+		add("reload.patterns", "must not be empty when reload.dirs is set")
+	}
+	if c.Reload.Interval.Std() < 10*time.Millisecond {
+		add("reload.interval", "must be at least 10ms, got %s", c.Reload.Interval)
+	}
+	if c.Reload.MaxFiles < 1 {
+		add("reload.max_files", "must be positive, got %d", c.Reload.MaxFiles)
+	}
+	if c.MaxBufferedBodies < c.MaxRequestBody {
+		add("max_buffered_bodies", "must be at least max_request_body (%s), got %s", c.MaxRequestBody, c.MaxBufferedBodies)
 	}
 	for field, list := range map[string][]string{"uploads.forbid": c.Uploads.Forbid, "uploads.allow": c.Uploads.Allow} {
 		for i, ext := range list {
@@ -250,15 +303,15 @@ func (c *Config) environment(environ []string) []string {
 	return append(env, "RR_MODE=http")
 }
 
-// resolve makes a relative path relative to dir.
-func resolve(dir, path string) string {
+// resolve makes a relative name relative to dir.
+func resolve(dir, name string) string {
 	switch {
-	case path == "":
+	case name == "":
 		return dir
-	case filepath.IsAbs(path) || dir == "":
-		return path
+	case filepath.IsAbs(name) || dir == "":
+		return name
 	default:
-		return filepath.Join(dir, path)
+		return filepath.Join(dir, name)
 	}
 }
 

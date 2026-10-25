@@ -1,0 +1,16 @@
+# RoadRunner's side of the benchmark (docs/benchmarks.md), the same as
+# test/bench/kest.yaml. Run it in examples/php-hello:
+#   rr serve -c test/bench/rr.yaml -w examples/php-hello
+version: "3"
+
+server:
+  command: "php worker.php"
+  relay: pipes
+
+http:
+  address: 127.0.0.1:${BENCH_PORT:-18081}
+  pool:
+    num_workers: ${BENCH_WORKERS:-4}
+
+logs:
+  level: error

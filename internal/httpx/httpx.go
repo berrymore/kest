@@ -20,8 +20,8 @@ var Filters = registry.NewCategory[Filter]("http filter")
 type ClusterLookup func(name string) (http.Handler, bool)
 
 // NewHandler builds the handler for a listener's http block: the configured
-// filters in order, then the router. Configuration problems are returned as
-// config.Errors.
+// filters in order, then the router. bc.Name is the listener's name, which
+// labels its metrics. Configuration problems are returned as config.Errors.
 func NewHandler(cfg *config.HTTP, clusters ClusterLookup, bc registry.BuildContext) (http.Handler, error) {
 	var errs config.Errors
 	filters := make([]Filter, 0, len(cfg.Filters))
@@ -36,7 +36,8 @@ func NewHandler(cfg *config.HTTP, clusters ClusterLookup, bc registry.BuildConte
 	if err := errs.Err(); err != nil {
 		return nil, err
 	}
-	return Chain(NewRouter(cfg.VirtualHosts, clusters), filters...), nil
+	m := newListenerMetrics(bc.MetricsRegistry(), bc.Name)
+	return m.entry(Chain(newRouter(cfg.VirtualHosts, clusters, m), filters...)), nil
 }
 
 // Chain wraps h with filters so that filters[0] sees the request first.

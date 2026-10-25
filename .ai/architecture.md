@@ -2,10 +2,12 @@
 
 > A living document. It describes the **target** design and marks what is implemented.
 > Legend: 🟢 implemented · 🟡 in progress · ⚪ planned.
-> **Last reviewed: 2026-10-25 (M2 done).** Implemented: config loading and validation, extension
-> registry, server lifecycle, HTTP listeners, router with `direct_response`, admin `/ready` and
-> `/server_info`; the goridge relay and the worker pool (`internal/relay`, `internal/worker`); the RoadRunner
-> HTTP payload (`internal/rrhttp`) and the `php_workers` cluster type. No HTTP filters exist yet.
+> **Last reviewed: 2026-10-25 (M3 done).** Implemented: config loading and validation, extension
+> registry, server lifecycle, HTTP listeners with configurable limits, router with `direct_response`; the
+> goridge relay and the worker pool with rolling resets (`internal/relay`, `internal/worker`); the RoadRunner
+> HTTP payload (`internal/rrhttp`) and the `php_workers` cluster type (body budget, `reload`); the filters
+> `request_id`, `access_log`, `recovery`; metrics (`internal/metrics`); admin `/ready`, `/server_info`,
+> `/config_dump`, `/clusters`, `POST /clusters/{name}/reset`, `/metrics`.
 
 ## 1. Big picture 🟡
 
@@ -49,7 +51,8 @@ kest is a single Go binary. At startup it reads one YAML file and builds a graph
 5. The `php_workers` cluster encodes the request into a **payload** (`rrhttp.NewRequest`): `context` =
    request head (method, absolute URI, headers, cookies, remote IP, …) as JSON or protobuf (`codec`);
    `body` = the raw body or, for forms, a JSON tree of fields in PHP's bracket syntax; bounded by
-   `max_request_body`.
+   `max_request_body`. Before reading it, the request reserves its size in the cluster's `max_buffered_bodies`
+   budget (`503` when full), and the read gets a deadline from the route timeout (`408` for a slow sender).
 6. The **pool** takes a free worker, waiting at most `allocate_timeout` in a bounded queue, and sends
    the payload over the relay.
 7. The PHP worker (`$worker->waitRequest()` … `$worker->respond()`) answers; kest decodes status,
@@ -60,8 +63,7 @@ kest is a single Go binary. At startup it reads one YAML file and builds a graph
 
 ## 3. Configuration model 🟢
 
-Decided in ADR-0002. Full example; fields marked in `docs/config.md` as existing are
-implemented, the rest (filters, `php_workers`) are planned:
+Decided in ADR-0002. Full example; every field in it exists (`docs/config.md` has them all):
 
 ```yaml
 version: v1
@@ -80,8 +82,6 @@ listeners:
       filters:               # run in order; the router is implicit and always last
         - type: request_id
         - type: access_log
-          config:
-            format: json
       virtual_hosts:
         - name: app
           domains: ["example.com", "*.example.com"]
@@ -135,8 +135,9 @@ Rules:
   `config.Errors`, each `file:line:col: path: message`, all reported at once. Extension `config` blocks
   stay as raw nodes (`config.Extension`) and are decoded by `registry.Build` against the same index, so
   their errors are located too.
-- The effective config (defaults applied, secrets redacted) is available through
-  `kest validate --dump` and admin `/config_dump`.
+- The effective config (defaults applied) is available through `kest validate -dump`, which is local and shows
+  everything, and admin `/config_dump`, which redacts what extension configs mark through `config.Redactor`
+  (php_workers: `env` values).
 
 ## 4. Core abstractions
 
@@ -158,13 +159,17 @@ type Factory[T any] struct {
 type BuildContext struct {
 	Name      string // component name (clusters)
 	Logger    *slog.Logger
-	ConfigDir string // absolute directory of the config file: relative paths resolve against it
+	ConfigDir string            // absolute directory of the config file: relative paths resolve against it
+	Metrics   *metrics.Registry // the server's; MetricsRegistry() returns a throwaway one when nil (tests)
 }
 func Build[T any](c *Category[T], ext *config.Extension, bc BuildContext) (T, error)
 
 // internal/httpx: filters are plain middleware for now (open question Q-A).
 type Filter func(next http.Handler) http.Handler
 var Filters = registry.NewCategory[Filter]("http filter")
+// Every request carries an *httpx.RequestInfo (RequestID, VirtualHost, Cluster), set by the listener entry,
+// the router and request_id; filters read it after the inner handler returns (access_log), whatever their
+// order. httpx.ResponseWriter records the status and body size. Built in: request_id, access_log, recovery.
 
 // internal/cluster: the name lives in config/BuildContext, not on the interface.
 type Cluster interface {
@@ -173,6 +178,9 @@ type Cluster interface {
 	Stop(ctx context.Context) error
 }
 var Types = registry.NewCategory[Cluster]("cluster")
+// Optional: Prober { Serving() bool }; /ready fails while a cluster can't serve (php_workers: no live worker).
+// Optional: Reporter { Report() any }; its JSON is the cluster's status in /clusters.
+// Optional: Resetter { Reset(ctx) error }; POST /clusters/{name}/reset and SIGHUP (ErrResetRunning).
 ```
 
 Worker pool and relay 🟢 (M1; used by the `php_workers` cluster from M2):
@@ -191,8 +199,12 @@ func (p *Pool) Stop(ctx context.Context) error    // jobs finish, stop frames, k
 func (p *Pool) Exec(ctx context.Context, req Payload) (Payload, error)
 func (p *Pool) Workers() []Info                   // per slot: state, pid, jobs, started, memory
 func (p *Pool) Health() Health                    // healthy / degraded / unhealthy
+func (p *Pool) Waiting() int                      // callers waiting for a free worker
+func (p *Pool) Reset(ctx context.Context) error   // rolling replacement, one slot at a time; ErrResetRunning
+// Config.Observer (optional) hears Waited(d), Rejected(reason) and Replaced(reason); reasons are metric labels.
 // Errors: ErrQueueFull, ErrNoWorker, ErrStopped, ErrStopRequested, *JobError (soft, worker kept),
-// *ProcessError (worker gone; wraps ErrExecTimeout or ErrStartTimeout on timeouts).
+// *ProcessError (worker gone; wraps ErrExecTimeout or ErrStartTimeout on timeouts, *StdoutError
+// with the start of the output when the worker printed to stdout outside the protocol).
 
 // internal/relay: goridge framing, verified against goridge v4 and roadrunner/goridge.
 type Frame struct {
@@ -207,11 +219,14 @@ func NewConn(r io.Reader, w io.Writer, maxPayload int) *Conn // Send / Receive; 
 Layering (dependencies point down only):
 
 ```
-cmd/kest ─▶ server ─▶ config, registry
-                  ─▶ listener ─▶ httpx (filters, router)
+cmd/kest ─▶ server ─▶ config, registry ─▶ metrics
+                  ─▶ listener
+                  ─▶ httpx (filter chain, router, RequestInfo) ◀─ filters/*
                   ─▶ cluster/* ─▶ rrhttp ─▶ worker ─▶ relay
-                  ─▶ admin
+                  ─▶ admin ─▶ metrics, cluster
 ```
+
+`metrics` is a leaf that every component can use through `registry.BuildContext`.
 
 `worker` and `relay` know nothing about HTTP; `rrhttp` maps HTTP requests and responses to payloads, and
 `cluster/phpworkers` glues it to a pool.
@@ -252,6 +267,7 @@ Stopped ──▶ Starting ──▶ Ready ⇄ Working ──▶ Stopping ──
 | Working | crash, protocol error, `exec_ttl` exceeded | killed, then Backoff or Starting |
 | Stopping | process exited after the stop frame, or SIGKILL after `destroy_timeout` | Starting (or done if the pool stops) |
 | Backoff | 100 ms … 30 s elapsed (exponential, jitter) | Starting |
+| Ready | `Pool.Reset` hands over a booted process | Ready with the new process; the old one stops in the background |
 
 - A worker is never recycled mid-request, except on `exec_ttl` or a crash: that request fails.
 - A caller that gives up (client gone, route timeout) doesn't kill the worker: the job finishes within
@@ -265,7 +281,7 @@ Stopped ──▶ Starting ──▶ Ready ⇄ Working ──▶ Stopping ──
   environment unless `inherit_env: false`, then `env`, then `RR_MODE=http`), own process group (SIGKILL hits the
   group), `Pdeathsig` on Linux, stderr logged line by line with `worker_pid`.
 
-## 6. Startup, shutdown, reload 🟢 (reload ⚪)
+## 6. Startup, shutdown, reload 🟢 (config reload ⚪)
 
 **Startup** (`config.Load` → `server.New` → `Server.Run`)
 
@@ -280,7 +296,7 @@ Stopped ──▶ Starting ──▶ Ready ⇄ Working ──▶ Stopping ──
 
 **Shutdown** (SIGINT / SIGTERM, or a fatal error from a running component)
 
-1. `/ready` → `503 draining`.
+1. `/ready` → `503 draining`; on a signal, the listeners keep serving for `server.drain_delay` (default 0s).
 2. Listeners stop accepting and drain in-flight requests in parallel, within `drain_timeout`; then the
    remaining connections are closed (logged as a warning, not an error).
 3. Clusters stop, within the same budget again (M1: stop frame, then SIGKILL after `destroy_timeout`).
@@ -290,7 +306,13 @@ Stopped ──▶ Starting ──▶ Ready ⇄ Working ──▶ Stopping ──
 
 **Reload**
 
-- M3: worker reset (rolling restart) via admin `POST /clusters/{name}/reset` or SIGHUP; config unchanged.
+- M3 🟢: `php_workers.reload` (development) owns a watcher goroutine: `Start` scans its baseline after the pool has
+  started, `Stop` stops it before the pool; a change that holds still for one scan triggers the reset below.
+- M3 🟢: worker reset (rolling restart) via admin `POST /clusters/{name}/reset` (`cluster.Resetter`) or SIGHUP
+  (`Server.ResetOn`; resets run until shutdown begins); config unchanged. `worker.Pool.Reset` boots each
+  replacement while the old worker serves, hands it to the slot between jobs (`slot.swap`), and stops the old one in
+  the background: capacity stays, at most `workers + 1` processes. A replacement that doesn't boot stops the reset;
+  a slot whose process started after the reset began (a newer generation) drops the offered one.
 - M6: full config reload: diff the old and new graphs and restart only the components that changed.
 
 ## 7. Package layout
@@ -301,41 +323,50 @@ internal/buildinfo/          🟢 version information (ldflags or embedded VCS d
 internal/config/             🟢 load, env expansion, strict decode, defaults, validation, dump
 internal/registry/           🟢 extension categories and factories
 internal/server/             🟢 build graph from config; start/stop order; drain
-internal/listener/           🟢 HTTP listeners (bind in Start, drain in Stop)
+internal/listener/           🟢 HTTP listeners (bind in Start, drain in Stop; listener.Limits from the http block)
 internal/httpx/              🟢 filter chain, router, route actions
 internal/admin/              🟢 admin HTTP API
 internal/logging/            🟢 slog setup
 internal/cluster/            🟢 Cluster interface and registry category
 internal/leaktest/           🟢 goroutine-leak check for test binaries (goleak)
-internal/filters/<name>/     ⚪ built-in HTTP filters, one package each
+internal/filters/            🟢 built-in HTTP filters, one package each: requestid/, accesslog/, recovery/
 internal/cluster/phpworkers/ 🟢 php_workers: config, worker environment, pool lifecycle, HTTP handler
 internal/rrhttp/             🟢 HTTP ↔ RoadRunner HTTP payload (request context JSON/protobuf, form trees, responses)
 internal/worker/             🟢 process, pool, supervisor (language-agnostic); workertest/ has fake workers
 internal/relay/              🟢 goridge-compatible frame codec and Conn (pipes; sockets later, K-029)
-internal/metrics/            ⚪ (M3) metrics
+internal/metrics/            🟢 metrics core and text exposition (ADR-0007), Go and process metrics; metricstest/ for tests
 internal/wasm/               ⚪ (M5) wazero runtime, module cache, instance pools
 examples/                    🟢 runnable configs (PHP apps from M2)
-docs/                        🟢 user documentation (config reference)
+docs/                        🟢 user documentation: getting started, config reference, metrics, operations, benchmarks
 test/e2e/                    🟢 end-to-end tests: build the binary with -race, run it against configs
+test/docker/                 🟢 the image of the PHP version matrix (make test-matrix)
+test/docs/                   🟢 docs drift checks against the code and the Makefile (make docs-check)
+test/bench/                  🟢 benchmark against RoadRunner: configs, loadgen, run.sh (make bench)
 ```
 
 ## 8. Observability and admin 🟡
 
 - **Logs:** `log/slog`, text or JSON, level set in config. Worker stderr goes to logs line by line, tagged
   with `cluster` and `worker_pid` (🟢).
-- **Metrics (M3):** requests (count, latency, status) per listener, route and cluster; pool queue length
-  and wait time; workers by state; restarts by reason; worker memory. Library to be chosen (Q-E).
-- **Tracing:** OpenTelemetry later; the `request_id` filter arrives in M3.
+- **Metrics (M3):** requests (count, latency, status) per listener, virtual host and cluster (routes have no
+  names); pool queue length
+  and wait time; workers by state; restarts by reason; worker memory. A hand-written core in
+  `internal/metrics` with lock-free updates and series resolved when the graph is built; `GET /metrics` serves
+  the Prometheus text format 0.0.4 (ADR-0007). `server.New` creates the registry (with Go and process metrics)
+  and hands it to components in `BuildContext`. `httpx` wraps each route (labels: listener, virtual host,
+  cluster, status code from a per-target array) and counts in-flight requests per listener; `php_workers`
+  observes its pool (`worker.Observer`) and reads states, queue and memory at scrape time.
+- **Tracing:** OpenTelemetry later; the `request_id` filter exists (M3).
 - **Admin API**, modeled on Envoy's admin interface:
 
 | Endpoint | Purpose | Milestone |
 |---|---|---|
-| `GET /ready` | 200 when serving, 503 while starting or draining | 🟢 M0 |
+| `GET /ready` | 200 when serving; 503 while starting, draining, or a cluster can't serve (`cluster.Prober`) | 🟢 M0, M3 |
 | `GET /server_info` | version, uptime, config path | 🟢 M0 |
-| `GET /config_dump` | effective config, defaults applied, secrets redacted | M3 |
-| `GET /clusters` | clusters, pools, workers (pid, state, jobs, memory, age) | M3 |
-| `POST /clusters/{name}/reset` | rolling restart of a pool | M3 |
-| `GET /metrics` | Prometheus exposition | M3 |
+| `GET /config_dump` | effective config, defaults applied; extension configs that implement `config.Redactor` (php_workers: `env` values) redacted | 🟢 M3 |
+| `GET /clusters` | clusters, pools, workers (pid, state, jobs, memory, age), from `cluster.Reporter` | 🟢 M3 |
+| `POST /clusters/{name}/reset` | rolling restart of a pool; returns when done | 🟢 M3 |
+| `GET /metrics` | Prometheus text format (`docs/metrics.md`) | 🟢 M3 |
 
 ## 9. WASM sandbox (M5) ⚪
 
@@ -355,9 +386,9 @@ at the start of M5.
 | ID | Question | Current leaning |
 |---|---|---|
 | Q-A | HTTP filter model: `func(http.Handler) http.Handler`, or Envoy-like decode/encode phases with per-filter state? | Middleware first; revisit when WASM filters arrive |
-| Q-B | Request body: buffer it whole (RR-style, bounded by `max_request_body`) or stream it to the worker? | Buffered (M2). The RR protocol sends the body in the request frame, so streaming it would need a protocol extension |
+| Q-B | Request body: buffer it whole (RR-style, bounded by `max_request_body` and per cluster by `max_buffered_bodies`) or stream it to the worker? | Buffered (M2). The RR protocol sends the body in the request frame, so streaming it would need a protocol extension |
 | Q-C | Streaming responses from PHP (SSE, large downloads) | Protocol known (K-040: `STREAM` frames, opt-in on the PHP side); implement after M2 |
 | Q-D | Cluster interface: `http.Handler`, or a kest request/response type shared by php, wasm and proxy? | `http.Handler` until a second cluster type exists |
-| Q-E | Metrics: `prometheus/client_golang`, OpenTelemetry metrics, or a minimal custom exposition? | Decide at the start of M3 |
+| Q-E | Metrics: `prometheus/client_golang`, OpenTelemetry metrics, or a minimal custom exposition? | ✅ ADR-0007 (2026-10-25): a hand-written core with the Prometheus text format |
 | Q-F | Per-route priority and queueing inside one pool, on top of pool isolation | After M3 |
 | Q-G | PHP → kest RPC (RoadRunner's `rpc` plugin equivalent): needed for which PHP libraries? | Not for HTTP: `roadrunner/http` and `roadrunner/worker` don't use it (K-040); libraries for RR's KV, jobs, metrics, lock plugins do |

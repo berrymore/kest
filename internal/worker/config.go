@@ -28,6 +28,8 @@ type Config struct {
 	ExecTTL         time.Duration // a job's maximum duration; the worker is killed after it; 0 = unlimited
 	MaxWorkerMemory int64         // RSS in bytes over which a worker is replaced; 0 = unlimited
 	WatchTick       time.Duration // how often worker memory is sampled
+
+	Observer Observer // told about waits, rejections and replacements, for metrics; nil = nobody
 }
 
 // Limits on Config values.

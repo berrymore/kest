@@ -68,6 +68,11 @@ func TestParseValid(t *testing.T) {
 	if l.Address != "127.0.0.1:8080" {
 		t.Errorf("listener address = %q", l.Address)
 	}
+	if h := l.HTTP; h.ReadHeaderTimeout.Std() != DefaultReadHeaderTimeout || h.ReadTimeout.Std() != 0 ||
+		h.WriteTimeout.Std() != 0 || h.IdleTimeout.Std() != DefaultIdleTimeout || h.MaxHeaderBytes != DefaultMaxHeaderBytes {
+		t.Errorf("server limits = %v %v %v %v %v, want the defaults", h.ReadHeaderTimeout, h.ReadTimeout, h.WriteTimeout,
+			h.IdleTimeout, h.MaxHeaderBytes)
+	}
 	vh := l.HTTP.VirtualHosts[0]
 	if want := []string{"example.com", "*.example.com", "*"}; strings.Join(vh.Domains, ",") != strings.Join(want, ",") {
 		t.Errorf("domains = %q, want normalized %q", vh.Domains, want)
@@ -234,6 +239,22 @@ listeners:
 				"kest.yaml:5:5: listeners[1].http: required",
 				"kest.yaml:6:5: listeners[2].http: required",
 				"kest.yaml:6:24: listeners[2].address: address 127.0.0.1:8080 is already used by listeners[1].address",
+			},
+		},
+		{
+			name: "server limits",
+			src: `version: v1
+listeners:
+  - name: main
+    address: 127.0.0.1:0
+    http:
+      read_timeout: -1s
+      max_header_bytes: 512
+      virtual_hosts: [{name: d, domains: ["*"], routes: [{match: {prefix: /}, direct_response: {}}]}]
+`,
+			want: []string{
+				"kest.yaml:6:21: listeners[0].http.read_timeout: must not be negative",
+				"kest.yaml:7:25: listeners[0].http.max_header_bytes: must be between 1KB and 64MB, got 512B",
 			},
 		},
 		{
@@ -424,4 +445,32 @@ func containsInOrder(text string, parts []string) bool {
 		text = text[i+len(p):]
 	}
 	return true
+}
+
+type secretConfig struct {
+	Password string `yaml:"password"`
+}
+
+func (c *secretConfig) Redacted() any { return &secretConfig{Password: Redacted} }
+
+func TestDumpRedacted(t *testing.T) {
+	cfg, err := parse(t, validConfig, map[string]string{"PORT": "8080", "STATUS": "200"})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	// Not decoded: the block's content is unknown, so it is hidden.
+	out, err := cfg.DumpRedacted()
+	if err != nil || strings.Contains(string(out), "workers: 4") || !strings.Contains(string(out), "config: '[redacted]'") {
+		t.Errorf("DumpRedacted before decoding (%v):\n%s", err, out)
+	}
+
+	cfg.Clusters[0].SetDecoded(&secretConfig{Password: "hunter2"})
+	out, err = cfg.DumpRedacted()
+	if err != nil || strings.Contains(string(out), "hunter2") || !strings.Contains(string(out), "password: '[redacted]'") {
+		t.Errorf("DumpRedacted (%v):\n%s", err, out)
+	}
+	// The config itself is unchanged.
+	if plain, _ := cfg.Dump(); !strings.Contains(string(plain), "password: hunter2") {
+		t.Errorf("Dump after DumpRedacted:\n%s", plain)
+	}
 }

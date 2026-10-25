@@ -8,7 +8,7 @@ Work items live in `backlog.md` (IDs in brackets). Reprioritization is the user'
 | M0 | Foundation | ✅ done 2026-10-24 |
 | M1 | Worker pool and relay | ✅ done 2026-10-25 |
 | M2 | PHP HTTP — **MVP** | ✅ done 2026-10-25 |
-| M3 | Operability | ⚪ next |
+| M3 | Operability | ✅ done 2026-10-25 |
 | M4 | HTTP edge features | ⚪ |
 | M5 | WASM sandbox | ⚪ |
 | M6 | Dynamic configuration | ⚪ |
@@ -58,7 +58,7 @@ Out of scope: HTTP mapping.
 
 **Goal:** real PHP applications run behind kest.
 
-Scope [K-040…K-049]:
+Scope [K-040…K-048]:
 - Verified notes on the RR HTTP payload format (request context, uploads, cookies, attributes, response).
 - `php_workers` cluster type; HTTP request → payload, payload → HTTP response.
 - `max_request_body`, multipart uploads, multi-value headers, remote address, TLS info.
@@ -77,12 +77,14 @@ Out of scope: streaming responses, metrics (M3).
 
 **Goal:** you can run it in production and know what it is doing.
 
-Scope [K-060…K-070]:
+Scope [K-060…K-075]:
 - Metrics (Q-E), admin `/config_dump`, `/clusters`, `/clusters/{name}/reset`, `/metrics`.
 - Rolling worker reset (admin and SIGHUP) without failed requests.
 - Filters: `access_log`, `request_id`, `recovery`; per-route timeouts; header and body limits.
 - Benchmarks against RoadRunner (same worker, same machine), published in `docs/`.
 - Operations guide.
+- Worker errors that say what went wrong; replacing workers on code changes in development.
+- Docs drift checks and a docs review before every milestone merge.
 
 Exit criteria:
 - Rolling reset under load completes with zero failed requests.

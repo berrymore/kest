@@ -1,7 +1,8 @@
 # Plan: M2 — PHP HTTP (MVP)
 
-- **Status:** Done (2026-10-25), in review. The user delegated M2 end to end ("research, plan, code, commit to the
-  branch, open the PR"), so the decisions below were taken by the agent; the user reviews them in the PR.
+- **Status:** Done (2026-10-25), merged (PR #1). The user delegated M2 end to end ("research, plan, code, commit to
+  the branch, open the PR"), so the decisions below were taken by the agent; the user accepted them by merging the
+  PR.
 - **Milestone:** M2
 - **Backlog:** K-040…K-048
 
@@ -155,7 +156,7 @@ open the PR without asking (2026-10-25).
   150 000 requests, 0 failed, 25–31k req/s on the development laptop, workers recycled by `max_jobs` under load,
   kest's RSS flat at ~24 MB and its file descriptors at 24 across three runs.
 - All PHP tests pass on PHP 8.3.36, 8.4.27 and 8.5.12 on Linux (`make test-matrix`) and on 8.5.12 on macOS.
-- Deviations from the plan: the backlog said `make e2e-matrix`, it is `make test-matrix`; the commit order was
+- Deviations from the plan: the backlog named the target `e2e-matrix`, it is `make test-matrix`; the commit order was
   K-042, K-044, K-041, K-045, K-043, K-046, K-047, K-048 (the cluster needs the codec first). The Symfony app lives
   in `test/e2e/testdata/symfony`, not in `examples/`.
 - Found on the way: e2e binaries (built with `-race`) slept 1 s on every exit (`GORACE=atexit_sleep_ms=0` now);

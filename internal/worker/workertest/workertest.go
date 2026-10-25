@@ -343,6 +343,11 @@ func (p *Process) Stderr() string {
 	return strings.TrimSpace(p.stderr.String())
 }
 
+// UnreadStdout returns nothing: net.Pipe doesn't buffer, so whatever the fake
+// was still writing when it was killed is gone. Real processes keep it in the
+// pipe (RunProcess).
+func (p *Process) UnreadStdout(int) []byte { return nil }
+
 // Close releases kest's side of the connection.
 func (p *Process) Close() { _ = p.server.Close() }
 

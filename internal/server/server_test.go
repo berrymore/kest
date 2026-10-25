@@ -6,15 +6,19 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
+	"github.com/berrymore/kest/internal/admin"
 	"github.com/berrymore/kest/internal/cluster"
 	"github.com/berrymore/kest/internal/config"
 	"github.com/berrymore/kest/internal/leaktest"
 	"github.com/berrymore/kest/internal/logging"
+	"github.com/berrymore/kest/internal/metrics/metricstest"
 	"github.com/berrymore/kest/internal/registry"
 	"github.com/berrymore/kest/internal/server"
 )
@@ -26,6 +30,8 @@ type gateCluster struct {
 	entered  chan struct{}
 	started  atomic.Bool
 	stopped  atomic.Bool
+	down     atomic.Bool  // Serving reports false
+	resets   atomic.Int32 // Reset calls
 	startErr error
 }
 
@@ -62,6 +68,13 @@ func (g *gateCluster) Stop(context.Context) error {
 	return nil
 }
 
+func (g *gateCluster) Serving() bool { return !g.down.Load() }
+
+func (g *gateCluster) Reset(context.Context) error {
+	g.resets.Add(1)
+	return nil
+}
+
 func (g *gateCluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	g.entered <- struct{}{}
 	select {
@@ -72,9 +85,8 @@ func (g *gateCluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func newServer(t *testing.T, extra string) *server.Server {
-	t.Helper()
-	src := `version: v1
+// serverConfig is the config of newServer, before its extra part.
+const serverConfig = `version: v1
 admin: {address: "127.0.0.1:0"}
 server: {drain_timeout: 2s}
 listeners:
@@ -94,7 +106,11 @@ listeners:
 clusters:
   - name: gate
     type: test_gate
-` + extra
+`
+
+func newServer(t *testing.T, extra string) *server.Server {
+	t.Helper()
+	src := serverConfig + extra
 	cfg, err := config.Parse([]byte(src), "kest.yaml", func(string) (string, bool) { return "", false })
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
@@ -288,5 +304,117 @@ func waitFor(t *testing.T, cond func() bool) {
 			t.Fatal("condition not met within 5s")
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// The listeners and the runtime report to the server's registry.
+func TestMetrics(t *testing.T) {
+	s := newServer(t, "")
+	cancel, done := run(t, s)
+	defer func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Errorf("Run: %v", err)
+		}
+	}()
+	if code, _ := get(t, "http://"+s.ListenerAddr("main").String()+"/ping"); code != http.StatusOK {
+		t.Fatalf("GET /ping: %d", code)
+	}
+	if got := metricstest.Value(t, s.Metrics(), "kest_http_requests_total",
+		"listener", "main", "virtual_host", "default", "cluster", "", "code", "200"); got != 1 {
+		t.Errorf("requests = %v, want 1", got)
+	}
+	if got := metricstest.Value(t, s.Metrics(), "go_goroutines"); got <= 0 {
+		t.Errorf("go_goroutines = %v", got)
+	}
+}
+
+// /ready fails while a cluster can't serve, and recovers with it.
+func TestReadyFollowsClusters(t *testing.T) {
+	s := newServer(t, "")
+	cancel, done := run(t, s)
+	defer func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Errorf("Run: %v", err)
+		}
+	}()
+	ready := "http://" + s.AdminAddr().String() + "/ready"
+	if code, body := get(t, ready); code != http.StatusOK {
+		t.Fatalf("/ready = %d %q", code, body)
+	}
+	gates["gate"].down.Store(true)
+	if code, body := get(t, ready); code != http.StatusServiceUnavailable || body != "not serving: gate\n" {
+		t.Errorf("/ready with the cluster down = %d %q", code, body)
+	}
+	gates["gate"].down.Store(false)
+	if code, _ := get(t, ready); code != http.StatusOK {
+		t.Errorf("/ready after the cluster recovered = %d", code)
+	}
+}
+
+func TestClusters(t *testing.T) {
+	s := newServer(t, "")
+	got := s.Clusters()
+	if len(got) != 1 || got[0].Name != "gate" || got[0].Type != "test_gate" || got[0].Serving == nil ||
+		!*got[0].Serving || got[0].Status != nil {
+		t.Errorf("Clusters() = %+v", got)
+	}
+}
+
+func TestResetCluster(t *testing.T) {
+	s := newServer(t, "")
+	if err := s.ResetCluster(t.Context(), "gate"); !errors.Is(err, admin.ErrNotReady) {
+		t.Errorf("ResetCluster before Run = %v, want %v", err, admin.ErrNotReady)
+	}
+	hup := make(chan os.Signal, 1)
+	s.ResetOn(hup)
+	cancel, done := run(t, s)
+	defer func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Errorf("Run: %v", err)
+		}
+	}()
+	if err := s.ResetCluster(t.Context(), "nope"); !errors.Is(err, admin.ErrUnknownCluster) {
+		t.Errorf("ResetCluster(nope) = %v, want %v", err, admin.ErrUnknownCluster)
+	}
+	if err := s.ResetCluster(t.Context(), "gate"); err != nil || gates["gate"].resets.Load() != 1 {
+		t.Errorf("ResetCluster(gate) = %v, %d resets", err, gates["gate"].resets.Load())
+	}
+	hup <- syscall.SIGHUP
+	waitFor(t, func() bool { return gates["gate"].resets.Load() == 2 })
+}
+
+// During drain_delay, /ready fails while the listeners still serve new
+// requests; then the server drains and stops.
+func TestDrainDelay(t *testing.T) {
+	src := strings.Replace(serverConfig, "server: {drain_timeout: 2s}", "server: {drain_timeout: 2s, drain_delay: 1s}", 1)
+	cfg, err := config.Parse([]byte(src), "kest.yaml", func(string) (string, bool) { return "", false })
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := server.New(cfg, logging.Discard())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancel, done := run(t, s)
+	listener := "http://" + s.ListenerAddr("main").String()
+	adminURL := "http://" + s.AdminAddr().String()
+
+	start := time.Now()
+	cancel()
+	waitFor(t, func() bool {
+		code, _ := get(t, adminURL+"/ready")
+		return code == http.StatusServiceUnavailable
+	})
+	if code, body := get(t, listener+"/ping"); code != http.StatusOK || body != "pong" {
+		t.Errorf("/ping during the drain delay = %d %q, want 200", code, body)
+	}
+	if err := <-done; err != nil {
+		t.Errorf("Run: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed < time.Second {
+		t.Errorf("stopped after %s, want at least the 1s drain delay", elapsed)
 	}
 }

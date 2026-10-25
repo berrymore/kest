@@ -20,6 +20,10 @@ listeners:
   - name: main
     address: ${KEST_ADDRESS:-127.0.0.1:8080}
     http:
+      filters:
+        - type: recovery
+        - type: request_id     # X-Request-Id, also seen by PHP
+        - type: access_log     # one log line per request
       virtual_hosts:
         - name: default
           domains: ["*"]

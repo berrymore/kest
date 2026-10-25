@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"strings"
+	"syscall"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -58,7 +60,7 @@ func TestHandshakeFailures(t *testing.T) {
 		{
 			name:    "output on stdout",
 			opts:    workertest.Options{BootOutput: workertest.Garbage},
-			wantMsg: `invalid frame: header checksum mismatch (read "PHP Fatal er")`,
+			wantMsg: `handshake: stdout is reserved for the RoadRunner protocol, but the worker printed "PHP Fatal er" (`,
 		},
 		{
 			name:    "pid 0",
@@ -141,7 +143,8 @@ func TestExecute(t *testing.T) {
 		{name: "crash", req: Payload{Body: []byte("crash")}, wantErr: isErr(io.EOF),
 			wantMsg: `worker 10000: exec: EOF (exit status 1); stderr: "fake worker crashed"`},
 		{name: "exit", req: Payload{Body: []byte("exit")}, wantErr: isErr(io.EOF)},
-		{name: "garbage", req: Payload{Body: []byte("garbage")}, wantErr: is[*relay.ProtocolError]},
+		{name: "garbage", req: Payload{Body: []byte("garbage")}, wantErr: is[*relay.ProtocolError],
+			wantMsg: `exec: stdout is reserved for the RoadRunner protocol, but the worker printed "PHP Fatal er" (`},
 		{name: "stream", req: Payload{Body: []byte("stream")}, wantMsg: "streaming responses are not supported"},
 		{name: "no options", req: Payload{Body: []byte("no-options")}, wantMsg: "invalid response: options []"},
 		{name: "too large", req: Payload{Body: []byte("big 2000")}, wantErr: isErr(relay.ErrFrameTooLarge)},
@@ -269,7 +272,14 @@ func TestHandshakeRealProcess(t *testing.T) {
 		{
 			name: "output on stdout",
 			opts: workertest.Options{BootOutput: workertest.Garbage},
-			want: `handshake: invalid frame: header checksum mismatch (read "PHP Fatal er")`,
+			// More than the relay read: the rest is still in the pipe.
+			want: fmt.Sprintf(`handshake: stdout is reserved for the RoadRunner protocol, but the worker printed %q (`,
+				workertest.Garbage),
+		},
+		{
+			name: "long output on stdout",
+			opts: workertest.Options{BootOutput: strings.Repeat("x", 1000)},
+			want: `but the worker printed "` + strings.Repeat("x", stdoutLimit) + `"... (`,
 		},
 		{
 			name: "boot failure",
@@ -290,6 +300,20 @@ func TestHandshakeRealProcess(t *testing.T) {
 				t.Errorf("handshake error = %v, want it to contain %s", err, tt.want)
 			}
 		})
+	}
+}
+
+// A plain script that prints and exits before kest writes the handshake
+// breaks the pipe instead: the output is still shown.
+func TestHandshakePrintAndExit(t *testing.T) {
+	p := startHelper(t, helperConfig("print"), discard)
+	if err := waitExit(t, p); err != nil {
+		t.Fatalf("helper exited with %v", err)
+	}
+	_, err := handshake(t.Context(), p, discard)
+	want := fmt.Sprintf(`handshake: stdout is reserved for the RoadRunner protocol, but the worker printed %q`, printOutput)
+	if !errors.Is(err, syscall.EPIPE) || !strings.Contains(err.Error(), want) {
+		t.Errorf("handshake error = %v, want EPIPE with %s", err, want)
 	}
 }
 

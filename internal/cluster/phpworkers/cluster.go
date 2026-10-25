@@ -5,11 +5,15 @@ package phpworkers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"sync/atomic"
+	"time"
 
 	"github.com/berrymore/kest/internal/cluster"
+	"github.com/berrymore/kest/internal/metrics"
 	"github.com/berrymore/kest/internal/registry"
 	"github.com/berrymore/kest/internal/rrhttp"
 	"github.com/berrymore/kest/internal/worker"
@@ -30,7 +34,7 @@ func init() {
 			if !ok {
 				return nil, errors.New("php_workers: unexpected config type")
 			}
-			return New(c, bc.ConfigDir, os.Environ(), bc.Logger)
+			return New(c, bc, os.Environ())
 		},
 	})
 }
@@ -40,6 +44,10 @@ type pool interface {
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error
 	Exec(ctx context.Context, req worker.Payload) (worker.Payload, error)
+	Health() worker.Health
+	Workers() []worker.Info
+	Waiting() int
+	Reset(ctx context.Context) error
 }
 
 // Cluster serves HTTP requests with a pool of PHP workers.
@@ -47,41 +55,192 @@ type Cluster struct {
 	pool    pool
 	opts    rrhttp.Options
 	maxBody int64
+	bodies  bodyBudget
 	logger  *slog.Logger
+
+	bodyRejected *metrics.Counter // requests turned away by the body budget
+
+	watcher   *watcher // nil without reload.dirs
+	stopWatch context.CancelFunc
+	watchDone chan struct{}
 }
 
-// New builds a cluster from a validated config. configDir resolves relative
-// paths; environ is kest's environment. Nothing starts before Start.
-func New(cfg *Config, configDir string, environ []string, logger *slog.Logger) (*Cluster, error) {
-	p, err := worker.New(cfg.worker(configDir, environ), logger)
+// bodyBudget bounds the bytes of request bodies held in memory at once
+// (K-070). Requests reserve before reading and don't wait: one that doesn't
+// fit is turned away.
+type bodyBudget struct {
+	limit int64
+	used  atomic.Int64
+}
+
+func (b *bodyBudget) reserve(n int64) bool {
+	for {
+		used := b.used.Load()
+		if used+n > b.limit {
+			return false
+		}
+		if b.used.CompareAndSwap(used, used+n) {
+			return true
+		}
+	}
+}
+
+func (b *bodyBudget) release(n int64) {
+	b.used.Add(-n)
+}
+
+// New builds a cluster from a validated config. bc.ConfigDir resolves
+// relative paths, and bc.Name labels the pool's metrics; environ is kest's
+// environment. Nothing starts before Start.
+func New(cfg *Config, bc registry.BuildContext, environ []string) (*Cluster, error) {
+	reg := bc.MetricsRegistry()
+	pm := newPoolMetrics(reg, bc.Name)
+	wc := cfg.worker(bc.ConfigDir, environ)
+	wc.Observer = pm
+	p, err := worker.New(wc, bc.Logger)
 	if err != nil {
 		return nil, err
 	}
-	return newCluster(cfg, configDir, p, logger), nil
+	c := newCluster(cfg, bc.ConfigDir, p, bc.Logger)
+	c.bodyRejected = pm.rejected[reasonBodyBudget]
+	collectPool(reg, bc.Name, p)
+	reg.NewCollector("kest_pool_buffered_body_bytes",
+		"Request body bytes the cluster holds now, out of max_buffered_bodies.", metrics.TypeGauge,
+		[]string{"cluster"}, func(emit func(float64, ...string)) { emit(float64(c.bodies.used.Load()), bc.Name) })
+	return c, nil
 }
 
 func newCluster(cfg *Config, configDir string, p pool, logger *slog.Logger) *Cluster {
-	return &Cluster{
-		pool:    p,
-		opts:    cfg.requestOptions(configDir),
-		maxBody: int64(cfg.MaxRequestBody),
-		logger:  logger,
+	c := &Cluster{
+		pool:         p,
+		opts:         cfg.requestOptions(configDir),
+		maxBody:      int64(cfg.MaxRequestBody),
+		bodies:       bodyBudget{limit: int64(cfg.MaxBufferedBodies)},
+		logger:       logger,
+		bodyRejected: &metrics.Counter{},
 	}
+	c.watcher = newWatcher(cfg.Reload, configDir, c.Reset, logger)
+	return c
 }
 
-// Start starts the workers and returns once every one of them has booted.
+// Start starts the workers and returns once every one of them has booted,
+// then the file watcher of reload, if configured.
 func (c *Cluster) Start(ctx context.Context) error {
-	return c.pool.Start(ctx)
+	if err := c.pool.Start(ctx); err != nil {
+		return withHint(err)
+	}
+	if c.watcher == nil {
+		return nil
+	}
+	// The baseline is taken now: a change right after Start counts.
+	if base, ok := c.watcher.baseline(); ok {
+		wctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+		c.stopWatch, c.watchDone = cancel, make(chan struct{})
+		go func() {
+			defer close(c.watchDone)
+			c.watcher.run(wctx, base)
+		}()
+	}
+	return nil
 }
 
-// Stop lets running requests finish, then stops the workers.
+// Reset implements cluster.Resetter with a rolling replacement of the workers
+// (worker.Pool.Reset): a replacement that doesn't boot stops it, and the
+// workers it didn't reach keep serving.
+func (c *Cluster) Reset(ctx context.Context) error {
+	err := c.pool.Reset(ctx)
+	if errors.Is(err, worker.ErrResetRunning) {
+		return cluster.ErrResetRunning
+	}
+	return withHint(err)
+}
+
+// withHint adds stdoutHint to an error caused by a worker printing to stdout.
+func withHint(err error) error {
+	if _, ok := errors.AsType[*worker.StdoutError](err); ok {
+		return fmt.Errorf("%w; %s", err, stdoutHint)
+	}
+	return err
+}
+
+// stdoutHint explains the usual causes of a worker printing to stdout.
+const stdoutHint = "hint: the command must start a RoadRunner worker and print nothing to stdout " +
+	"(display_errors=stderr sends PHP errors to stderr); " +
+	"Symfony reads APP_RUNTIME before .env: " +
+	"set it in the cluster's env or as extra.runtime.class in composer.json"
+
+// Serving implements cluster.Prober: false while no worker is alive. A
+// degraded pool, with some workers being replaced, still serves.
+func (c *Cluster) Serving() bool {
+	return c.pool.Health() != worker.Unhealthy
+}
+
+// Report implements cluster.Reporter: the pool's health and queue, and every
+// worker slot.
+func (c *Cluster) Report() any {
+	now := time.Now()
+	workers := c.pool.Workers()
+	r := report{Health: c.pool.Health().String(), QueueLength: c.pool.Waiting(), Workers: make([]workerReport, len(workers))}
+	for i, w := range workers {
+		wr := workerReport{Slot: w.Slot, State: w.State.String(), Pid: w.Pid, Jobs: w.Jobs, MemoryBytes: w.Memory}
+		if w.Pid != 0 && !w.Started.IsZero() {
+			wr.StartedAt = w.Started.UTC().Format(time.RFC3339)
+			wr.AgeSeconds = int64(now.Sub(w.Started).Seconds())
+		}
+		r.Workers[i] = wr
+	}
+	return r
+}
+
+type report struct {
+	Health      string         `json:"health"` // healthy, degraded or unhealthy
+	QueueLength int            `json:"queue_length"`
+	Workers     []workerReport `json:"workers"`
+}
+
+type workerReport struct {
+	Slot        int    `json:"slot"`
+	State       string `json:"state"`
+	Pid         int    `json:"pid,omitempty"`
+	Jobs        uint64 `json:"jobs"`
+	StartedAt   string `json:"started_at,omitempty"`
+	AgeSeconds  int64  `json:"age_seconds,omitempty"`
+	MemoryBytes int64  `json:"memory_bytes,omitempty"`
+}
+
+// Stop stops the file watcher, lets running requests finish, then stops
+// the workers.
 func (c *Cluster) Stop(ctx context.Context) error {
+	if c.stopWatch != nil {
+		c.stopWatch()
+		<-c.watchDone
+	}
 	return c.pool.Stop(ctx)
 }
 
 // ServeHTTP passes the request to a worker and writes its response.
 func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Reserve the body's memory before reading it: its length, or the
+	// largest allowed body when the length is unknown.
+	n := c.maxBody
+	if r.ContentLength >= 0 {
+		n = min(r.ContentLength, c.maxBody)
+	}
+	if !c.bodies.reserve(n) {
+		c.bodyRejected.Inc()
+		c.logger.Warn("request turned away: max_buffered_bodies is full", "method", r.Method, "path", r.URL.Path,
+			"body_bytes", n)
+		http.Error(w, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+		return
+	}
+	defer c.bodies.release(n)
+
 	r.Body = http.MaxBytesReader(w, r.Body, c.maxBody)
+	if deadline, ok := r.Context().Deadline(); ok {
+		// The route timeout bounds reading the body too: a client that sends
+		// it slowly can't hold the request longer.
+		_ = http.NewResponseController(w).SetReadDeadline(deadline)
+	}
 	req, err := rrhttp.NewRequest(r, c.opts)
 	if err != nil {
 		c.fail(w, r, err)
@@ -128,7 +287,10 @@ func (c *Cluster) cleanup(req *rrhttp.Request) {
 // fail answers with the status for err and logs it. Nothing is written once
 // the client has gone.
 func (c *Cluster) fail(w http.ResponseWriter, r *http.Request, err error) {
-	if errors.Is(r.Context().Err(), context.Canceled) {
+	// A read deadline cancels the request context too, but that client is
+	// still there: it gets its 408.
+	timedOut := rrhttp.ErrorStatus(err) == http.StatusRequestTimeout
+	if errors.Is(r.Context().Err(), context.Canceled) && !timedOut {
 		c.logger.Debug("client went away", "method", r.Method, "path", r.URL.Path, "err", err)
 		return
 	}

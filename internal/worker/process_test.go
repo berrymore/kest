@@ -50,6 +50,9 @@ func runHelper(mode string) int {
 		fmt.Fprint(os.Stderr, "no newline at the end")
 	case "exit3":
 		return 3
+	case "print":
+		// A plain script, not a worker.
+		fmt.Print(printOutput)
 	case "sleep":
 		time.Sleep(time.Hour)
 	case "echo":
@@ -95,6 +98,9 @@ func runHelper(mode string) int {
 	}
 	return 0
 }
+
+// printOutput is what the "print" helper writes to stdout before it exits.
+const printOutput = "<!DOCTYPE html>\n<p>Hello</p>\n"
 
 // helperGORACE stops the race detector from sleeping for a second before a
 // helper exits.

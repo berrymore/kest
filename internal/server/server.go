@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -19,6 +20,7 @@ import (
 	"github.com/berrymore/kest/internal/config"
 	"github.com/berrymore/kest/internal/httpx"
 	"github.com/berrymore/kest/internal/listener"
+	"github.com/berrymore/kest/internal/metrics"
 	"github.com/berrymore/kest/internal/registry"
 )
 
@@ -33,6 +35,7 @@ type lifecycle interface {
 type component struct {
 	kind string // "cluster", "listener", "admin"
 	name string
+	typ  string // the extension type of a cluster
 	lifecycle
 }
 
@@ -42,6 +45,7 @@ type Server struct {
 	cfg       *config.Config
 	logger    *slog.Logger
 	startedAt time.Time
+	metrics   *metrics.Registry
 
 	clusters  []component
 	listeners []*listener.HTTP
@@ -50,6 +54,7 @@ type Server struct {
 	state  atomic.Value // admin.State
 	ready  chan struct{}
 	failed chan error
+	resets <-chan os.Signal // each signal resets every cluster; nil: none
 }
 
 // New builds the server graph from a validated configuration. Extension
@@ -60,10 +65,12 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		cfg:       cfg,
 		logger:    logger,
 		startedAt: time.Now(),
+		metrics:   metrics.NewRegistry(),
 		ready:     make(chan struct{}),
 		failed:    make(chan error, 1),
 	}
 	s.state.Store(admin.StateStarting)
+	metrics.RegisterRuntime(s.metrics)
 
 	var errs config.Errors
 
@@ -75,14 +82,15 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	handlers := make(map[string]http.Handler, len(cfg.Clusters))
 	for i := range cfg.Clusters {
 		c := &cfg.Clusters[i]
-		bc := registry.BuildContext{Name: c.Name, Logger: logger.With("cluster", c.Name), ConfigDir: configDir}
+		bc := registry.BuildContext{Name: c.Name, Logger: logger.With("cluster", c.Name), ConfigDir: configDir,
+			Metrics: s.metrics}
 		cl, err := registry.Build(cluster.Types, &c.Extension, bc)
 		if err != nil {
 			errs.Append(err)
 			continue
 		}
 		handlers[c.Name] = cl
-		s.clusters = append(s.clusters, component{kind: "cluster", name: c.Name, lifecycle: cl})
+		s.clusters = append(s.clusters, component{kind: "cluster", name: c.Name, typ: c.Type, lifecycle: cl})
 	}
 	lookup := func(name string) (http.Handler, bool) {
 		h, ok := handlers[name]
@@ -92,15 +100,24 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	for i := range cfg.Listeners {
 		l := &cfg.Listeners[i]
 		log := logger.With("listener", l.Name)
-		h, err := httpx.NewHandler(l.HTTP, lookup, registry.BuildContext{Name: l.Name, Logger: log, ConfigDir: configDir})
+		bc := registry.BuildContext{Name: l.Name, Logger: log, ConfigDir: configDir, Metrics: s.metrics}
+		h, err := httpx.NewHandler(l.HTTP, lookup, bc)
 		if err != nil {
 			errs.Append(err)
 			continue
 		}
-		s.listeners = append(s.listeners, listener.NewHTTP(l.Name, l.Address, h, log, s.fail))
+		limits := listener.Limits{
+			ReadHeaderTimeout: l.HTTP.ReadHeaderTimeout.Std(),
+			ReadTimeout:       l.HTTP.ReadTimeout.Std(),
+			WriteTimeout:      l.HTTP.WriteTimeout.Std(),
+			IdleTimeout:       l.HTTP.IdleTimeout.Std(),
+			MaxHeaderBytes:    int(l.HTTP.MaxHeaderBytes),
+		}
+		s.listeners = append(s.listeners, listener.NewHTTP(l.Name, l.Address, h, limits, log, s.fail))
 	}
 
-	s.admin = listener.NewHTTP("admin", cfg.Admin.Address, admin.NewHandler(s), logger.With("component", "admin"), s.fail)
+	s.admin = listener.NewHTTP("admin", cfg.Admin.Address, admin.NewHandler(s), listener.DefaultLimits(),
+		logger.With("component", "admin"), s.fail)
 
 	if err := errs.Err(); err != nil {
 		return nil, err
@@ -137,14 +154,34 @@ func (s *Server) Run(ctx context.Context) error {
 	close(s.ready)
 	s.logger.Info("kest is ready", "admin", s.admin.Addr().String(), "listeners", len(s.listeners))
 
+	// Resets run until shutdown begins; the pools stop them at once then.
+	resetCtx, cancelResets := context.WithCancel(context.WithoutCancel(ctx))
+	var resets sync.WaitGroup
 	var runErr error
-	select {
-	case <-ctx.Done():
-		s.logger.Info("shutting down", "drain_timeout", s.drainTimeout().String())
-	case runErr = <-s.failed:
-		s.logger.Error("shutting down after a fatal error", "err", runErr)
+loop:
+	for {
+		select {
+		case <-ctx.Done():
+			s.logger.Info("shutting down", "drain_timeout", s.drainTimeout().String())
+			break loop
+		case runErr = <-s.failed:
+			s.logger.Error("shutting down after a fatal error", "err", runErr)
+			break loop
+		case sig := <-s.resets:
+			s.logger.Info("resetting the workers", "signal", sig.String())
+			resets.Go(func() { s.resetAll(resetCtx) })
+		}
 	}
+	cancelResets()
+	resets.Wait()
 
+	if delay := s.cfg.Server.DrainDelay.Std(); runErr == nil && delay > 0 {
+		// /ready fails at once; the listeners serve on while load balancers
+		// take the instance out.
+		s.state.Store(admin.StateDraining)
+		s.logger.Info("waiting before draining", "drain_delay", delay.String())
+		time.Sleep(delay)
+	}
 	stopErr := s.shutdown(ctx, started)
 	if stopErr == nil {
 		s.logger.Info("kest stopped")
@@ -170,6 +207,82 @@ func (s *Server) StartedAt() time.Time {
 // ConfigFile implements admin.Source.
 func (s *Server) ConfigFile() string {
 	return s.cfg.File()
+}
+
+// NotServing implements admin.Source.
+func (s *Server) NotServing() []string {
+	var down []string
+	for _, c := range s.clusters {
+		if p, ok := c.lifecycle.(cluster.Prober); ok && !p.Serving() {
+			down = append(down, c.name)
+		}
+	}
+	return down
+}
+
+// ResetOn makes Run reset every cluster's workers on each value from c
+// (SIGHUP). Call it before Run.
+func (s *Server) ResetOn(c <-chan os.Signal) {
+	s.resets = c
+}
+
+// ResetCluster implements admin.Source.
+func (s *Server) ResetCluster(ctx context.Context, name string) error {
+	if s.State() != admin.StateReady {
+		return admin.ErrNotReady
+	}
+	for _, c := range s.clusters {
+		if c.name != name {
+			continue
+		}
+		r, ok := c.lifecycle.(cluster.Resetter)
+		if !ok {
+			return admin.ErrCantReset
+		}
+		return r.Reset(ctx)
+	}
+	return admin.ErrUnknownCluster
+}
+
+// resetAll resets every cluster that can, one after the other, and logs the
+// outcome; the pools log their own progress.
+func (s *Server) resetAll(ctx context.Context) {
+	for _, c := range s.clusters {
+		r, ok := c.lifecycle.(cluster.Resetter)
+		if !ok {
+			continue
+		}
+		if err := r.Reset(ctx); err != nil {
+			s.logger.Error("reset failed", "cluster", c.name, "err", err)
+		}
+	}
+}
+
+// Clusters implements admin.Source.
+func (s *Server) Clusters() []admin.ClusterInfo {
+	out := make([]admin.ClusterInfo, 0, len(s.clusters))
+	for _, c := range s.clusters {
+		info := admin.ClusterInfo{Name: c.name, Type: c.typ}
+		if p, ok := c.lifecycle.(cluster.Prober); ok {
+			serving := p.Serving()
+			info.Serving = &serving
+		}
+		if r, ok := c.lifecycle.(cluster.Reporter); ok {
+			info.Status = r.Report()
+		}
+		out = append(out, info)
+	}
+	return out
+}
+
+// ConfigDump implements admin.Source.
+func (s *Server) ConfigDump() ([]byte, error) {
+	return s.cfg.DumpRedacted()
+}
+
+// Metrics implements admin.Source: the server's metrics registry.
+func (s *Server) Metrics() *metrics.Registry {
+	return s.metrics
 }
 
 // ListenerAddr returns the bound address of a listener, or nil if it is not running.

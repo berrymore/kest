@@ -3,6 +3,7 @@ package listener
 import (
 	"context"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"testing"
@@ -16,7 +17,7 @@ func TestMain(m *testing.M) { leaktest.VerifyTestMain(m) }
 
 func start(t *testing.T, h http.Handler) *HTTP {
 	t.Helper()
-	l := NewHTTP("test", "127.0.0.1:0", h, logging.Discard(), func(err error) {
+	l := NewHTTP("test", "127.0.0.1:0", h, DefaultLimits(), logging.Discard(), func(err error) {
 		t.Errorf("unexpected fatal error: %v", err)
 	})
 	if err := l.Start(t.Context()); err != nil {
@@ -130,12 +131,66 @@ func TestStartAddressInUse(t *testing.T) {
 	first := start(t, http.NotFoundHandler())
 	defer func() { _ = first.Stop(t.Context()) }()
 
-	second := NewHTTP("second", first.Addr().String(), http.NotFoundHandler(), logging.Discard(), func(error) {})
+	second := NewHTTP("second", first.Addr().String(), http.NotFoundHandler(), DefaultLimits(), logging.Discard(), func(error) {})
 	err := second.Start(t.Context())
 	if err == nil || !strings.Contains(err.Error(), "listen") {
 		t.Errorf("Start on a used address = %v, want a listen error", err)
 	}
 	if second.Addr() != nil {
 		t.Error("Addr() is set although Start failed")
+	}
+}
+
+func startWithLimits(t *testing.T, limits Limits) *HTTP {
+	t.Helper()
+	l := NewHTTP("test", "127.0.0.1:0", http.NotFoundHandler(), limits, logging.Discard(), func(err error) {
+		t.Errorf("unexpected fatal error: %v", err)
+	})
+	if err := l.Start(t.Context()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = l.Stop(context.Background()) })
+	return l
+}
+
+// A client that doesn't finish its headers in time is disconnected.
+func TestReadHeaderTimeout(t *testing.T) {
+	limits := DefaultLimits()
+	limits.ReadHeaderTimeout = 200 * time.Millisecond
+	l := startWithLimits(t, limits)
+	conn, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", l.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	start := time.Now()
+	if _, err := io.WriteString(conn, "GET / HTTP/1.1\r\nHost: x\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if _, err := io.ReadAll(conn); err != nil {
+		t.Fatalf("read: %v, want the server to close the connection", err)
+	}
+	if elapsed := time.Since(start); elapsed < 150*time.Millisecond || elapsed > 3*time.Second {
+		t.Errorf("closed after %s, want about 200ms", elapsed)
+	}
+}
+
+func TestMaxHeaderBytes(t *testing.T) {
+	limits := DefaultLimits()
+	limits.MaxHeaderBytes = 1 << 10
+	l := startWithLimits(t, limits)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+l.Addr().String()+"/", http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Big", strings.Repeat("x", 8<<10))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusRequestHeaderFieldsTooLarge {
+		t.Errorf("status %d, want 431", resp.StatusCode)
 	}
 }

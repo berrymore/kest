@@ -199,6 +199,11 @@ func TestServeHelloExample(t *testing.T) {
 	if _, body, err := get(t, "http://"+adminAddr+"/server_info"); err != nil || !strings.Contains(body, `"version": "e2e-test"`) {
 		t.Errorf("server_info = %q, %v", body, err)
 	}
+	if _, body, err := get(t, "http://"+adminAddr+"/metrics"); err != nil ||
+		!strings.Contains(body, `kest_http_requests_total{listener="main",virtual_host="default",cluster="",code="200"} 3`) ||
+		!strings.Contains(body, "\ngo_goroutines ") {
+		t.Errorf("metrics = %v\n%s", err, body)
+	}
 
 	k.stop(t)
 
@@ -231,5 +236,106 @@ func TestVersionCommand(t *testing.T) {
 	stdout, _, code := kest(t, "version")
 	if code != 0 || !strings.HasPrefix(stdout, "kest e2e-test\n") {
 		t.Errorf("version: code %d, stdout %q", code, stdout)
+	}
+}
+
+// A client that sends its headers too slowly is disconnected after
+// read_header_timeout.
+func TestSlowClient(t *testing.T) {
+	listenAddr, adminAddr := freeAddr(t), freeAddr(t)
+	configPath := filepath.Join(t.TempDir(), "kest.yaml")
+	config := `version: v1
+admin: {address: "` + adminAddr + `"}
+listeners:
+  - name: main
+    address: ` + listenAddr + `
+    http:
+      read_header_timeout: 300ms
+      virtual_hosts:
+        - name: default
+          domains: ["*"]
+          routes:
+            - match: {prefix: /}
+              direct_response: {body: "ok"}
+`
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	k := serve(t, configPath, adminAddr)
+	defer k.stop(t)
+
+	conn, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", listenAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	start := time.Now()
+	if _, err := io.WriteString(conn, "GET / HTTP/1.1\r\nHost: x\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if _, err := io.ReadAll(conn); err != nil {
+		t.Fatalf("read: %v, want kest to close the connection", err)
+	}
+	if elapsed := time.Since(start); elapsed < 250*time.Millisecond || elapsed > 3*time.Second {
+		t.Errorf("closed after %s, want about 300ms", elapsed)
+	}
+	if code, body, err := get(t, "http://"+listenAddr+"/"); err != nil || code != http.StatusOK || body != "ok" {
+		t.Errorf("a normal request after it: %d %q, %v", code, body, err)
+	}
+}
+
+// After SIGTERM, kest keeps serving for drain_delay while /ready fails.
+func TestDrainDelay(t *testing.T) {
+	listenAddr, adminAddr := freeAddr(t), freeAddr(t)
+	configPath := filepath.Join(t.TempDir(), "kest.yaml")
+	config := `version: v1
+admin: {address: "` + adminAddr + `"}
+server: {drain_delay: 1s}
+listeners:
+  - name: main
+    address: ` + listenAddr + `
+    http:
+      virtual_hosts:
+        - name: default
+          domains: ["*"]
+          routes:
+            - match: {prefix: /}
+              direct_response: {body: "ok"}
+`
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	k := serve(t, configPath, adminAddr)
+	start := time.Now()
+	if err := k.cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if code, _, err := get(t, "http://"+adminAddr+"/ready"); err == nil && code == http.StatusServiceUnavailable {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("/ready didn't turn 503")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if code, body, err := get(t, "http://"+listenAddr+"/"); err != nil || code != http.StatusOK || body != "ok" {
+		t.Errorf("a request during the drain delay: %d %q, %v", code, body, err)
+	}
+	select {
+	case err := <-k.exited:
+		if err != nil {
+			t.Errorf("kest exited with %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("kest didn't exit")
+	}
+	if elapsed := time.Since(start); elapsed < time.Second {
+		t.Errorf("exited after %s, want at least the 1s drain delay", elapsed)
+	}
+	if !strings.Contains(k.logs.String(), `msg="waiting before draining" drain_delay=1s`) {
+		t.Errorf("logs:\n%s", k.logs.String())
 	}
 }

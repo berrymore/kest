@@ -14,13 +14,18 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/berrymore/kest/internal/config"
 	"github.com/berrymore/kest/internal/logging"
+	"github.com/berrymore/kest/internal/metrics"
+	"github.com/berrymore/kest/internal/metrics/metricstest"
+	"github.com/berrymore/kest/internal/registry"
 )
 
 // Integration tests against an unmodified roadrunner/http PSR7Worker
@@ -30,6 +35,14 @@ var codecs = []string{CodecJSON, CodecProto}
 
 // phpServer starts a php_workers cluster on testdata/php behind an HTTP server.
 func phpServer(t *testing.T, codec string, mutate func(*Config)) *httptest.Server {
+	t.Helper()
+	srv, _ := phpCluster(t, codec, mutate, metrics.NewRegistry())
+	return srv
+}
+
+// phpCluster is phpServer with the cluster's metrics in reg; it returns the
+// cluster too.
+func phpCluster(t *testing.T, codec string, mutate func(*Config), reg *metrics.Registry) (*httptest.Server, *Cluster) {
 	t.Helper()
 	php, err := exec.LookPath("php")
 	if err != nil {
@@ -54,7 +67,8 @@ func phpServer(t *testing.T, codec string, mutate func(*Config)) *httptest.Serve
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	c, err := New(&cfg, dir, append(os.Environ(), "KEST_TEST=inherited"), logging.Discard())
+	c, err := New(&cfg, registry.BuildContext{Name: "app", Logger: logging.Discard(), ConfigDir: dir, Metrics: reg},
+		append(os.Environ(), "KEST_TEST=inherited"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +80,7 @@ func phpServer(t *testing.T, codec string, mutate func(*Config)) *httptest.Serve
 		srv.Close()
 		_ = c.Stop(t.Context())
 	})
-	return srv
+	return srv, c
 }
 
 type reply struct {
@@ -292,6 +306,180 @@ func TestPHPErrors(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A PHP script that is not a worker, like a Symfony app without the
+// RoadRunner runtime: it prints a page to stdout and exits.
+func TestPHPNotAWorker(t *testing.T) {
+	php, err := exec.LookPath("php")
+	if err != nil {
+		t.Skip("php is not in PATH")
+	}
+	cfg := DefaultConfig()
+	cfg.Command = []string{php, "-r", `echo "<!DOCTYPE html>\n<p>Hello</p>\n";`}
+	cfg.Pool.Workers = 1
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	c, err := New(&cfg, registry.BuildContext{Logger: logging.Discard(), ConfigDir: t.TempDir()}, os.Environ())
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = c.Start(t.Context())
+	if err == nil {
+		_ = c.Stop(t.Context())
+		t.Fatal("Start succeeded")
+	}
+	for _, want := range []string{`but the worker printed "<!DOCTYPE html>\n<p>Hello</p>\n"`, "; " + stdoutHint} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("Start = %v\nwant it to contain %s", err, want)
+		}
+	}
+}
+
+func TestPHPMetrics(t *testing.T) {
+	reg := metrics.NewRegistry()
+	srv, _ := phpCluster(t, CodecJSON, func(c *Config) { c.Pool.MaxJobs = 2 }, reg)
+	for range 5 {
+		if r := send(t, http.MethodGet, srv.URL+"/status/200", "", http.NoBody, nil); r.status != 200 {
+			t.Fatalf("status %d", r.status)
+		}
+	}
+	if got := metricstest.Value(t, reg, "kest_pool_wait_seconds", "cluster", "app"); got != 5 {
+		t.Errorf("waits = %v, want 5", got)
+	}
+	// Each process serves 2 jobs (no jitter at 2), and the live ones at most 1
+	// each, so 5 jobs always make 2 replacements. A worker answers before it
+	// is replaced: wait for the last replacement to finish.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		restarts := metricstest.Value(t, reg, "kest_pool_worker_restarts_total", "cluster", "app", "reason", "max_jobs")
+		ready := metricstest.Value(t, reg, "kest_pool_workers", "cluster", "app", "state", "ready")
+		if restarts == 2 && ready == 2 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("max_jobs restarts = %v and ready workers = %v, want 2 and 2", restarts, ready)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// A rolling reset under load fails no request; a reset to code that doesn't
+// boot stops, and the old workers keep serving.
+func TestPHPReset(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "broken")
+	reg := metrics.NewRegistry()
+	srv, c := phpCluster(t, CodecJSON, func(c *Config) {
+		c.Pool.Workers = 3
+		c.Env = map[string]string{"KEST_TEST_BOOT_MARKER": marker}
+	}, reg)
+	pids := func() []int {
+		var out []int
+		for _, w := range c.pool.Workers() {
+			out = append(out, w.Pid)
+		}
+		return out
+	}
+
+	var failed, served atomic.Int64
+	load := func() (stop func()) {
+		done := make(chan struct{})
+		var wg sync.WaitGroup
+		for range 8 {
+			wg.Go(func() {
+				for {
+					select {
+					case <-done:
+						return
+					default:
+					}
+					if r := send(t, http.MethodGet, srv.URL+"/sleep/20", "", http.NoBody, nil); r.status != 200 {
+						failed.Add(1)
+					}
+					served.Add(1)
+				}
+			})
+		}
+		return func() {
+			close(done)
+			wg.Wait()
+		}
+	}
+
+	before := pids()
+	stop := load()
+	if err := c.Reset(t.Context()); err != nil {
+		t.Fatalf("Reset: %v", err)
+	}
+	stop()
+	after := pids()
+	for i := range after {
+		if after[i] == before[i] || after[i] == 0 {
+			t.Errorf("slot %d: pid %d before, %d after the reset", i, before[i], after[i])
+		}
+	}
+	if got := metricstest.Value(t, reg, "kest_pool_worker_restarts_total", "cluster", "app", "reason", "reset"); got != 3 {
+		t.Errorf("reset restarts = %v, want 3", got)
+	}
+
+	if err := os.WriteFile(marker, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stop = load()
+	err := c.Reset(t.Context())
+	stop()
+	if err == nil || !strings.Contains(err.Error(), "0 of 3 workers replaced") || !strings.Contains(err.Error(), "boot refused") {
+		t.Errorf("Reset to code that doesn't boot = %v", err)
+	}
+	if got := pids(); !slices.Equal(got, after) {
+		t.Errorf("pids %v after the failed reset, want %v unchanged", got, after)
+	}
+	if failed.Load() != 0 {
+		t.Errorf("%d of %d requests failed during the resets", failed.Load(), served.Load())
+	}
+	t.Logf("%d requests served during the resets", served.Load())
+}
+
+// A change in a reload directory replaces the workers.
+func TestPHPReload(t *testing.T) {
+	src := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "app.php"), []byte("<?php // v1"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	srv, c := phpCluster(t, CodecJSON, func(c *Config) {
+		c.Reload.Dirs = []string{src}
+		c.Reload.Interval = config.Duration(50 * time.Millisecond)
+	}, metrics.NewRegistry())
+	pids := func() []int {
+		var out []int
+		for _, w := range c.pool.Workers() {
+			out = append(out, w.Pid)
+		}
+		return out
+	}
+	before := pids()
+	if err := os.WriteFile(filepath.Join(src, "app.php"), []byte("<?php // version 2"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		after := pids()
+		replaced := true
+		for i := range after {
+			replaced = replaced && after[i] != 0 && after[i] != before[i]
+		}
+		if replaced {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("pids %v → %v: the change didn't replace the workers", before, after)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if r := send(t, http.MethodGet, srv.URL+"/status/200", "", http.NoBody, nil); r.status != 200 {
+		t.Errorf("after the reload: %d", r.status)
 	}
 }
 

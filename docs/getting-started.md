@@ -86,7 +86,16 @@ $ curl 'localhost:8080/?name=kest'
 Hello, kest!
 $ curl localhost:9901/ready
 ready
+$ curl -s localhost:9901/metrics | grep 'kest_pool_workers{'
+kest_pool_workers{cluster="app",state="starting"} 0
+kest_pool_workers{cluster="app",state="ready"} 4
+kest_pool_workers{cluster="app",state="working"} 0
+kest_pool_workers{cluster="app",state="stopping"} 0
+kest_pool_workers{cluster="app",state="backoff"} 0
+kest_pool_workers{cluster="app",state="stopped"} 0
 ```
+
+The admin server (`localhost:9901`) also serves [metrics](metrics.md) for Prometheus.
 
 kest starts the four workers before it opens the port; if one can't boot, kest exits with the
 worker's error output. Stop it with Ctrl-C or SIGTERM: running requests finish first.
@@ -103,9 +112,14 @@ the [configuration reference](config.md#php_workers).
   mechanism.
 - **Stdout belongs to kest.** It carries the protocol. After `Worker::create()` the library sends
   `echo` and `print` output to stderr, which kest logs. Output before that, such as a PHP warning
-  during boot (the PHP CLI prints errors to stdout by default), makes the worker fail to start.
-- **Code changes need a restart.** A worker loads your code once. Restart kest to deploy; rolling
-  worker restarts without downtime are planned (M3).
+  during boot (the PHP CLI prints errors to stdout by default; `display_errors=stderr` changes that),
+  makes the worker fail to start, and kest shows what it printed: `stdout is reserved for the
+  RoadRunner protocol, but the worker printed "…"`.
+- **Code changes need a reset.** A worker loads your code once. To deploy, replace the workers one by one
+  with `curl -X POST localhost:9901/clusters/<cluster>/reset` (it returns when done) or `kill -HUP <kest pid>`
+  (every cluster): each new worker boots while the old one keeps serving, so no request fails, and if the new
+  code doesn't boot, the reset stops and the remaining old workers keep serving. In development, `reload` does it
+  for you when files change (`reload: {dirs: [src]}` in the cluster's config).
 - **Leaks are bounded by limits.** `pool.max_jobs` replaces a worker after that many requests,
   `supervisor.max_worker_memory` when it grows too large, `supervisor.ttl` after some time. A request
   that runs longer than `supervisor.exec_ttl` (default 60s) kills its worker and gets `504`.
@@ -134,7 +148,10 @@ Anything that runs on RoadRunner's HTTP worker should run on kest; kest is teste
           APP_RUNTIME: Runtime\RoadRunnerSymfonyNyholm\Runtime
   ```
 
-  (the test app is in [`test/e2e/testdata/symfony`](../test/e2e/testdata/symfony)).
+  (the test app is in [`test/e2e/testdata/symfony`](../test/e2e/testdata/symfony)). Set `APP_RUNTIME` in
+  `env` (or `extra.runtime.class` in `composer.json`), not in `.env`: `symfony/runtime` picks the runtime
+  before it reads `.env`. Without it the app runs as a plain script, prints a page to stdout, and the worker
+  fails to start.
 
 Other integrations (Laravel Octane, Spiral, Yii) haven't been tested yet. Those that need RoadRunner's
 RPC plugin, for example to reset workers from PHP or for RoadRunner's KV and jobs plugins, won't work:
@@ -158,6 +175,6 @@ kest has no RPC yet.
 | `http.raw_body` | `raw_body` | |
 | `http.internal_error_code` | — | kest answers 500, 502, 503 or 504 depending on what failed |
 
-Not there yet: TLS, HTTP/2, static files and the other HTTP middleware (M4), metrics and rolling
-restarts (M3), RPC, jobs, KV and the other RoadRunner plugins. Streaming responses
+Not there yet: TLS, HTTP/2, static files and the other HTTP middleware (M4), RPC, jobs, KV and the other
+RoadRunner plugins. Streaming responses
 (`PSR7Worker::$chunkSize`) aren't supported yet either.

@@ -61,6 +61,19 @@ func (e *Extension) SetDecoded(v any) {
 	e.Config.decoded = v
 }
 
+// redacted returns a copy of e for DumpRedacted.
+func (e Extension) redacted() Extension {
+	switch d := e.Config.decoded.(type) {
+	case nil:
+		if e.Config.node != nil {
+			e.Config = RawConfig{decoded: Redacted}
+		}
+	case Redactor:
+		e.Config.decoded = d.Redacted()
+	}
+	return e
+}
+
 func (e *Extension) bind(src *source, path string) {
 	e.src, e.path = src, path
 }

@@ -19,6 +19,7 @@ type Router struct {
 	exact    map[string]*virtualHost
 	suffixes []suffixHost // longest suffix first
 	fallback *virtualHost // the "*" domain
+	noHost   http.Handler // no virtual host matches: 404, counted
 }
 
 type suffixHost struct {
@@ -27,8 +28,9 @@ type suffixHost struct {
 }
 
 type virtualHost struct {
-	name   string
-	routes []route
+	name    string
+	routes  []route
+	noRoute http.Handler // no route matches: 404, counted
 }
 
 type route struct {
@@ -44,15 +46,24 @@ func (r *route) matches(path string) bool {
 	return strings.HasPrefix(path, r.prefix)
 }
 
-// NewRouter builds a router from validated virtual hosts. A route to a
-// cluster that clusters cannot resolve answers 503.
-func NewRouter(vhosts []config.VirtualHost, clusters ClusterLookup) *Router {
-	rt := &Router{exact: make(map[string]*virtualHost)}
+// newRouter builds a router from validated virtual hosts, counting requests
+// in m. A route to a cluster that clusters cannot resolve answers 503.
+func newRouter(vhosts []config.VirtualHost, clusters ClusterLookup, m *listenerMetrics) *Router {
+	rt := &Router{
+		exact:  make(map[string]*virtualHost),
+		noHost: m.target("", "").instrument(http.NotFoundHandler()),
+	}
 	for i := range vhosts {
 		cfg := &vhosts[i]
-		vh := &virtualHost{name: cfg.Name}
+		vh := &virtualHost{name: cfg.Name, noRoute: m.target(cfg.Name, "").instrument(http.NotFoundHandler())}
 		for j := range cfg.Routes {
-			vh.routes = append(vh.routes, newRoute(&cfg.Routes[j], clusters))
+			r := newRoute(&cfg.Routes[j], clusters)
+			cluster := ""
+			if cfg.Routes[j].Route != nil {
+				cluster = cfg.Routes[j].Route.Cluster
+			}
+			r.handler = m.target(cfg.Name, cluster).instrument(r.handler)
+			vh.routes = append(vh.routes, r)
 		}
 		for _, d := range cfg.Domains {
 			switch {
@@ -94,7 +105,7 @@ func newRoute(cfg *config.Route, clusters ClusterLookup) route {
 func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	vh := rt.virtualHost(requestHost(r))
 	if vh == nil {
-		http.NotFound(w, r)
+		rt.noHost.ServeHTTP(w, r)
 		return
 	}
 	for i := range vh.routes {
@@ -103,7 +114,7 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	http.NotFound(w, r)
+	vh.noRoute.ServeHTTP(w, r)
 }
 
 func (rt *Router) virtualHost(host string) *virtualHost {
