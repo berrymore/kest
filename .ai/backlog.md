@@ -93,10 +93,14 @@ Milestone definitions: `roadmap.md`.
   `http.read_header_timeout`, `read_timeout`, `write_timeout`, `idle_timeout`, `max_header_bytes` per listener
   (defaults: the old fixed values); `php_workers` stops reading a body at the route timeout (`408`). Route
   timeouts and `max_request_body` existed already.
-- [ ] K-066 Benchmarks against RoadRunner; report in `docs/benchmarks.md`.
+- [x] K-066 Benchmarks against RoadRunner; report in `docs/benchmarks.md`. `make bench` (`test/bench`: configs,
+  `loadgen`, `run.sh`) against RoadRunner 3.0.1: even with the same codec, 42–54 % ahead on small requests with
+  kest's default `json`, half the memory with 1 MB bodies.
 - [ ] K-067 Operations guide.
-- [ ] K-069 Request frames copy context + body into one payload (one copy of the body per job). If K-066
-  shows it matters, write the frame in segments instead (`relay.Writer` with several payload parts).
+- [-] K-069 Request frames copy context + body into one payload (one copy of the body per job). If K-066
+  shows it matters, write the frame in segments instead (`relay.Writer` with several payload parts). Dropped on
+  2026-10-25: with 1 MB bodies K-066 found kest 3–11 % ahead of RoadRunner, at half its memory; reopen if a
+  profile shows the copy.
 - [x] K-068 Drain delay: after SIGTERM, keep serving with `/ready` = 503 for a configurable delay so load
   balancers deregister the instance before listeners close. `server.drain_delay` (default `0s`); not on a
   fatal error.

@@ -1,0 +1,31 @@
+# kest's side of the benchmark (docs/benchmarks.md): the examples/php-hello
+# worker, no filters, no worker recycling. test/bench/rr.yaml is the same for
+# RoadRunner.
+version: v1
+
+log:
+  level: warn
+
+admin:
+  address: 127.0.0.1:${BENCH_ADMIN_PORT:-18901}
+
+listeners:
+  - name: main
+    address: 127.0.0.1:${BENCH_PORT:-18080}
+    http:
+      virtual_hosts:
+        - name: default
+          domains: ["*"]
+          routes:
+            - match: { prefix: / }
+              route: { cluster: hello }
+
+clusters:
+  - name: hello
+    type: php_workers
+    config:
+      command: [php, worker.php]
+      dir: ../../examples/php-hello
+      codec: ${BENCH_CODEC:-json}
+      pool:
+        workers: ${BENCH_WORKERS:-4}

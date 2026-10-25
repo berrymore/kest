@@ -137,6 +137,7 @@ curl localhost:9901/ready          # admin API: ready
   coming from RoadRunner.
 - [Configuration reference](docs/config.md).
 - [Metrics](docs/metrics.md): what `GET /metrics` reports, with example queries.
+- [Benchmarks](docs/benchmarks.md): kest against RoadRunner with the same PHP worker.
 
 ## Development
 

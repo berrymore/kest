@@ -15,7 +15,8 @@ and process metrics), **K-062** (`GET /metrics`, `/ready` per cluster), **K-074*
 (rolling reset through the admin API and SIGHUP, zero failed requests under load: an M3 exit criterion) and
 **K-064** (filters `request_id`, `access_log`, `recovery`), **K-075** (`GET /config_dump`, env values redacted)
 **K-065** (server timeouts and header limit per listener; slow bodies get `408`), **K-068**
-(`server.drain_delay`), **K-070** (`max_buffered_bodies`) and **K-072** (`php_workers.reload`).
+(`server.drain_delay`), **K-070** (`max_buffered_bodies`), **K-072** (`php_workers.reload`) and **K-066**
+(`docs/benchmarks.md`: even with RoadRunner on the same codec, ahead with kest's default; K-069 dropped).
 The plan is `plans/M3-operability.md` (Active).
 
 ## In progress
@@ -87,6 +88,7 @@ None.
 
 ## Session log (newest first, keep ~15)
 
+- **2026-10-25** — K-066: `make bench` against RoadRunner 3.0.1, 18 scenarios × 3 runs, no failed request.
 - **2026-10-25** — K-072: `php_workers.reload`, a polling watcher owned by the cluster, resets through K-063.
 - **2026-10-25** — K-070: a per-cluster budget for buffered request bodies. The user went to bed and left the rest
   of M3 to the agent, PR included.

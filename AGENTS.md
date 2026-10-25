@@ -53,6 +53,7 @@ Keep this table in sync with the Makefile (`make help` lists every target).
 | PHP packages of test projects and examples | `make php-deps` (composer install in every directory of `PHP_PROJECTS`) |
 | Unit tests on Linux (needs Docker) | `make test-linux` (Linux-only code paths; run when touching them) |
 | PHP version matrix on Linux (needs Docker) | `make test-matrix` (`make test-integration` on PHP 8.3, 8.4, 8.5; image in `test/docker`) |
+| Benchmark against RoadRunner | `RR=/path/to/rr make bench` (`test/bench`; results in `docs/benchmarks.md`) |
 | Docs drift checks | `make docs-check` (links, make targets, IDs, layout, config reference; also part of `make test`) |
 | Milestone docs review | before the PR and before the merge: `.ai/review.md` |
 | Vet | `make vet` (`go vet` with the `integration` and `e2e` tags) |
@@ -94,6 +95,7 @@ examples/            runnable configs: hello (no PHP), php-hello (PSR-7 worker)
 docs/                user documentation: getting started, config reference
 test/e2e/            end-to-end tests against the real binary; testdata/symfony is the framework smoke test
 test/docs/           docs drift checks: the docs against the code and the Makefile
+test/bench/          the benchmark against RoadRunner: configs, a load generator, run.sh
 test/docker/         image for the PHP version matrix
 ```
 
