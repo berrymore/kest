@@ -32,11 +32,14 @@ func watch(t *testing.T, dir string, maxFiles int, reset func(context.Context) e
 	cfg := DefaultConfig().Reload
 	cfg.Dirs, cfg.MaxFiles = []string{dir}, maxFiles
 	w := newWatcher(cfg, "", reset, logging.Discard())
+	base, ok := w.baseline()
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		w.run(ctx)
+		if ok {
+			w.run(ctx, base)
+		}
 	}()
 	t.Cleanup(func() {
 		cancel()
@@ -71,9 +74,11 @@ func TestWatcher(t *testing.T) {
 		step("files that don't count", 1)
 		step("still nothing", 1)
 
-		// A burst over several scans makes one reset, after it ends.
+		// A burst over several scans makes one reset, after it ends. The sizes
+		// differ: real time barely passes, and Linux updates modification
+		// times from a coarse clock.
 		for i := range 3 {
-			writeFile(t, filepath.Join(dir, "src", "b.php"), "<?php // "+string(rune('a'+i)))
+			writeFile(t, filepath.Join(dir, "src", "b.php"), "<?php // "+strings.Repeat("x", i+1))
 			step("during the burst", 1)
 		}
 		step("after the burst", 2)
@@ -114,8 +119,7 @@ func TestWatcherMaxFiles(t *testing.T) {
 			writeFile(t, filepath.Join(dir, name), name)
 		}
 		var resets atomic.Int32
-		watch(t, dir, 2, func(context.Context) error { resets.Add(1); return nil })
-		synctest.Wait() // the watcher gave up on its first scan
+		watch(t, dir, 2, func(context.Context) error { resets.Add(1); return nil }) // gives up on its baseline
 		writeFile(t, filepath.Join(dir, "a.php"), "changed")
 		time.Sleep(5 * time.Second)
 		synctest.Wait()

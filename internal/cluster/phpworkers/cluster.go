@@ -129,12 +129,16 @@ func (c *Cluster) Start(ctx context.Context) error {
 	if err := c.pool.Start(ctx); err != nil {
 		return withHint(err)
 	}
-	if c.watcher != nil {
+	if c.watcher == nil {
+		return nil
+	}
+	// The baseline is taken now: a change right after Start counts.
+	if base, ok := c.watcher.baseline(); ok {
 		wctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 		c.stopWatch, c.watchDone = cancel, make(chan struct{})
 		go func() {
 			defer close(c.watchDone)
-			c.watcher.run(wctx)
+			c.watcher.run(wctx, base)
 		}()
 	}
 	return nil

@@ -18,7 +18,9 @@ import (
 // watcher resets the workers when the watched files change (reload, K-072):
 // it scans the directories every interval, by name, size and modification
 // time, and resets once a change has held still for one scan, so that a
-// deploy or an editor's save of many files makes one reset.
+// deploy or an editor's save of many files makes one reset. A rewrite that
+// keeps a file's size within one tick of the file system's clock (a few
+// milliseconds on Linux) after a scan looks like no change.
 type watcher struct {
 	dirs     []string // absolute
 	patterns []string
@@ -43,14 +45,21 @@ func newWatcher(cfg Reload, configDir string, reset func(context.Context) error,
 // errTooManyFiles stops the watcher: a scan found more than max_files.
 var errTooManyFiles = errors.New("too many files to watch")
 
-// run watches until ctx ends.
-func (w *watcher) run(ctx context.Context) {
-	last, err := w.scan()
+// baseline scans the files as they are when the workers have started; run
+// compares with it. It reports false, with the error logged, if watching
+// can't start.
+func (w *watcher) baseline() (uint64, bool) {
+	sum, err := w.scan()
 	if err != nil {
 		w.logger.Error("not watching files", "err", err)
-		return
+		return 0, false
 	}
 	w.logger.Info("watching files for changes", "dirs", w.dirs, "patterns", w.patterns)
+	return sum, true
+}
+
+// run watches until ctx ends, starting from the baseline last.
+func (w *watcher) run(ctx context.Context, last uint64) {
 	ticker := time.NewTicker(w.interval)
 	defer ticker.Stop()
 	pending := false // a change seen, not reset yet
