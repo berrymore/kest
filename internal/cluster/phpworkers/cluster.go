@@ -157,6 +157,11 @@ func (c *Cluster) Stop(ctx context.Context) error {
 // ServeHTTP passes the request to a worker and writes its response.
 func (c *Cluster) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, c.maxBody)
+	if deadline, ok := r.Context().Deadline(); ok {
+		// The route timeout bounds reading the body too: a client that sends
+		// it slowly can't hold the request longer.
+		_ = http.NewResponseController(w).SetReadDeadline(deadline)
+	}
 	req, err := rrhttp.NewRequest(r, c.opts)
 	if err != nil {
 		c.fail(w, r, err)
@@ -203,7 +208,10 @@ func (c *Cluster) cleanup(req *rrhttp.Request) {
 // fail answers with the status for err and logs it. Nothing is written once
 // the client has gone.
 func (c *Cluster) fail(w http.ResponseWriter, r *http.Request, err error) {
-	if errors.Is(r.Context().Err(), context.Canceled) {
+	// A read deadline cancels the request context too, but that client is
+	// still there: it gets its 408.
+	timedOut := rrhttp.ErrorStatus(err) == http.StatusRequestTimeout
+	if errors.Is(r.Context().Err(), context.Canceled) && !timedOut {
 		c.logger.Debug("client went away", "method", r.Method, "path", r.URL.Path, "err", err)
 		return
 	}

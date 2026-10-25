@@ -238,3 +238,49 @@ func TestVersionCommand(t *testing.T) {
 		t.Errorf("version: code %d, stdout %q", code, stdout)
 	}
 }
+
+// A client that sends its headers too slowly is disconnected after
+// read_header_timeout.
+func TestSlowClient(t *testing.T) {
+	listenAddr, adminAddr := freeAddr(t), freeAddr(t)
+	configPath := filepath.Join(t.TempDir(), "kest.yaml")
+	config := `version: v1
+admin: {address: "` + adminAddr + `"}
+listeners:
+  - name: main
+    address: ` + listenAddr + `
+    http:
+      read_header_timeout: 300ms
+      virtual_hosts:
+        - name: default
+          domains: ["*"]
+          routes:
+            - match: {prefix: /}
+              direct_response: {body: "ok"}
+`
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	k := serve(t, configPath, adminAddr)
+	defer k.stop(t)
+
+	conn, err := net.Dial("tcp", listenAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	start := time.Now()
+	if _, err := io.WriteString(conn, "GET / HTTP/1.1\r\nHost: x\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if _, err := io.ReadAll(conn); err != nil {
+		t.Fatalf("read: %v, want kest to close the connection", err)
+	}
+	if elapsed := time.Since(start); elapsed < 250*time.Millisecond || elapsed > 3*time.Second {
+		t.Errorf("closed after %s, want about 300ms", elapsed)
+	}
+	if code, body, err := get(t, "http://"+listenAddr+"/"); err != nil || code != http.StatusOK || body != "ok" {
+		t.Errorf("a normal request after it: %d %q, %v", code, body, err)
+	}
+}

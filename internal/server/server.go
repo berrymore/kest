@@ -106,10 +106,18 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 			errs.Append(err)
 			continue
 		}
-		s.listeners = append(s.listeners, listener.NewHTTP(l.Name, l.Address, h, log, s.fail))
+		limits := listener.Limits{
+			ReadHeaderTimeout: l.HTTP.ReadHeaderTimeout.Std(),
+			ReadTimeout:       l.HTTP.ReadTimeout.Std(),
+			WriteTimeout:      l.HTTP.WriteTimeout.Std(),
+			IdleTimeout:       l.HTTP.IdleTimeout.Std(),
+			MaxHeaderBytes:    int(l.HTTP.MaxHeaderBytes),
+		}
+		s.listeners = append(s.listeners, listener.NewHTTP(l.Name, l.Address, h, limits, log, s.fail))
 	}
 
-	s.admin = listener.NewHTTP("admin", cfg.Admin.Address, admin.NewHandler(s), logger.With("component", "admin"), s.fail)
+	s.admin = listener.NewHTTP("admin", cfg.Admin.Address, admin.NewHandler(s), listener.DefaultLimits(),
+		logger.With("component", "admin"), s.fail)
 
 	if err := errs.Err(); err != nil {
 		return nil, err

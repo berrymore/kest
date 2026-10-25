@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"os"
 
 	"github.com/berrymore/kest/internal/worker"
 )
@@ -12,6 +13,7 @@ import (
 // answers with:
 //
 //	*http.MaxBytesError                         413
+//	a deadline while reading the body           408 (the route timeout or read_timeout)
 //	*RequestError                               400
 //	ErrQueueFull, ErrNoWorker, ErrStopped        503
 //	ErrExecTimeout, context.DeadlineExceeded     504 (exec_ttl or the route timeout)
@@ -24,6 +26,8 @@ func ErrorStatus(err error) int {
 	switch {
 	case isType[*http.MaxBytesError](err):
 		return http.StatusRequestEntityTooLarge
+	case isType[*RequestError](err) && errors.Is(err, os.ErrDeadlineExceeded):
+		return http.StatusRequestTimeout
 	case isType[*RequestError](err):
 		return http.StatusBadRequest
 	case errors.Is(err, worker.ErrQueueFull), errors.Is(err, worker.ErrNoWorker), errors.Is(err, worker.ErrStopped):

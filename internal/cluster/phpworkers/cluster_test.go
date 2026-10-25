@@ -1,11 +1,13 @@
 package phpworkers
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -281,6 +283,37 @@ func TestReset(t *testing.T) {
 		if hint := err != nil && strings.Contains(err.Error(), stdoutHint); hint != tt.wantHint {
 			t.Errorf("Reset with %v = %v: hint %v, want %v", tt.err, err, hint, tt.wantHint)
 		}
+	}
+}
+
+// The route timeout bounds reading the body: a client that sends it slowly
+// gets 408 when it expires.
+func TestSlowBody(t *testing.T) {
+	c := newTestCluster(t, nil, &fakePool{exec: respond(relay.CodecJSON, "{}", "")})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 200*time.Millisecond) // the route timeout
+		defer cancel()
+		c.ServeHTTP(w, r.WithContext(ctx))
+	}))
+	defer srv.Close()
+	conn, err := net.Dial("tcp", srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	start := time.Now()
+	_, err = io.WriteString(conn, "POST / HTTP/1.1\r\nHost: x\r\nContent-Type: text/plain\r\nContent-Length: 100\r\n\r\nonly a part")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatalf("read response: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusRequestTimeout || time.Since(start) > 3*time.Second {
+		t.Errorf("status %d after %s, want 408 after about 200ms", resp.StatusCode, time.Since(start))
 	}
 }
 

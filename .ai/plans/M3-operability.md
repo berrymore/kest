@@ -124,6 +124,9 @@ The first steps are the vertical slice: real metrics from a PHP app at `/metrics
 
 ## Log
 
+- 2026-10-25 — K-065 done (step 7, first half). Added beyond D9: `php_workers` sets a read deadline from the route
+  timeout before it reads the body, so a slow sender gets `408` without a new option; `fail` answers it although
+  `net/http` cancels the request context on the deadline.
 - 2026-10-25 — Step 6 (K-075) done: extension configs opt in to redaction with `config.Redactor`.
 - 2026-10-25 — Step 5 (K-064) done as in D5–D8. The router and the listener entry fill `httpx.RequestInfo`, so
   `access_log` gets the virtual host and cluster in any filter order; a panic counts as a 500 in the HTTP metrics;

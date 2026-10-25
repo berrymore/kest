@@ -96,7 +96,23 @@ func (v *validator) listeners(list []Listener, adminAddress string, clusters map
 	}
 }
 
+// Bounds of http.max_header_bytes.
+const (
+	minHeaderBytes = ByteSize(1 << 10)
+	maxHeaderBytes = ByteSize(64 << 20)
+)
+
 func (v *validator) http(path string, h *HTTP, clusters map[string]bool) {
+	for name, d := range map[string]*Duration{"read_header_timeout": h.ReadHeaderTimeout, "read_timeout": h.ReadTimeout,
+		"write_timeout": h.WriteTimeout, "idle_timeout": h.IdleTimeout} {
+		if d.Std() < 0 {
+			v.errorf(path+"."+name, "must not be negative")
+		}
+	}
+	if h.MaxHeaderBytes < minHeaderBytes || h.MaxHeaderBytes > maxHeaderBytes {
+		v.errorf(path+".max_header_bytes", "must be between %s and %s, got %s", minHeaderBytes, maxHeaderBytes, h.MaxHeaderBytes)
+	}
+
 	for i := range h.Filters {
 		f := &h.Filters[i]
 		fpath := indexPath(path+".filters", i)

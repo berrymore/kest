@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -337,6 +338,7 @@ func TestErrorStatus(t *testing.T) {
 	}{
 		{&RequestError{Err: &http.MaxBytesError{Limit: 1}}, 413},
 		{&RequestError{Err: errors.New("bad form")}, 400},
+		{&RequestError{Err: &net.OpError{Op: "read", Err: os.ErrDeadlineExceeded}}, 408},
 		{worker.ErrQueueFull, 503},
 		{worker.ErrNoWorker, 503},
 		{worker.ErrStopped, 503},

@@ -25,8 +25,12 @@ const (
 	DefaultLogFormat    = "text"
 	DefaultAdminAddress = "127.0.0.1:9901"
 	DefaultDrainTimeout = 15 * time.Second
-	DefaultRouteTimeout = 30 * time.Second
-	DefaultStatus       = 200
+
+	DefaultReadHeaderTimeout = 10 * time.Second
+	DefaultIdleTimeout       = 120 * time.Second
+	DefaultMaxHeaderBytes    = ByteSize(1 << 20)
+	DefaultRouteTimeout      = 30 * time.Second
+	DefaultStatus            = 200
 )
 
 // Config is the whole configuration file.
@@ -117,7 +121,15 @@ type Listener struct {
 // HTTP is the protocol block of an HTTP listener.
 type HTTP struct {
 	// Filters run in order before the router, which is always last.
-	Filters      []Extension   `yaml:"filters,omitempty"`
+	Filters []Extension `yaml:"filters,omitempty"`
+
+	// Server limits. 0s turns a timeout off.
+	ReadHeaderTimeout *Duration `yaml:"read_header_timeout"` // reading a request's headers
+	ReadTimeout       *Duration `yaml:"read_timeout"`        // reading a whole request, body included
+	WriteTimeout      *Duration `yaml:"write_timeout"`       // from the end of the headers to the end of the response
+	IdleTimeout       *Duration `yaml:"idle_timeout"`        // a keep-alive connection waiting for its next request
+	MaxHeaderBytes    ByteSize  `yaml:"max_header_bytes"`    // request line and headers
+
 	VirtualHosts []VirtualHost `yaml:"virtual_hosts"`
 }
 
@@ -180,6 +192,23 @@ func (c *Config) applyDefaults() {
 		h := c.Listeners[i].HTTP
 		if h == nil {
 			continue
+		}
+		for _, d := range []struct {
+			field **Duration
+			def   time.Duration
+		}{
+			{&h.ReadHeaderTimeout, DefaultReadHeaderTimeout},
+			{&h.ReadTimeout, 0},
+			{&h.WriteTimeout, 0},
+			{&h.IdleTimeout, DefaultIdleTimeout},
+		} {
+			if *d.field == nil {
+				v := Duration(d.def)
+				*d.field = &v
+			}
+		}
+		if h.MaxHeaderBytes == 0 {
+			h.MaxHeaderBytes = DefaultMaxHeaderBytes
 		}
 		for j := range h.VirtualHosts {
 			vh := &h.VirtualHosts[j]

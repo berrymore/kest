@@ -12,12 +12,21 @@ import (
 	"time"
 )
 
-// Server limits, until they become configurable (K-065).
-const (
-	readHeaderTimeout = 10 * time.Second
-	idleTimeout       = 120 * time.Second
-	maxHeaderBytes    = 1 << 20
-)
+// Limits are a listener's server timeouts and header size; a zero timeout
+// is off. See net/http.Server for their exact meaning.
+type Limits struct {
+	ReadHeaderTimeout time.Duration
+	ReadTimeout       time.Duration
+	WriteTimeout      time.Duration
+	IdleTimeout       time.Duration
+	MaxHeaderBytes    int
+}
+
+// DefaultLimits are the limits of the admin server and of listeners whose
+// config leaves them out.
+func DefaultLimits() Limits {
+	return Limits{ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second, MaxHeaderBytes: 1 << 20}
+}
 
 // HTTP serves a handler on one address. It binds in Start and drains
 // in-flight requests in Stop.
@@ -35,7 +44,7 @@ type HTTP struct {
 
 // NewHTTP creates a listener. onFatal is called if serving fails after
 // Start, for example when the listening socket breaks.
-func NewHTTP(name, address string, handler http.Handler, logger *slog.Logger, onFatal func(error)) *HTTP {
+func NewHTTP(name, address string, handler http.Handler, limits Limits, logger *slog.Logger, onFatal func(error)) *HTTP {
 	return &HTTP{
 		name:    name,
 		address: address,
@@ -43,9 +52,11 @@ func NewHTTP(name, address string, handler http.Handler, logger *slog.Logger, on
 		onFatal: onFatal,
 		server: &http.Server{
 			Handler:           handler,
-			ReadHeaderTimeout: readHeaderTimeout,
-			IdleTimeout:       idleTimeout,
-			MaxHeaderBytes:    maxHeaderBytes,
+			ReadHeaderTimeout: limits.ReadHeaderTimeout,
+			ReadTimeout:       limits.ReadTimeout,
+			WriteTimeout:      limits.WriteTimeout,
+			IdleTimeout:       limits.IdleTimeout,
+			MaxHeaderBytes:    limits.MaxHeaderBytes,
 			ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelWarn),
 		},
 	}

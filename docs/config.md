@@ -137,13 +137,17 @@ At least one listener is required.
 | `address` | yes | `host:port` to bind; must be unique (except port `0`) |
 | `http` | yes | HTTP is the only protocol so far |
 
-Server limits are fixed for now: 10s to read request headers, 120s idle keep-alive, 1MB of headers.
 
 ### `listeners[].http`
 
 | Field | Required | |
 |---|---|---|
 | `filters` | no | HTTP filters, run in order before the router. Each is `{type, config}`; see [Filters](#filters). |
+| `read_header_timeout` | `10s` | How long a client may take to send the request line and headers; then the connection is closed. Protects against slow clients. `0s` turns it off. |
+| `read_timeout` | `0s` (off) | How long reading a whole request may take, body included. Off by default, since uploads on slow links take long; `php_workers` stops reading a body at the route `timeout` anyway (`408`). |
+| `write_timeout` | `0s` (off) | How long writing a response may take, counted from the end of the request headers. |
+| `idle_timeout` | `120s` | How long a keep-alive connection may wait for its next request. `0s`: no limit. |
+| `max_header_bytes` | `1MB` | Request line and headers together, 1KB–64MB; larger requests get `431`. |
 | `virtual_hosts` | yes | At least one |
 
 ### Filters
@@ -215,7 +219,7 @@ query string. If no route matches → `404`.
 | Field | Default | |
 |---|---|---|
 | `cluster` | — | Name of a cluster in `clusters`; required |
-| `timeout` | `30s` | Bounds the whole request. The cluster answers `504` when it expires. `0s` disables it. |
+| `timeout` | `30s` | Bounds the whole request. The cluster answers `504` when it expires; `php_workers` answers `408` if the request body is still arriving then. `0s` disables it. |
 
 **`direct_response`**
 

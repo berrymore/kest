@@ -89,7 +89,10 @@ Milestone definitions: `roadmap.md`.
 - [x] K-064 Filters: `access_log`, `request_id`, `recovery`. In `internal/filters/`, on `httpx.RequestInfo` and
   `httpx.ResponseWriter`; `examples/php-hello` turns them on, and its e2e test sees the ID in PHP, in the response
   and in the access log.
-- [ ] K-065 Per-route timeouts; max header and body sizes; slow-client protection (server timeouts).
+- [x] K-065 Per-route timeouts; max header and body sizes; slow-client protection (server timeouts).
+  `http.read_header_timeout`, `read_timeout`, `write_timeout`, `idle_timeout`, `max_header_bytes` per listener
+  (defaults: the old fixed values); `php_workers` stops reading a body at the route timeout (`408`). Route
+  timeouts and `max_request_body` existed already.
 - [ ] K-066 Benchmarks against RoadRunner; report in `docs/benchmarks.md`.
 - [ ] K-067 Operations guide.
 - [ ] K-069 Request frames copy context + body into one payload (one copy of the body per job). If K-066

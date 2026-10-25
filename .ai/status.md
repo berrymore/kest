@@ -13,7 +13,8 @@ PHP hint), **K-073** (`make docs-check` and the milestone docs review in `review
 ADR-0007, a hand-written core with the Prometheus text format), **K-061** (`internal/metrics`; HTTP, pool, Go
 and process metrics), **K-062** (`GET /metrics`, `/ready` per cluster), **K-074** (`GET /clusters`) and **K-063**
 (rolling reset through the admin API and SIGHUP, zero failed requests under load: an M3 exit criterion) and
-**K-064** (filters `request_id`, `access_log`, `recovery`) and **K-075** (`GET /config_dump`, env values redacted).
+**K-064** (filters `request_id`, `access_log`, `recovery`), **K-075** (`GET /config_dump`, env values redacted)
+and **K-065** (server timeouts and header limit per listener; slow bodies get `408`).
 The plan is `plans/M3-operability.md` (Active).
 
 ## In progress
@@ -83,6 +84,8 @@ None.
 
 ## Session log (newest first, keep ~15)
 
+- **2026-10-25** — K-065: server limits per listener; a body read deadline from the route timeout. Found: on that
+  deadline `net/http` cancels the request context, and `fail` took it for a client that went away (empty 200).
 - **2026-10-25** — K-075: `GET /config_dump` through `Config.DumpRedacted` and `config.Redactor`.
 - **2026-10-25** — K-064: `request_id`, `access_log`, `recovery` in `internal/filters/`; `httpx.RequestInfo` and
   `httpx.ResponseWriter`; php-hello turns the filters on.
