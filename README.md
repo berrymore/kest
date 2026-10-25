@@ -102,7 +102,7 @@ kest validate -c kest.yaml   # strict validation with precise error paths
 kest serve -c kest.yaml
 ```
 
-HTTP filters (`recovery`, `request_id`, `access_log`, `client_ip`, `headers`, `cors`, `compression`, `static`) run
+HTTP filters (`recovery`, `request_id`, `access_log`, `client_ip`, `headers`, `cors`, `compression`, `static`, `sendfile`) run
 in config order: the listener's, then those of the virtual host and of the route that the router picks. Clusters:
 `php_workers`.
 

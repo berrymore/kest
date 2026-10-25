@@ -192,7 +192,8 @@ preflights, files of `static`): the rest of the chain and the action don't run. 
 an answer from a virtual host's or a route's filter counts with an empty `cluster`; one from a listener's filter
 isn't counted (it never reaches the router).
 
-Built-in types: `request_id`, `access_log`, `recovery`, `client_ip`, `headers`, `cors`, `compression`, `static`. Put
+Built-in types: `request_id`, `access_log`, `recovery`, `client_ip`, `headers`, `cors`, `compression`, `static`,
+`sendfile`. Put
 `recovery` first so that it covers the other filters too:
 
 ```yaml
@@ -359,6 +360,37 @@ except under `/.well-known/`. Symbolic links are followed, so Laravel's `public/
 `Range`, `If-Modified-Since` and `If-None-Match` (a weak `ETag` from the file's size and modification time); the
 `Content-Type` comes from the extension. On a route, a file counts in the metrics without a cluster, so the PHP
 cluster's latency is PHP's. When the proxy in front of kest can see the files, let it serve them instead.
+
+**`sendfile`** lets PHP hand a file to kest: when the route's cluster answers `200` with an `X-Sendfile` header
+naming a file, kest sends that file instead of the response's body. PHP doesn't read the file (its size isn't
+bounded by `max_response_size`), and ranges and conditional requests work.
+
+```yaml
+routes:
+  - match: {prefix: /download/}
+    filters:
+      - type: sendfile
+        config: {dirs: [storage/app/exports]}
+    route: {cluster: app}
+```
+
+| Field | Default | |
+|---|---|---|
+| `dirs` | — | Required. The directories files may be sent from; relative to the config file. `kest validate` fails if one isn't a directory. |
+
+- The path in `X-Sendfile` must be absolute and, symbolic links resolved, inside one of `dirs`; a missing file (or
+  a directory) is `404`, a path elsewhere `403`, and both are logged as errors.
+- kest keeps the response's headers (`Content-Type`, `Content-Disposition`, `Cache-Control`, `ETag`), drops
+  `X-Sendfile` and the body, and answers with `http.ServeContent`: `Content-Length` of the file, `Last-Modified`,
+  `Range` (`206`), `If-Modified-Since`, `If-None-Match`, `If-Range`. A response with another status passes through
+  without `X-Sendfile`.
+- The filter sets `X-Sendfile-Type: X-Sendfile` on the requests it sees, replacing one the client sent. Symfony's
+  `BinaryFileResponse` (Laravel's `download()` and `file()` use it) then answers with `X-Sendfile` and no body,
+  once the application calls `BinaryFileResponse::trustXSendfileTypeHeader()`. Without the filter, don't trust
+  that header: a client could set it.
+- RoadRunner's `sendfile` middleware reads the same header, but sends any file whose path has no `..`, always as
+  `application/octet-stream`, without ranges. `X-Accel-Redirect` names a location of nginx: kest passes it on to
+  the nginx in front.
 
 ### `virtual_hosts[]`
 

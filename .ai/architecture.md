@@ -7,7 +7,7 @@
 > path normalization, router with `direct_response` and `redirect`; the goridge relay and the worker pool with
 > rolling resets and streamed answers (`internal/relay`, `internal/worker`); the RoadRunner HTTP payload
 > (`internal/rrhttp`); the cluster type `php_workers` (body budget, `reload`); the filters `request_id`,
-> `access_log`, `recovery`, `client_ip`, `headers`, `cors`, `compression`, `static`, on listeners, virtual hosts and
+> `access_log`, `recovery`, `client_ip`, `headers`, `cors`, `compression`, `static`, `sendfile`, on listeners, virtual hosts and
 > routes;
 > metrics (`internal/metrics`); admin `/ready`, `/server_info`, `/config_dump`, `/clusters`,
 > `POST /clusters/{name}/reset`, `/metrics`.
@@ -183,7 +183,7 @@ var Filters = registry.NewCategory[Filter]("http filter")
 // order. httpx.ResponseWriter records the status and body size; httpx.BeforeHeader edits a response header just
 // before it goes out (headers, cors, compression). RequestInfo.ClientIP/Scheme come from client_ip
 // (httpx.ClientIP, httpx.Scheme). Built in: request_id, access_log, recovery, client_ip, headers, cors, compression,
-// static.
+// static, sendfile.
 
 // internal/cluster: the name lives in config/BuildContext, not on the interface.
 type Cluster interface {
@@ -385,7 +385,7 @@ internal/admin/              🟢 admin HTTP API
 internal/logging/            🟢 slog setup
 internal/cluster/            🟢 Cluster interface and registry category
 internal/leaktest/           🟢 goroutine-leak check for test binaries (goleak)
-internal/filters/            🟢 built-in HTTP filters, one package each: requestid/, accesslog/, recovery/, clientip/, headers/, cors/, compression/, static/
+internal/filters/            🟢 built-in HTTP filters, one package each: requestid/, accesslog/, recovery/, clientip/, headers/, cors/, compression/, static/, sendfile/
 internal/cluster/phpworkers/ 🟢 php_workers: config, worker environment, pool lifecycle, HTTP handler
 internal/rrhttp/             🟢 HTTP ↔ RoadRunner HTTP payload (request context JSON/protobuf, form trees, responses)
 internal/worker/             🟢 process, pool, supervisor (language-agnostic); workertest/ has fake workers

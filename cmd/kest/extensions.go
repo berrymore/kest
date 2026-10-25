@@ -11,5 +11,6 @@ import (
 	_ "github.com/berrymore/kest/internal/filters/headers"
 	_ "github.com/berrymore/kest/internal/filters/recovery"
 	_ "github.com/berrymore/kest/internal/filters/requestid"
+	_ "github.com/berrymore/kest/internal/filters/sendfile"
 	_ "github.com/berrymore/kest/internal/filters/static"
 )

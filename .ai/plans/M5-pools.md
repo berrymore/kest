@@ -199,7 +199,7 @@ end to end. The user can look at it before the rest.
    acceptance: the numbers are in `docs/benchmarks.md` and the log; tests with synctest.
 7. [x] K-908 dynamic pool size (D5) — acceptance: synctest tests for growing, the boot limit, shrinking and parking;
    an integration test with PHP; docs.
-8. [ ] K-143 `sendfile` filter (D6) — acceptance: unit tests (ranges, conditional requests, symlinks out of `dirs`,
+8. [x] K-143 `sendfile` filter (D6) — acceptance: unit tests (ranges, conditional requests, symlinks out of `dirs`,
    missing files, a client's own `X-Sendfile-Type`); the Symfony smoke test downloads a file through
    `BinaryFileResponse`; docs.
 9. [ ] K-140 route matching (D7) — acceptance: router tests for every matcher; validation errors located (a bad
@@ -272,3 +272,9 @@ end to end. The user can look at it before the rest.
   one worker too many per boot (caught by `TestPoolGrowBoots`). A Go subtlety met on the way: `s, list = list[0],
   slices.Delete(list, 0, 1)` may read `list[0]` after the delete has cleared it (index expressions and calls on the
   right have no fixed order); split into two statements. `BenchmarkPoolExec` unchanged (1.83 µs).
+- 2026-10-25 — Step 8 (K-143): `internal/filters/sendfile`. Decided while building it: the path must be absolute
+  (Symfony sends the real path; a relative one has no obvious base); the directories of `dirs` themselves are
+  refused (`403`), only files inside them are sent; a refused response drops the application's `Content-Type`,
+  `Content-Disposition`, `Etag` and `Last-Modified` so the error page doesn't pose as the file. The Symfony smoke test
+  downloads through `BinaryFileResponse` (with `trustXSendfileTypeHeader()`) and a range; its controller sets
+  `Content-Type` itself, since guessing it needs `symfony/mime`, which the test app doesn't have.

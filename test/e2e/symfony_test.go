@@ -108,6 +108,20 @@ func symfonySmoke(t *testing.T, dir, codec string) {
 		t.Errorf("GET /redirect: %d %v", resp.StatusCode, resp.Header)
 	}
 
+	// A download through BinaryFileResponse: Symfony names the file, kest sends it.
+	resp, body = do(request(http.MethodGet, "/download", "", http.NoBody))
+	if resp.StatusCode != http.StatusOK || body != strings.Repeat("report line\n", 100) ||
+		resp.Header.Get("X-Asked-Sendfile-Type") != "X-Sendfile" || resp.Header.Get("X-Sendfile") != "" ||
+		resp.Header.Get("Content-Disposition") != "attachment; filename=report.txt" ||
+		!strings.HasPrefix(resp.Header.Get("Content-Type"), "text/plain") {
+		t.Errorf("GET /download: %d %v, %d bytes", resp.StatusCode, resp.Header, len(body))
+	}
+	ranged := request(http.MethodGet, "/download", "", http.NoBody)
+	ranged.Header.Set("Range", "bytes=12-23")
+	if resp, body := do(ranged); resp.StatusCode != http.StatusPartialContent || body != "report line\n" {
+		t.Errorf("GET /download with a range: %d %q", resp.StatusCode, body)
+	}
+
 	// Symfony's own error pages.
 	if resp, _ := do(request(http.MethodGet, "/nope", "", http.NoBody)); resp.StatusCode != http.StatusNotFound {
 		t.Errorf("GET /nope: %d, want 404", resp.StatusCode)
