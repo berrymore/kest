@@ -15,11 +15,9 @@ import (
 	"math/big"
 	"net"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -256,53 +254,5 @@ listeners:
 	preflight.Body.Close()
 	if preflight.StatusCode != http.StatusNoContent || preflight.Header.Get("Access-Control-Allow-Origin") != "https://app.test" {
 		t.Errorf("preflight = %d %v", preflight.StatusCode, preflight.Header)
-	}
-}
-
-// http_proxy spreads requests over its endpoints and tells them who the
-// client is.
-func TestHTTPProxy(t *testing.T) {
-	var hits [2]atomic.Int64
-	var forwarded atomic.Value
-	backends := make([]string, 2)
-	for i := range backends {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			hits[i].Add(1)
-			forwarded.Store(r.Header.Get("X-Forwarded-For"))
-			_, _ = io.WriteString(w, "backend")
-		}))
-		t.Cleanup(srv.Close)
-		backends[i] = srv.URL
-	}
-	listenAddr, adminAddr := freeAddr(t), freeAddr(t)
-	configPath := filepath.Join(t.TempDir(), "kest.yaml")
-	writeFile(t, configPath, `version: v1
-admin: {address: "`+adminAddr+`"}
-listeners:
-  - name: main
-    address: "`+listenAddr+`"
-    http:
-      virtual_hosts:
-        - name: default
-          domains: ["*"]
-          routes: [{match: {prefix: /}, route: {cluster: api}}]
-clusters:
-  - name: api
-    type: http_proxy
-    config:
-      endpoints: ["`+backends[0]+`", "`+backends[1]+`"]
-`)
-	k := serve(t, configPath, adminAddr)
-	defer k.stop(t)
-	for range 4 {
-		if resp := do(t, http.DefaultClient, "http://"+listenAddr+"/"); resp.Status != http.StatusOK || resp.Body != "backend" {
-			t.Fatalf("GET = %d %q", resp.Status, resp.Body)
-		}
-	}
-	if hits[0].Load() != 2 || hits[1].Load() != 2 || forwarded.Load() != "127.0.0.1" {
-		t.Errorf("hits %d/%d, X-Forwarded-For %q; want 2 each and the client", hits[0].Load(), hits[1].Load(), forwarded.Load())
-	}
-	if _, body, err := get(t, "http://"+adminAddr+"/clusters"); err != nil || !strings.Contains(body, `"load_balancing": "round_robin"`) {
-		t.Errorf("/clusters = %q, %v", body, err)
 	}
 }

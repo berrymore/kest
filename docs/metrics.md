@@ -23,7 +23,7 @@ stays bounded:
   answers itself (CORS preflights from `cors`) don't reach the router and aren't counted in `kest_http_requests_*`.
 - `code`: the HTTP status code of the response.
 - `state`, `reason`: the fixed values listed below.
-- `endpoint`, `cert_file`: values from the config (an `http_proxy` endpoint, a TLS certificate file).
+- `cert_file`: a TLS certificate file from the config.
 - `slot`: a worker's position in its pool, `0` to `workers - 1`. Workers are not labeled by pid, so replacing them
   doesn't add series.
 
@@ -58,18 +58,6 @@ For each `php_workers` cluster:
 | `kest_pool_worker_restarts_total` | counter | `cluster`, `reason` | Workers replaced: `max_jobs`, `ttl`, `idle_ttl`, `memory` (over `supervisor.max_worker_memory`), `exec_ttl` (killed in a request that ran too long), `crash` (exited or broke the protocol), `stop_requested` (the worker asked for it), `start_failed` (a new worker didn't boot), `reset` (a rolling reset). |
 | `kest_pool_worker_memory_bytes` | gauge | `cluster`, `slot` | Each worker's resident memory, as last sampled. Sampled only when `supervisor.max_worker_memory` is set, every `supervisor.watch_tick`. |
 
-## Upstreams
-
-For each `http_proxy` cluster, labeled by `endpoint` (as configured):
-
-| Metric | Type | Labels | |
-|---|---|---|---|
-| `kest_upstream_requests_total` | counter | `cluster`, `endpoint`, `code` | Responses from each endpoint, retried attempts included. |
-| `kest_upstream_errors_total` | counter | `cluster`, `endpoint`, `reason` | Attempts without a response: `connect_failure` (no connection, or the TLS handshake failed), `timeout`, `reset` (the connection broke). |
-| `kest_upstream_retries_total` | counter | `cluster` | Requests sent again to another endpoint. |
-| `kest_upstream_endpoint_healthy` | gauge | `cluster`, `endpoint` | 1 while the endpoint passes its health checks; always 1 without them. |
-| `kest_upstream_requests_active` | gauge | `cluster`, `endpoint` | Requests in flight to each endpoint. |
-
 ## Go runtime and process
 
 The same names and meaning as in Prometheus's Go client, so existing panels for Go services work:
@@ -100,9 +88,6 @@ sum by (cluster, reason) (rate(kest_pool_rejected_total[5m]))
 
 # Certificates that expire within 14 days (renewal didn't happen)
 kest_tls_certificate_expiry_timestamp_seconds - time() < 14 * 86400
-
-# Endpoints taken out by their health checks
-kest_upstream_endpoint_healthy == 0
 
 # Worker restarts that are not routine
 sum by (cluster, reason) (increase(kest_pool_worker_restarts_total{reason=~"crash|exec_ttl|memory|start_failed"}[1h]))

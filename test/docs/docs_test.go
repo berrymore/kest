@@ -21,7 +21,6 @@ import (
 	"testing"
 
 	"github.com/berrymore/kest/internal/cluster"
-	_ "github.com/berrymore/kest/internal/cluster/httpproxy"
 	_ "github.com/berrymore/kest/internal/cluster/phpworkers"
 	_ "github.com/berrymore/kest/internal/cluster/static" // the extensions of cmd/kest/extensions.go
 	"github.com/berrymore/kest/internal/config"

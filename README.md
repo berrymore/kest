@@ -94,7 +94,7 @@ kest serve -c kest.yaml
 ```
 
 HTTP filters (`recovery`, `request_id`, `access_log`, `client_ip`, `headers`, `cors`, `compression`) run before
-the router, in config order. Clusters: `php_workers`, `static_files`, `http_proxy`.
+the router, in config order. Clusters: `php_workers`, `static_files`.
 
 ## Architecture at a glance
 
@@ -104,7 +104,6 @@ the router, in config order. Clusters: `php_workers`, `static_files`, `http_prox
   client ─────▶ │  listener ──▶ HTTP filters ──▶ router ──▶ cluster                     │
                 │   :8080       request_id,      vhosts,    ├─ php_workers ─▶ pool ─────┼──▶ php worker.php × N
                 │               access_log, …    routes     ├─ static_files ─▶ files    │
-                │                                           ├─ http_proxy ──────────────┼──▶ upstream
                 │                                           └─ wasm (planned) ─▶ wazero │
                 │                                                                       │
                 │  admin :9901 — /ready, /config_dump, /clusters, /metrics              │

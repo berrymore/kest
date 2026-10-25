@@ -142,9 +142,9 @@ Failed requests are logged with their status: `5xx` at error or warn level, clie
 |---|---|
 | kest exits at start: `stdout is reserved for the RoadRunner protocol, but the worker printed "…"` | The script doesn't run a RoadRunner worker loop, or it printed something before it: a PHP warning (set `display_errors=stderr`), an `echo`, or for Symfony a missing `APP_RUNTIME` in the cluster's `env`. |
 | kest exits at start with the worker's exit status and stderr | The application fails to boot; the message shows PHP's error. |
-| `503` | No worker free in time (`no_worker`), the queue full (`queue_full`) or the body budget full (`body_budget`): see `kest_pool_rejected_total`. Or `/ready` while a cluster has no live worker. From an `http_proxy` cluster: no connection to any endpoint could be made (`kest_upstream_errors_total{reason="connect_failure"}`). |
+| `503` | No worker free in time (`no_worker`), the queue full (`queue_full`) or the body budget full (`body_budget`): see `kest_pool_rejected_total`. Or `/ready` while a cluster has no live worker. |
 | `504` | The route `timeout` expired; the worker may still be running the request (until `exec_ttl`). |
-| `502` | The worker died in the request (a fatal error, `exit`), broke the protocol, or sent a response over `max_response_size`; the log has the details. From an `http_proxy` cluster: the endpoint broke the connection (`kest_upstream_errors_total{reason="reset"}`). A streamed response that fails after its headers is cut off instead. |
+| `502` | The worker died in the request (a fatal error, `exit`), broke the protocol, or sent a response over `max_response_size`; the log has the details. A streamed response that fails after its headers is cut off instead. |
 | `500` | The application reported an error (`$worker->getWorker()->error()`), or a panic in kest (with `recovery`). |
 | `408`, `413`, `431` | The body arrived too slowly, was over `max_request_body`, or the headers were over `max_header_bytes`. |
 | workers in `backoff` | They keep failing to start or die early; kest waits up to 30s between attempts. The log and `start_failed` restarts show why. |
