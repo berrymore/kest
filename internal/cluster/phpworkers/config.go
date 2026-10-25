@@ -98,6 +98,14 @@ type Pool struct {
 	AllocateTimeout config.Duration `yaml:"allocate_timeout"`
 	StartTimeout    config.Duration `yaml:"start_timeout"`
 	DestroyTimeout  config.Duration `yaml:"destroy_timeout"`
+	Overload        Overload        `yaml:"overload"`
+}
+
+// Overload bounds waiting in a lane whose queue hasn't been empty for a
+// while (CoDel): its new requests wait at most QueueTimeout.
+type Overload struct {
+	QueueTimeout config.Duration `yaml:"queue_timeout"` // 0s turns it off
+	Interval     config.Duration `yaml:"interval"`
 }
 
 // Supervisor limits the lifetime and resources of workers.
@@ -127,6 +135,10 @@ func DefaultConfig() Config {
 			AllocateTimeout: config.Duration(w.AllocateTimeout),
 			StartTimeout:    config.Duration(w.StartTimeout),
 			DestroyTimeout:  config.Duration(w.DestroyTimeout),
+			Overload: Overload{
+				QueueTimeout: config.Duration(w.OverloadQueueTimeout),
+				Interval:     config.Duration(w.OverloadInterval),
+			},
 		},
 		Reload: Reload{Patterns: []string{"*.php"}, Interval: config.Duration(time.Second), MaxFiles: 20000},
 		Supervisor: Supervisor{
@@ -141,18 +153,20 @@ func DefaultConfig() Config {
 
 // yamlFields maps worker.Config fields to their YAML paths.
 var yamlFields = map[string]string{
-	"Command":         "command",
-	"Workers":         "pool.workers",
-	"MaxQueueSize":    "pool.max_queue_size",
-	"AllocateTimeout": "pool.allocate_timeout",
-	"StartTimeout":    "pool.start_timeout",
-	"DestroyTimeout":  "pool.destroy_timeout",
-	"MaxFrameSize":    "max_response_size",
-	"TTL":             "supervisor.ttl",
-	"IdleTTL":         "supervisor.idle_ttl",
-	"ExecTTL":         "supervisor.exec_ttl",
-	"MaxWorkerMemory": "supervisor.max_worker_memory",
-	"WatchTick":       "supervisor.watch_tick",
+	"Command":              "command",
+	"Workers":              "pool.workers",
+	"MaxQueueSize":         "pool.max_queue_size",
+	"AllocateTimeout":      "pool.allocate_timeout",
+	"StartTimeout":         "pool.start_timeout",
+	"DestroyTimeout":       "pool.destroy_timeout",
+	"OverloadQueueTimeout": "pool.overload.queue_timeout",
+	"OverloadInterval":     "pool.overload.interval",
+	"MaxFrameSize":         "max_response_size",
+	"TTL":                  "supervisor.ttl",
+	"IdleTTL":              "supervisor.idle_ttl",
+	"ExecTTL":              "supervisor.exec_ttl",
+	"MaxWorkerMemory":      "supervisor.max_worker_memory",
+	"WatchTick":            "supervisor.watch_tick",
 }
 
 // Redacted implements config.Redactor: values in env may be secrets.
@@ -292,11 +306,14 @@ func (c *Config) worker(configDir string, environ []string) worker.Config {
 		StartTimeout:    c.Pool.StartTimeout.Std(),
 		DestroyTimeout:  c.Pool.DestroyTimeout.Std(),
 		MaxFrameSize:    clampInt(int64(c.MaxResponseSize)),
-		TTL:             c.Supervisor.TTL.Std(),
-		IdleTTL:         c.Supervisor.IdleTTL.Std(),
-		ExecTTL:         c.Supervisor.ExecTTL.Std(),
-		MaxWorkerMemory: int64(c.Supervisor.MaxWorkerMemory),
-		WatchTick:       c.Supervisor.WatchTick.Std(),
+
+		OverloadQueueTimeout: c.Pool.Overload.QueueTimeout.Std(),
+		OverloadInterval:     c.Pool.Overload.Interval.Std(),
+		TTL:                  c.Supervisor.TTL.Std(),
+		IdleTTL:              c.Supervisor.IdleTTL.Std(),
+		ExecTTL:              c.Supervisor.ExecTTL.Std(),
+		MaxWorkerMemory:      int64(c.Supervisor.MaxWorkerMemory),
+		WatchTick:            c.Supervisor.WatchTick.Std(),
 	}
 }
 

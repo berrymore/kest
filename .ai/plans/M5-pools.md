@@ -90,6 +90,13 @@ and without, comparing the goodput and the p50/p99 latency of successful request
 names (candidate: `pool.overload: {target, interval}`), the defaults, and whether it is on by default; they go to
 the user before the code lands.
 
+_Decided in step 6 (the user had delegated it; for the PR review):_ `pool.overload: {queue_timeout: 500ms,
+interval: 5s}`, **on by default**, `queue_timeout: 0s` turns it off. "Overloaded" means requests have waited in the
+lane without a break for `interval`; only a worker taking the last waiting job ends that (not timeouts or shedding,
+which would make it flap). In an overloaded lane new requests wait at most `queue_timeout`, and a free worker sheds
+the heads that waited longer (`503`, reason `overload`, `worker.ErrOverloaded`). Lanes with `max_workers` or a
+`queue_timeout` of their own are left out. Measurements in `docs/benchmarks.md` § Overload control.
+
 **D5. Dynamic pool size** (K-908, schema).
 
 ```yaml
@@ -188,7 +195,7 @@ end to end. The user can look at it before the rest.
 5. [x] The slice end to end — acceptance: an integration test with PHP floods a slow route limited to 2 of 4
    workers and checks that a fast route's latency stays low (exit criterion 1); `docs/config.md`, `docs/metrics.md`,
    and an operations guide section "Isolating slow endpoints".
-6. [ ] K-144 overload (D4): the experiment, then the proposal (names, defaults) to the user, then the code —
+6. [x] K-144 overload (D4): the experiment, then the proposal (names, defaults) to the user, then the code —
    acceptance: the numbers are in `docs/benchmarks.md` and the log; tests with synctest.
 7. [ ] K-908 dynamic pool size (D5) — acceptance: synctest tests for growing, the boot limit, shrinking and parking;
    an integration test with PHP; docs.
@@ -247,3 +254,14 @@ end to end. The user can look at it before the rest.
 - 2026-10-25 — Step 4 was committed after `make check` alone, and two PHP tests (`TestPHPMetrics`,
   `TestServePHPHelloExample`) still expected the pool metrics without `route`; fixed in step 5's commit. From here
   on, steps that touch `php_workers` or the e2e tests run `make test-integration` before their commit too.
+- 2026-10-25 — Step 6 (K-144, D4). `test/bench/loadgen` can't overload a server with a fixed number of clients, so
+  the experiment ran in virtual time first (`internal/worker/overload_experiment_test.go`, skipped unless
+  `KEST_EXPERIMENT=1`: Poisson arrivals, exponential service of 20 ms and 100 ms, clients giving up after 5 s), then
+  with PHP through a new `loadgen -rate` (open loop). Findings: without overload control, overload collapses (100 ms
+  requests at 200 %: 7 of 40 requests/s served); 100ms/1s answers fastest but turns away 2–5 % at 95 % load;
+  500ms/5s never acted below capacity in any run. The first version shortened only the wait of new arrivals and
+  reset on any empty queue: with PHP its p90 stayed at 3.9 s (the backlog from before the overload was seen still
+  waited) and it could flap; shedding stale heads at dispatch and ending a backlog only when a worker takes the
+  last job brought p90 to 1.7 s and the clients that gave up to 0. Lanes with `max_workers` are left out too (their
+  queue is the limit at work, not an overload). The pool's unit tests run without overload control
+  (`testConfig`); `TestOverload` and `TestOverloadBacklog` test it.

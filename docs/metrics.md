@@ -61,7 +61,7 @@ For each `php_workers` cluster:
 | `kest_pool_lane_workers` | gauge | `cluster`, `route` | Workers running the requests of each lane now. |
 | `kest_pool_buffered_body_bytes` | gauge | `cluster` | Request body bytes reserved now, out of `max_buffered_bodies`. |
 | `kest_pool_wait_seconds` | histogram | `cluster`, `route` | How long requests waited for a free worker, by lane. |
-| `kest_pool_rejected_total` | counter | `cluster`, `route`, `reason` | Requests answered `503` without a worker, by lane: `queue_full` (`pool.max_queue_size` requests were waiting in the lane already), `no_worker` (none became free within the lane's `queue_timeout`, by default `pool.allocate_timeout`) or `body_budget` (`max_buffered_bodies` was full). |
+| `kest_pool_rejected_total` | counter | `cluster`, `route`, `reason` | Requests answered `503` without a worker, by lane: `queue_full` (`pool.max_queue_size` requests were waiting in the lane already), `no_worker` (none became free within the lane's `queue_timeout`, by default `pool.allocate_timeout`), `overload` (none became free within `pool.overload.queue_timeout` in an overloaded lane) or `body_budget` (`max_buffered_bodies` was full). |
 | `kest_pool_worker_restarts_total` | counter | `cluster`, `reason` | Workers replaced: `max_jobs`, `ttl`, `idle_ttl`, `memory` (over `supervisor.max_worker_memory`), `exec_ttl` (killed in a request that ran too long), `crash` (exited or broke the protocol), `stop_requested` (the worker asked for it), `start_failed` (a new worker didn't boot), `reset` (a rolling reset). |
 | `kest_pool_worker_memory_bytes` | gauge | `cluster`, `slot` | Each worker's resident memory, as last sampled. Sampled only when `supervisor.max_worker_memory` is set, every `supervisor.watch_tick`. |
 

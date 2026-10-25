@@ -13,7 +13,8 @@ const reasonBodyBudget worker.Reason = "body_budget"
 
 // rejectReasons are the reasons of kest_pool_rejected_total, all of them
 // exposed for every lane from the start.
-var rejectReasons = []worker.Reason{worker.ReasonQueueFull, worker.ReasonNoWorker, reasonBodyBudget}
+var rejectReasons = []worker.Reason{worker.ReasonQueueFull, worker.ReasonNoWorker, worker.ReasonOverload,
+	reasonBodyBudget}
 
 // poolMetrics counts a pool's events (it is the pool's worker.Observer).
 // The series of a lane exist from when the lane is added, before the pool
@@ -39,8 +40,9 @@ func newPoolMetrics(reg *metrics.Registry, cluster string) *poolMetrics {
 				"of its own, empty for the pool's default lane.", metrics.DurationBuckets, "cluster", "route"),
 		rejVec: reg.NewCounterVec("kest_pool_rejected_total",
 			"Requests turned away with 503, by lane and reason: queue_full (max_queue_size requests waiting in the "+
-				"lane), no_worker (none free within the lane's queue timeout) or body_budget (max_buffered_bodies "+
-				"full).", "cluster", "route", "reason"),
+				"lane), no_worker (none free within the lane's queue timeout), overload (none free within "+
+				"pool.overload.queue_timeout in a lane whose queue hasn't been empty for pool.overload.interval) or "+
+				"body_budget (max_buffered_bodies full).", "cluster", "route", "reason"),
 		lanes:    make(map[string]*laneMetrics),
 		replaced: make(map[worker.Reason]*metrics.Counter),
 	}

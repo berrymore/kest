@@ -58,7 +58,8 @@ type job struct {
 	gone    chan struct{}  // closed when the caller stopped waiting for the result
 
 	// Set when the job joins its lane's queue, under Pool.mu.
-	queued, deadline time.Time // deadline: queued plus the lane's queue timeout
+	queued, deadline time.Time // deadline: queued plus the lane's queue timeout, or OverloadQueueTimeout
+	shed             bool      // the lane was overloaded when the job came: OverloadQueueTimeout bounds its wait
 	seq              uint64
 	prev, next       *job
 	inQueue          bool

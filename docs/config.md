@@ -426,7 +426,8 @@ routes:
 
 Priority is strict: while higher lanes keep every worker busy, a lower lane gets none, and its requests get `503`
 after their `queue_timeout`. Under overload, that turns away the less important requests first. Lanes share the
-cluster's `max_buffered_bodies`.
+cluster's `max_buffered_bodies`. A lane with `max_workers` or `queue_timeout` is left out of the pool's overload
+control: its waits are what the route asks for.
 
 **`direct_response`**
 
@@ -532,6 +533,8 @@ Uploads count towards `max_request_body`.
 | `max_jobs` | `0` (unlimited) | Requests per worker before it is replaced; each worker's limit gets up to 14 % extra, so workers don't restart together. |
 | `max_queue_size` | `1000` | Requests that may wait for a free worker in each lane (see [`route`](#routes)); more get `503` at once. |
 | `allocate_timeout` | `60s` | How long a request waits for a free worker before it gets `503`, unless its route sets `queue_timeout`. |
+| `overload.queue_timeout` | `500ms` | In an overloaded lane, the longest wait for a worker; `0s` turns overload control off. |
+| `overload.interval` | `5s` | A lane is overloaded once requests have waited in it without a break for this long: until then, they wait up to `allocate_timeout`. |
 | `start_timeout` | `60s` | How long a new worker may take to start, including the application's boot. |
 | `destroy_timeout` | `10s` | How long a worker may take to exit after it is asked to stop; then it is killed. |
 

@@ -1,7 +1,7 @@
 # Operations guide
 
 How to run kest in production: processes, the proxy in front, TLS, signals, probes, deploys, sizing, isolating
-slow endpoints, monitoring and troubleshooting. Option details are in the [configuration reference](config.md), metrics in
+slow endpoints, overload, monitoring and troubleshooting. Option details are in the [configuration reference](config.md), metrics in
 [Metrics](metrics.md).
 
 ## Running kest
@@ -185,6 +185,22 @@ routes:
 
 Watch the lanes with `kest_pool_wait_seconds`, `kest_pool_queue_length`, `kest_pool_lane_workers` and
 `kest_pool_rejected_total`, labeled by the route's name (`route=""` is the default lane), and in `/clusters`.
+
+## Overload
+
+When more requests come than the pool serves, a queue that only grows makes everything worse: requests wait as long
+as their clients do, and the workers serve requests whose clients have already given up. kest's overload control
+(`pool.overload`, on by default) sees a lane in which requests have waited without a break for 5 s and from then on
+lets its requests wait at most 500 ms; the others get `503` with `Retry-After` at once, and the served ones get a
+worker quickly. Below the pool's capacity it never acts. [Benchmarks](benchmarks.md#overload-control) has the
+measurements: with requests of 100 ms at twice the capacity, a pool without it served 7 requests per second of 40.
+
+- Lanes with `max_workers` or `queue_timeout` are left out: their waits are what the route asks for.
+- An application whose requests take seconds may see its queue go 5 s without a break under normal load: raise
+  `overload.interval` and `overload.queue_timeout` (keep the timeout around a few typical requests), or turn it off
+  with `overload: {queue_timeout: 0s}`.
+- `kest_pool_rejected_total{reason="overload"}` counts what it turned away. Requests turned away because the pool
+  is too small call for more workers or more instances, not for a longer queue.
 
 ## Monitoring
 

@@ -307,6 +307,10 @@ Stopped ──▶ Starting ──▶ Ready ⇄ Working ──▶ Stopping ──
   list and gives back a job handed to it meanwhile, to the head of its lane (failed instead if its queue timeout has
   passed or the pool stops, dropped if its caller is gone). A lane's busy count drops when the slot is done with the
   job, the last stream frame included.
+- Overload control (CoDel, `OverloadQueueTimeout`/`OverloadInterval`, 500ms/5s by default): a lane is overloaded
+  once jobs have waited in it without a break for the interval (`backlogSince`, reset only when a worker takes the
+  last waiting job). Its new jobs then wait at most the overload timeout (`ErrOverloaded`), and `nextLocked` sheds
+  the heads that waited longer. Lanes with `MaxWorkers` or `QueueTimeout` are left out.
 - A worker is never recycled mid-request, except on `exec_ttl` or a crash: that request fails.
 - A caller that gives up (client gone, route timeout) doesn't kill the worker: the job finishes within
   `exec_ttl` and the result is dropped.

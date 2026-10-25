@@ -23,6 +23,12 @@ type Config struct {
 	DestroyTimeout  time.Duration // how long a worker may take to exit after the stop frame
 	MaxFrameSize    int           // largest payload accepted from a worker, in bytes
 
+	// Overload control (CoDel, as in Facebook's "Fail at scale"): a lane
+	// whose queue hasn't been empty for OverloadInterval is overloaded, and
+	// its new jobs wait at most OverloadQueueTimeout for a worker; 0 = off.
+	OverloadQueueTimeout time.Duration
+	OverloadInterval     time.Duration
+
 	TTL             time.Duration // a worker's maximum lifetime; 0 = unlimited
 	IdleTTL         time.Duration // a worker idle this long is replaced; 0 = never
 	ExecTTL         time.Duration // a job's maximum duration; the worker is killed after it; 0 = unlimited
@@ -49,6 +55,12 @@ func DefaultConfig() Config {
 		MaxFrameSize:    64 << 20,
 		ExecTTL:         60 * time.Second,
 		WatchTick:       5 * time.Second,
+
+		// Measured in plan M5 step 6: never kicks in below the pool's
+		// capacity, and keeps waits near 500ms instead of the clients'
+		// patience above it.
+		OverloadQueueTimeout: 500 * time.Millisecond,
+		OverloadInterval:     5 * time.Second,
 	}
 }
 
@@ -105,6 +117,12 @@ func (c *Config) Validate() error {
 		if d.value < 0 {
 			add(d.field, "must not be negative, got %s", d.value)
 		}
+	}
+	if c.OverloadQueueTimeout < 0 {
+		add("OverloadQueueTimeout", "must not be negative, got %s", c.OverloadQueueTimeout)
+	}
+	if c.OverloadQueueTimeout > 0 && c.OverloadInterval <= 0 {
+		add("OverloadInterval", "must be positive while overload control is on, got %s", c.OverloadInterval)
 	}
 	if c.MaxWorkerMemory < 0 {
 		add("MaxWorkerMemory", "must not be negative, got %d", c.MaxWorkerMemory)

@@ -30,7 +30,8 @@ func ErrorStatus(err error) int {
 		return http.StatusRequestTimeout
 	case isType[*RequestError](err):
 		return http.StatusBadRequest
-	case errors.Is(err, worker.ErrQueueFull), errors.Is(err, worker.ErrNoWorker), errors.Is(err, worker.ErrStopped):
+	case errors.Is(err, worker.ErrQueueFull), errors.Is(err, worker.ErrNoWorker), errors.Is(err, worker.ErrOverloaded),
+		errors.Is(err, worker.ErrStopped):
 		return http.StatusServiceUnavailable
 	case errors.Is(err, worker.ErrExecTimeout), errors.Is(err, context.DeadlineExceeded):
 		return http.StatusGatewayTimeout

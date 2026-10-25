@@ -108,3 +108,51 @@ so rough):
   and also works with `roadrunner/http` 2.x–3.4. With `proto`, install `ext-protobuf`.
 - These are numbers for one laptop and a minimal worker; run `make bench` on your hardware with your
   worker's typical requests before drawing conclusions for production.
+
+## Overload control
+
+What `pool.overload` does when more requests come than the pool can serve, measured on 2026-10-25 for M5 (plan
+`.ai/plans/M5-pools.md`, D4). Two ways:
+
+- **In virtual time:** [`TestOverloadExperiment`](../internal/worker/overload_experiment_test.go)
+  (`KEST_EXPERIMENT=1 go test -run OverloadExperiment -v ./internal/worker/`): a pool of 4 fake workers, requests
+  arriving at random (Poisson) at a share of the pool's capacity, random (exponential) service times, clients that
+  give up after 5 s; 50 s measured after 10 s. No machine noise, and the same arrivals for every setting.
+- **With PHP:** the worker of `internal/cluster/phpworkers/testdata/php`, 4 workers, `GET /sleep/20`, and
+  `loadgen -rate`, which sends requests at a fixed rate whatever the answers take (as users do), each giving up
+  after 5 s; 20 s measured after 5 s.
+
+In virtual time, the share of requests served, the latency of the served ones (p50 / p99), and the share that got
+`503` (the rest gave up waiting):
+
+| Mean service | Load | Off | `queue_timeout: 1s` | 100ms / 1s | 500ms / 5s (default) |
+|---|---|---|---|---|---|
+| 20 ms | 80 % | 100 %, 26 / 142 ms | 100 %, 26 / 142 ms | 100 %, 26 / 142 ms | 100 %, 26 / 142 ms |
+| 20 ms | 95 % | 100 %, 69 / 437 ms | 100 %, 69 / 437 ms | 98 %, 54 / 189 ms, 2 % 503 | 100 %, 69 / 437 ms |
+| 20 ms | 120 % | 87 %, 4.9 / 5.0 s, 9 % 503 | 85 %, 1.0 / 1.1 s | 85 %, 97 / 277 ms | 85 %, 493 / 573 ms |
+| 20 ms | 200 % | 45 %, 4.9 / 5.0 s, 49 % 503 | 50 %, 1.0 / 1.1 s | 50 %, 110 / 188 ms | 50 %, 509 / 587 ms |
+| 100 ms | 80 % | 100 %, 112 / 586 ms | 100 %, 112 / 586 ms | 99 %, 107 / 577 ms, 1 % 503 | 100 %, 112 / 586 ms |
+| 100 ms | 95 % | 100 %, 208 / 772 ms | 100 %, 208 / 772 ms | 95 %, 142 / 617 ms, 5 % 503 | 100 %, 208 / 772 ms |
+| 100 ms | 120 % | 71 %, 3.6 / 5.0 s, 29 % gave up | 88 %, 0.96 / 1.4 s | 84 %, 180 / 699 ms | 87 %, 483 ms / 1.3 s |
+| 100 ms | 200 % | **9 %**, 5.0 / 5.0 s, 91 % gave up | 52 %, 1.0 / 1.4 s | 51 %, 172 / 742 ms | 52 %, 546 / 940 ms |
+
+With PHP at 400 requests/s (about twice what 4 workers sleeping 20 ms serve), two runs each:
+
+| `pool.overload` | Served/s | p50 | p99 | `503` | Gave up |
+|---|---|---|---|---|---|
+| default (500ms / 5s) | 174 | 0.52 s | 2.7 s | 55 % | 0 |
+| off (`queue_timeout: 0s`) | 88–104 | 3.7–4.3 s | 5.0 s | 39 % | 28–33 % |
+
+At 170 requests/s (about 94 % of the pool) both served everything (p99 175 ms with the default, 252 ms off).
+
+- **Without overload control, overload ends in a collapse:** with 100 ms requests at twice the capacity, the pool
+  served 7 requests per second of the 40 it can. Requests wait in a queue as long as clients wait, so the worker
+  takes the oldest, whose clients give up while it serves them; the work is lost. With PHP the pool served half of
+  what it can, and a third of the clients gave up.
+- **500ms / 5s, the default, doesn't act below the pool's capacity** in any run (80 % and 95 % load, 20 ms and
+  100 ms requests, PHP at 94 %), and above it keeps the wait of served requests near 0.5 s, the rest getting
+  `503` with `Retry-After` within 0.5 s. The p99 of 2.7 s with PHP is the first 5 s of the overload, before it is
+  seen.
+- **Smaller values** (100ms / 1s) answer faster under overload but turn away up to 5 % of the requests at 95 % load,
+  and more when requests are slow. Choose them only for an application whose requests are fast and even.
+- **A static `queue_timeout`** also avoids the collapse, but every served request waits about that long.

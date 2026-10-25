@@ -32,7 +32,8 @@ func (p Priority) String() string {
 	}
 }
 
-// LaneConfig configures a lane: a queue of its own in a pool.
+// LaneConfig configures a lane: a queue of its own in a pool. A lane with
+// MaxWorkers or QueueTimeout is left out of overload control.
 type LaneConfig struct {
 	Name         string        // required; labels the lane in Observer calls and LaneInfo
 	MaxWorkers   int           // at most this many workers run the lane's jobs at once; 0 = no limit
@@ -45,13 +46,18 @@ type LaneConfig struct {
 // holds up to MaxQueueSize waiting jobs. Pool.Exec uses the pool's default
 // lane, which has no limit, normal priority and AllocateTimeout.
 type Lane struct {
-	pool    *Pool
-	cfg     LaneConfig
-	timeout time.Duration // QueueTimeout, or the pool's AllocateTimeout
+	pool     *Pool
+	cfg      LaneConfig
+	timeout  time.Duration // QueueTimeout, or the pool's AllocateTimeout
+	overload bool          // overload control applies: it is on, and the lane has no QueueTimeout or MaxWorkers
 
 	// Guarded by pool.mu.
 	queue jobQueue
 	busy  int // jobs handed to workers and not finished yet
+	// backlogSince is when jobs began to wait in the lane without a break: it
+	// is reset only when a worker takes the last waiting job, not when jobs
+	// leave the queue because they timed out or were shed.
+	backlogSince time.Time
 }
 
 // LaneInfo describes a lane and what it is doing.
@@ -102,6 +108,9 @@ func newLane(p *Pool, cfg LaneConfig) *Lane {
 	if l.timeout == 0 {
 		l.timeout = p.cfg.AllocateTimeout
 	}
+	// A lane's own timeout or limit makes its waits what its route asks for:
+	// overload control is for waits nobody chose.
+	l.overload = p.cfg.OverloadQueueTimeout > 0 && cfg.QueueTimeout == 0 && cfg.MaxWorkers == 0
 	return l
 }
 
@@ -168,7 +177,11 @@ func (l *Lane) exec(ctx context.Context, req Payload) (Payload, *Stream, error) 
 		return Payload{}, nil, ErrQueueFull
 	}
 	j.queued = time.Now()
-	j.deadline = j.queued.Add(l.timeout)
+	wait := l.timeout
+	if p.overloadedLocked(l, j.queued) {
+		wait, j.shed = min(wait, p.cfg.OverloadQueueTimeout), true
+	}
+	j.deadline = j.queued.Add(wait)
 	p.enqueueLocked(j)
 	p.dispatchLocked()
 	queued := j.inQueue
@@ -176,7 +189,7 @@ func (l *Lane) exec(ctx context.Context, req Payload) (Payload, *Stream, error) 
 
 	var timeout <-chan time.Time
 	if queued {
-		timer := time.NewTimer(l.timeout)
+		timer := time.NewTimer(wait)
 		defer timer.Stop()
 		timeout = timer.C
 	}
@@ -188,8 +201,9 @@ func (l *Lane) exec(ctx context.Context, req Payload) (Payload, *Stream, error) 
 		case <-timeout:
 			timeout = nil
 			if p.dequeue(j) {
-				p.obs.Rejected(l.cfg.Name, ReasonNoWorker)
-				return Payload{}, nil, ErrNoWorker
+				reason, err := j.timedOut()
+				p.obs.Rejected(l.cfg.Name, reason)
+				return Payload{}, nil, err
 			}
 			// A worker has the job: wait for its answer.
 		case <-ctx.Done():
@@ -213,10 +227,52 @@ func (l *Lane) exec(ctx context.Context, req Payload) (Payload, *Stream, error) 
 // under p.mu, so a slot that leaves the idle list (a limit, a reset, stop)
 // can tell whether a job was handed to it, and gives it back.
 
+// overloadedLocked reports whether a lane is overloaded at now: jobs have
+// waited in it without a break for OverloadInterval. That is CoDel's test for
+// a standing queue, in the form Facebook describes for RPC servers ("Fail at
+// scale", ACM Queue, 2015). In an overloaded lane, new jobs wait at most
+// OverloadQueueTimeout, and a free worker sheds the jobs at the head that
+// have waited longer (shedLocked), so the queue turns into fast rejections
+// instead of long waits. A lane with a QueueTimeout or MaxWorkers of its own
+// is left alone.
+func (p *Pool) overloadedLocked(l *Lane, now time.Time) bool {
+	return l.overload && !l.backlogSince.IsZero() && now.Sub(l.backlogSince) >= p.cfg.OverloadInterval
+}
+
+// shedLocked rejects the jobs at the head of an overloaded lane that have
+// waited longer than OverloadQueueTimeout: they came before the overload was
+// seen, with the lane's long timeout.
+func (p *Pool) shedLocked(l *Lane) {
+	if l.queue.head == nil || !l.overload || l.backlogSince.IsZero() {
+		return
+	}
+	now := time.Now()
+	if !p.overloadedLocked(l, now) {
+		return
+	}
+	for j := l.queue.head; j != nil && now.Sub(j.queued) > p.cfg.OverloadQueueTimeout; j = l.queue.head {
+		p.removeLocked(j)
+		p.obs.Rejected(l.cfg.Name, ReasonOverload)
+		j.result <- jobResult{err: ErrOverloaded} // its caller waits for it; nothing else was sent
+	}
+}
+
+// timedOut is the reason and the error of a job that got no worker before
+// its deadline.
+func (j *job) timedOut() (Reason, error) {
+	if j.shed {
+		return ReasonOverload, ErrOverloaded
+	}
+	return ReasonNoWorker, ErrNoWorker
+}
+
 // enqueueLocked puts a new job at the end of its lane's queue.
 func (p *Pool) enqueueLocked(j *job) {
 	p.seq++
 	j.seq = p.seq
+	if j.lane.backlogSince.IsZero() {
+		j.lane.backlogSince = j.queued
+	}
 	j.lane.queue.pushBack(j)
 	p.waiting.Add(1)
 }
@@ -229,9 +285,14 @@ func (p *Pool) dequeue(j *job) bool {
 	if !j.inQueue {
 		return false
 	}
+	p.removeLocked(j)
+	return true
+}
+
+// removeLocked takes a queued job out of its lane's queue.
+func (p *Pool) removeLocked(j *job) {
 	j.lane.queue.remove(j)
 	p.waiting.Add(-1)
-	return true
 }
 
 // nextLocked returns the job a free worker takes next: the oldest of the
@@ -239,6 +300,7 @@ func (p *Pool) dequeue(j *job) bool {
 func (p *Pool) nextLocked() *job {
 	var best *job
 	for _, l := range p.lanes {
+		p.shedLocked(l)
 		j := l.queue.head
 		if j == nil || (l.cfg.MaxWorkers > 0 && l.busy >= l.cfg.MaxWorkers) {
 			continue
@@ -253,8 +315,10 @@ func (p *Pool) nextLocked() *job {
 
 // assignLocked hands a queued job to a slot that isn't on the idle list.
 func (p *Pool) assignLocked(j *job, s *slot) {
-	j.lane.queue.remove(j)
-	p.waiting.Add(-1)
+	p.removeLocked(j)
+	if j.lane.queue.n == 0 {
+		j.lane.backlogSince = time.Time{} // a worker took the last waiting job
+	}
 	j.lane.busy++
 	s.jobs <- j // the slot holds no other job: never blocks
 }
@@ -318,9 +382,13 @@ func (p *Pool) requeueLocked(j *job) {
 	case p.run.Err() != nil:
 		j.result <- jobResult{err: ErrStopped}
 	case !time.Now().Before(j.deadline):
-		p.obs.Rejected(j.lane.cfg.Name, ReasonNoWorker)
-		j.result <- jobResult{err: ErrNoWorker}
+		reason, err := j.timedOut()
+		p.obs.Rejected(j.lane.cfg.Name, reason)
+		j.result <- jobResult{err: err}
 	default:
+		if j.lane.backlogSince.IsZero() {
+			j.lane.backlogSince = time.Now()
+		}
 		j.lane.queue.pushFront(j)
 		p.waiting.Add(1)
 		p.dispatchLocked()

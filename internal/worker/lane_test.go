@@ -430,3 +430,120 @@ func TestDispatcher(t *testing.T) {
 		}
 	})
 }
+
+// overloadConfig is a pool of one worker with overload control: 500ms after
+// 5s of an unbroken backlog, as by default.
+func overloadConfig(rec *recorder) Config {
+	cfg := testConfig(1)
+	cfg.AllocateTimeout = time.Minute
+	cfg.ExecTTL = 0
+	cfg.OverloadQueueTimeout = 500 * time.Millisecond
+	cfg.OverloadInterval = 5 * time.Second
+	cfg.Observer = rec
+	return cfg
+}
+
+// A lane with a backlog for OverloadInterval sheds: new jobs wait at most
+// OverloadQueueTimeout, and the jobs at its head that waited longer are
+// turned away when a worker comes free.
+func TestOverload(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var fake workertest.Fake
+		rec := newRecorder()
+		p := startTestPool(t, overloadConfig(rec), &fake)
+
+		var wg sync.WaitGroup
+		wg.Go(func() { mustExec(t, p, "sleep 10s") }) // the worker is busy until 10s
+		synctest.Wait()
+		var early [3]error
+		for i := range early {
+			wg.Go(func() { _, early[i] = execBody(t, p, "early") }) // wait with the lane's minute
+		}
+		time.Sleep(6 * time.Second) // a backlog for 6s: overloaded
+
+		start := time.Now()
+		if _, err := execBody(t, p, "late"); !errors.Is(err, ErrOverloaded) {
+			t.Errorf("Exec in an overloaded lane = %v, want %v", err, ErrOverloaded)
+		}
+		if elapsed := time.Since(start); elapsed != 500*time.Millisecond {
+			t.Errorf("turned away after %s, want 500ms", elapsed)
+		}
+
+		// At 10s the worker is free: the early jobs have waited 10s, longer
+		// than 500ms, and are shed instead of run.
+		wg.Wait()
+		for i, err := range early {
+			if !errors.Is(err, ErrOverloaded) {
+				t.Errorf("early job %d = %v, want %v", i, err, ErrOverloaded)
+			}
+		}
+		if n := rec.rejectedIn[" overload"]; n != 4 {
+			t.Errorf("%d overload rejections, want 4", n)
+		}
+
+		// A worker took the last job (nothing waits): no longer overloaded.
+		var wg2 sync.WaitGroup
+		wg2.Go(func() { mustExec(t, p, "sleep 2s") })
+		synctest.Wait()
+		mustExec(t, p, "waits 2s")
+		wg2.Wait()
+	})
+}
+
+// Only a worker that takes the last waiting job ends a backlog: jobs that
+// time out or leave don't, so a lane can't escape overload control by
+// turning its own queue away.
+func TestOverloadBacklog(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var fake workertest.Fake
+		rec := newRecorder()
+		cfg := overloadConfig(rec)
+		p := newTestPool(t, cfg, &fake)
+		quick := mustLane(t, p, LaneConfig{Name: "quick", QueueTimeout: time.Second})
+		capped := mustLane(t, p, LaneConfig{Name: "capped", MaxWorkers: 1})
+		if err := p.Start(t.Context()); err != nil {
+			t.Fatalf("Start: %v", err)
+		}
+		t.Cleanup(func() { _ = p.Stop(context.Background()) })
+
+		var wg sync.WaitGroup
+		defer wg.Wait()
+		wg.Go(func() { mustExec(t, p, "sleep 1h") })
+		synctest.Wait()
+
+		// A caller that leaves empties the queue, but the backlog goes on.
+		ctx, cancel := context.WithTimeout(t.Context(), 4*time.Second)
+		defer cancel()
+		if _, err := p.Exec(ctx, Payload{Body: []byte("leaves")}); !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("Exec = %v", err)
+		}
+		time.Sleep(2 * time.Second) // 6s since the backlog began
+		if _, err := execBody(t, p, "late"); !errors.Is(err, ErrOverloaded) {
+			t.Errorf("Exec after a backlog of 6s with an empty queue = %v, want %v", err, ErrOverloaded)
+		}
+
+		// Lanes with a queue timeout or a worker limit of their own keep their
+		// waits, however long their backlog.
+		for _, tt := range []struct {
+			lane *Lane
+			want time.Duration
+		}{{quick, time.Second}, {capped, time.Minute}} {
+			var mine sync.WaitGroup
+			for range 2 {
+				mine.Go(func() {
+					start := time.Now()
+					_, err := tt.lane.Exec(t.Context(), Payload{Body: []byte("x")})
+					if elapsed := time.Since(start); !errors.Is(err, ErrNoWorker) || elapsed != tt.want {
+						t.Errorf("%s Exec = %v after %s, want %v after %s", tt.lane.cfg.Name, err, elapsed, ErrNoWorker,
+							tt.want)
+					}
+				})
+				time.Sleep(6 * time.Second) // the second comes after a backlog of 6s
+			}
+			mine.Wait()
+		}
+		if rec.rejectedIn["quick overload"] != 0 || rec.rejectedIn["capped overload"] != 0 {
+			t.Errorf("rejections: %v", rec.rejectedIn)
+		}
+	})
+}

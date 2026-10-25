@@ -25,6 +25,7 @@ type Reason string
 const (
 	ReasonQueueFull Reason = "queue_full" // MaxQueueSize callers were waiting in the lane already
 	ReasonNoWorker  Reason = "no_worker"  // no worker became free within the lane's queue timeout
+	ReasonOverload  Reason = "overload"   // no worker became free within OverloadTarget, in an overloaded lane
 )
 
 // Reasons for Observer.Replaced.
