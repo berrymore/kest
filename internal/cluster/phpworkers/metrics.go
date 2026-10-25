@@ -40,9 +40,9 @@ func newPoolMetrics(reg *metrics.Registry, cluster string) *poolMetrics {
 	return m
 }
 
-func (m *poolMetrics) Waited(d time.Duration) { m.wait.Observe(d.Seconds()) }
+func (m *poolMetrics) Waited(_ string, d time.Duration) { m.wait.Observe(d.Seconds()) }
 
-func (m *poolMetrics) Rejected(reason worker.Reason) {
+func (m *poolMetrics) Rejected(_ string, reason worker.Reason) {
 	if c := m.rejected[reason]; c != nil {
 		c.Inc()
 	}

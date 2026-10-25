@@ -15,26 +15,31 @@ import (
 
 // recorder is an Observer that keeps what it is told.
 type recorder struct {
-	mu       sync.Mutex
-	waits    []time.Duration
-	rejected map[Reason]int
-	replaced map[Reason]int
+	mu         sync.Mutex
+	waits      []time.Duration
+	waitedIn   map[string]int // by lane
+	rejected   map[Reason]int
+	rejectedIn map[string]int // by "lane reason"
+	replaced   map[Reason]int
 }
 
 func newRecorder() *recorder {
-	return &recorder{rejected: map[Reason]int{}, replaced: map[Reason]int{}}
+	return &recorder{waitedIn: map[string]int{}, rejected: map[Reason]int{}, rejectedIn: map[string]int{},
+		replaced: map[Reason]int{}}
 }
 
-func (r *recorder) Waited(d time.Duration) {
+func (r *recorder) Waited(lane string, d time.Duration) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.waits = append(r.waits, d)
+	r.waitedIn[lane]++
 }
 
-func (r *recorder) Rejected(reason Reason) {
+func (r *recorder) Rejected(lane string, reason Reason) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.rejected[reason]++
+	r.rejectedIn[lane+" "+string(reason)]++
 }
 
 func (r *recorder) Replaced(reason Reason) {

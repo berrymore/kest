@@ -183,9 +183,9 @@ Milestone definitions: `roadmap.md`.
 IDs start at K-140: the milestones were renumbered on 2026-10-25 (ADR-0008), and WASM keeps its K-100 range. Plan:
 `plans/M5-pools.md`. Narrowed with the user on 2026-10-25: the pool is the focus.
 
-- [ ] K-151 Lanes: a route's own queue in its cluster's pool, with `max_workers` (at most that many of the pool's
+- [~] K-151 Lanes: a route's own queue in its cluster's pool, with `max_workers` (at most that many of the pool's
   workers serve the route at once) and a `queue_timeout` (plan D2, D3).
-- [ ] K-905 Per-route priority within one pool (Q-F): a free worker takes the oldest request of the highest-priority
+- [~] K-905 Per-route priority within one pool (Q-F): a free worker takes the oldest request of the highest-priority
   lane (plan D2).
 - [ ] K-144 Fast rejection under overload: `Retry-After` on every `503` of the pool, per-route `queue_timeout`, and
   an adaptive queue timeout (CoDel) once a measurement shows it helps (plan D3, D4).

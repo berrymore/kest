@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-10-25 (M5 on `feat/m5-pools`: K-910 committed; step 3, the lanes, in progress)_
+_Last updated: 2026-10-25 (M5 on `feat/m5-pools`: steps 1–3 committed; step 4, route options to lanes, next)_
 
 ## Current phase
 
@@ -15,18 +15,21 @@ priority, a queue timeout), fast rejection under overload, a dynamic size, `X-Se
 **M5 — Worker pools and routing to them**, on `feat/m5-pools` (from `main` at the K-148 commit). The user narrowed
 the milestone to the pool (2026-10-25): K-142 weighted clusters dropped, K-145…K-147 (authentication, rate limiting,
 external authorization) to the icebox, K-141 to M6. `plans/M5-pools.md` (Active, approved) has decisions D1–D10 and steps
-1–13. Steps 1 (the plan) and 2 (K-910 route names) are committed; step 3 (lanes
-in `worker.Pool`) is in progress. The agent commits each item itself after a green `make check` until the end of
+1–13. Steps 1 (the plan), 2 (K-910 route names) and 3 (lanes in `worker.Pool`:
+`internal/worker/lane.go`) are committed; step 4 is next. The agent commits each item itself after a green `make check` until the end of
 M5; the PR waits for the user's OK.
 
 ## Next up: how to continue in a fresh session
 
 1. **Git first:** `git checkout feat/m5-pools`; `git log --oneline -3` shows the `docs:` commit of the plan on top
    of K-148.
-2. **Step 3, lanes in `worker.Pool`** (plan D2): read `architecture.md` § 4–5, `internal/worker/pool.go` and its
-   tests first. Replace the unbuffered jobs channel with a dispatcher (per-lane queues, idle slots, one mutex);
-   `Pool.Lane(LaneConfig)`; keep the existing pool tests green; synctest tests for ordering, limits, timeouts and
-   the hand-over race; compare a Go benchmark of `Exec` and `make bench` with the K-148 numbers.
+2. **Step 4, route options to lanes** (plan D2, D3; K-151, K-905, K-144): `route.max_workers`, `priority`,
+   `queue_timeout` in `internal/config` (validation: a route with any of them needs a `name`); the router asks the
+   cluster for a per-route handler (today `httpx.ClusterLookup func(name string) (http.Handler, bool)`; an optional
+   interface in `internal/cluster`, errors located at the route); `php_workers` makes a `worker.Lane` per such route
+   (`Pool.Lane`, before `Start`), `retry_after` on its 503s, the `route` label on `kest_pool_wait_seconds`,
+   `kest_pool_queue_length`, `kest_pool_rejected_total`, new `kest_pool_lane_workers`, lanes in `/clusters`. Unit
+   tests and an e2e test with fake workers; then step 5 (PHP integration test, docs).
 
 ## Open questions (need a decision from the user)
 

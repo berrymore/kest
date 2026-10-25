@@ -212,13 +212,20 @@ func (p *Pool) Start(ctx context.Context) error   // all workers handshaked, or 
 func (p *Pool) Stop(ctx context.Context) error    // jobs finish, stop frames, kill at the deadline
 func (p *Pool) Exec(ctx context.Context, req Payload) (Payload, error)          // a stream joined, up to MaxFrameSize
 func (p *Pool) ExecStream(ctx context.Context, req Payload) (Payload, *Stream, error)
+// Lanes (M5): queues of their own, added before Start; Exec and ExecStream above use the default lane.
+func (p *Pool) Lane(cfg LaneConfig) (*Lane, error) // Name, MaxWorkers (0 = no limit), Priority, QueueTimeout
+func (l *Lane) Exec / ExecStream                   // as the pool's, in the lane
+func (p *Pool) Lanes() []LaneInfo                  // the default lane first: config, queued, busy
+// A free worker takes the oldest job of the highest-priority lane under its MaxWorkers; MaxQueueSize bounds each
+// lane's queue.
 // A streamed answer (STREAM bit): the first frame, then Stream.Next(ctx) (Payload, ok, error) until ok is false;
 // Stream.Close sends STOP and drops the rest. The slot goroutine answers PING with PONG; ExecTTL bounds each frame.
 func (p *Pool) Workers() []Info                   // per slot: state, pid, jobs, started, memory
 func (p *Pool) Health() Health                    // healthy / degraded / unhealthy
 func (p *Pool) Waiting() int                      // callers waiting for a free worker
 func (p *Pool) Reset(ctx context.Context) error   // rolling replacement, one slot at a time; ErrResetRunning
-// Config.Observer (optional) hears Waited(d), Rejected(reason) and Replaced(reason); reasons are metric labels.
+// Config.Observer (optional) hears Waited(lane, d), Rejected(lane, reason) and Replaced(reason); reasons are
+// metric labels.
 // Errors: ErrQueueFull, ErrNoWorker, ErrStopped, ErrStopRequested, ErrStreamTooLarge (Exec only),
 // *JobError (soft, worker kept),
 // *ProcessError (worker gone; wraps ErrExecTimeout or ErrStartTimeout on timeouts, *StdoutError
@@ -291,6 +298,12 @@ Stopped ──▶ Starting ──▶ Ready ⇄ Working ──▶ Stopping ──
 | Backoff | 100 ms … 30 s elapsed (exponential, jitter) | Starting |
 | Ready | `Pool.Reset` hands over a booted process | Ready with the new process; the old one stops in the background |
 
+- Dispatch (`lane.go`): a ready slot parks: under the pool's mutex it takes the next job a lane may hand out, or joins
+  the idle list (longest idle first); a new job goes straight to an idle slot. Jobs reach a slot on its own channel
+  (capacity 1), so a parked slot that leaves for another event (a limit, a reset, stop) takes itself off the idle
+  list and gives back a job handed to it meanwhile, to the head of its lane (failed instead if its queue timeout has
+  passed or the pool stops, dropped if its caller is gone). A lane's busy count drops when the slot is done with the
+  job, the last stream frame included.
 - A worker is never recycled mid-request, except on `exec_ttl` or a crash: that request fails.
 - A caller that gives up (client gone, route timeout) doesn't kill the worker: the job finishes within
   `exec_ttl` and the result is dropped.

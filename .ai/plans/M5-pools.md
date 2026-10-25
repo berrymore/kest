@@ -179,7 +179,7 @@ end to end. The user can look at it before the rest.
    matching, Symfony's `X-Sendfile` (this change) — acceptance: the user approves the plan.
 2. [x] K-910 route names and the `route` label — acceptance: two named routes to one cluster show as two series;
    names are validated unique; `access_log` writes the route; `docs/config.md` and `docs/metrics.md` updated.
-3. [ ] K-151 lanes in `worker.Pool` (D2): dispatcher, per-lane queues, `max_workers`, priority, queue timeout;
+3. [x] K-151 lanes in `worker.Pool` (D2): dispatcher, per-lane queues, `max_workers`, priority, queue timeout;
    synctest tests for ordering, limits, timeouts, the hand-over race and stop; the existing pool tests unchanged
    and green — acceptance: `go test -race ./internal/worker/...`; a Go benchmark of `Exec` and `make bench` no
    slower than before (K-148 numbers).
@@ -224,3 +224,12 @@ end to end. The user can look at it before the rest.
 - 2026-10-25 — Step 2 (K-910): a named route labels every request it serves, also those its `direct_response`,
   `redirect` or filters answer (`static`); the router marks the route when it is chosen (`chosen`) and the cluster
   when it is reached (`routed`). `examples/php-hello` names its routes; its e2e test checks the series.
+- 2026-10-25 — Step 3 (K-151, K-905 in the pool): `internal/worker/lane.go`. The existing pool tests pass unchanged
+  (two read `p.waiting`, which stays); new synctest tests for limits, priority, queue timeouts and per-lane queues,
+  and a step-by-step test of the hand-over (checked by breaking the code: each of four mutations fails a test).
+  A job handed to a parked slot that leaves for another event goes back to the head of its lane; its caller may have
+  seen its queue timeout meanwhile, so the deadline is checked when it goes back. `Observer.Waited` and `Rejected`
+  take the lane. New `BenchmarkPoolExec` (8 fake workers, 48 callers): 3.1 µs → 1.8 µs per job, 21 allocations as
+  before, 904 → 985 bytes. `make bench`-style A/B of the binaries before and after (hello and form, 16 and 64
+  clients, 6 interleaved runs each, `json`, no RoadRunner): medians −2.1 % to +1.9 %, the ranges overlap: no
+  measurable difference.

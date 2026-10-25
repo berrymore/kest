@@ -552,8 +552,8 @@ func TestPoolMetrics(t *testing.T) {
 	}
 
 	m := newPoolMetrics(reg, "app") // the same series as the cluster's
-	m.Waited(20 * time.Millisecond)
-	m.Rejected(worker.ReasonQueueFull)
+	m.Waited("", 20*time.Millisecond)
+	m.Rejected("", worker.ReasonQueueFull)
 	m.Replaced(worker.ReasonMaxJobs)
 	m.Replaced(worker.ReasonMaxJobs)
 	for _, tt := range []struct {

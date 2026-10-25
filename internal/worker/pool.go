@@ -16,9 +16,9 @@ import (
 //
 // Each worker slot is owned by one goroutine that runs it for the pool's
 // lifetime: start a process (with backoff after failures), serve jobs, replace
-// the process when a limit is hit or it dies. Jobs are handed over on an
-// unbuffered channel, so a job only moves when a worker is free, and waiting
-// callers are served in order.
+// the process when a limit is hit or it dies. Jobs wait in lanes (lane.go):
+// queues with their own limits and priorities; a free worker takes the next
+// job a lane may hand out, so waiting callers of a lane are served in order.
 type Pool struct {
 	cfg    Config
 	obs    Observer
@@ -28,8 +28,14 @@ type Pool struct {
 	jitter func(uint64) uint64 // max_jobs jitter, replaced in tests
 	slots  []*slot
 
-	jobs       chan *job
-	waiting    atomic.Int64
+	// The dispatcher's state (lane.go). lanes is fixed once the pool starts;
+	// the default lane is first.
+	mu    sync.Mutex
+	lanes []*Lane
+	idle  []*slot // parked slots without a job, longest idle first
+	seq   uint64  // arrival order of jobs, across lanes
+
+	waiting    atomic.Int64 // jobs in the lanes' queues
 	running    atomic.Bool
 	resetting  atomic.Bool
 	generation atomic.Uint64 // incremented when a reset begins; processes remember theirs
@@ -47,8 +53,15 @@ type spawnFunc func(ctx context.Context) (process, error)
 
 type job struct {
 	payload Payload
+	lane    *Lane
 	result  chan jobResult // buffered: the worker never blocks on it
 	gone    chan struct{}  // closed when the caller stopped waiting for the result
+
+	// Set when the job joins its lane's queue, under Pool.mu.
+	queued, deadline time.Time // deadline: queued plus the lane's queue timeout
+	seq              uint64
+	prev, next       *job
+	inQueue          bool
 }
 
 type jobResult struct {
@@ -87,16 +100,17 @@ func newPool(cfg Config, logger *slog.Logger, spawn spawnFunc) *Pool {
 		spawn:  spawn,
 		sample: sampleRSS,
 		jitter: maxJobsJitter,
-		jobs:   make(chan *job),
 	}
 	if p.obs == nil {
 		p.obs = nopObserver{}
 	}
+	p.lanes = []*Lane{newLane(p, LaneConfig{})}
 	for i := range cfg.Workers {
 		p.slots = append(p.slots, &slot{
 			pool:   p,
 			id:     i,
 			info:   Info{Slot: i, State: StateStopped},
+			jobs:   make(chan *job, 1),
 			memory: make(chan struct{}, 1),
 			swap:   make(chan handoff),
 		})
@@ -172,12 +186,12 @@ func (p *Pool) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Exec runs a job on a free worker. It waits for one up to AllocateTimeout,
-// and fails at once with ErrQueueFull if MaxQueueSize callers are waiting
-// already. ctx bounds the caller's wait, not the job: if ctx ends while the
-// job runs, Exec returns ctx's error and the worker still finishes the job,
-// within ExecTTL. Killing it instead would let clients that disconnect kill
-// workers.
+// Exec runs a job on a free worker, in the pool's default lane. It waits for
+// one up to AllocateTimeout, and fails at once with ErrQueueFull if
+// MaxQueueSize callers are waiting in the lane already. ctx bounds the
+// caller's wait, not the job: if ctx ends while the job runs, Exec returns
+// ctx's error and the worker still finishes the job, within ExecTTL. Killing
+// it instead would let clients that disconnect kill workers.
 //
 // Errors: ErrQueueFull, ErrNoWorker, ErrStopped, ctx's error, a *JobError
 // from the worker, ErrStopRequested if two workers in a row asked to be
@@ -188,81 +202,14 @@ func (p *Pool) Stop(ctx context.Context) error {
 // MaxFrameSize (ErrStreamTooLarge beyond). ExecStream returns it frame by
 // frame.
 func (p *Pool) Exec(ctx context.Context, req Payload) (Payload, error) {
-	resp, stream, err := p.ExecStream(ctx, req)
-	if err != nil || stream == nil {
-		return resp, err
-	}
-	defer stream.Close()
-	body := resp.Body
-	for {
-		f, ok, err := stream.Next(ctx)
-		if err != nil {
-			return Payload{}, err
-		}
-		if !ok {
-			resp.Body = body
-			return resp, nil
-		}
-		if len(body)+len(f.Body) > p.cfg.MaxFrameSize {
-			return Payload{}, ErrStreamTooLarge
-		}
-		body = append(body, f.Body...)
-	}
+	return p.lanes[0].Exec(ctx, req)
 }
 
 // ExecStream runs a job as Exec does. If the worker streams its answer, resp
 // is the first frame and stream delivers the others; the caller must Close
 // it. Otherwise stream is nil. ExecTTL bounds the wait for each frame.
 func (p *Pool) ExecStream(ctx context.Context, req Payload) (resp Payload, stream *Stream, err error) {
-	resp, stream, err = p.exec(ctx, req)
-	if errors.Is(err, ErrStopRequested) {
-		// The worker didn't run the job: give it to another one, once.
-		resp, stream, err = p.exec(ctx, req)
-	}
-	return resp, stream, err
-}
-
-func (p *Pool) exec(ctx context.Context, req Payload) (Payload, *Stream, error) {
-	if !p.running.Load() {
-		return Payload{}, nil, ErrStopped
-	}
-	if err := ctx.Err(); err != nil {
-		return Payload{}, nil, err
-	}
-	if p.waiting.Add(1) > int64(p.cfg.MaxQueueSize) {
-		p.waiting.Add(-1)
-		p.obs.Rejected(ReasonQueueFull)
-		return Payload{}, nil, ErrQueueFull
-	}
-
-	j := &job{payload: req, result: make(chan jobResult, 1), gone: make(chan struct{})}
-	queued := time.Now()
-	timer := time.NewTimer(p.cfg.AllocateTimeout)
-	var err error
-	select {
-	case p.jobs <- j:
-		p.obs.Waited(time.Since(queued))
-	case <-timer.C:
-		err = ErrNoWorker
-		p.obs.Rejected(ReasonNoWorker)
-	case <-ctx.Done():
-		err = ctx.Err()
-	case <-p.run.Done():
-		err = ErrStopped
-	}
-	timer.Stop()
-	p.waiting.Add(-1)
-	if err != nil {
-		return Payload{}, nil, err
-	}
-
-	select {
-	case r := <-j.result:
-		return r.payload, r.stream, r.err
-	case <-ctx.Done():
-		close(j.gone) // a stream that comes now is stopped
-		return Payload{}, nil, ctx.Err()
-	}
+	return p.lanes[0].ExecStream(ctx, req)
 }
 
 // Reset replaces every live worker with a new process, one slot at a time: a
@@ -451,6 +398,7 @@ const (
 type slot struct {
 	pool   *Pool
 	id     int
+	jobs   chan *job     // the job the dispatcher hands to the parked slot, capacity 1
 	memory chan struct{} // the supervisor's "over MaxWorkerMemory", capacity 1
 
 	swap chan handoff // processes booted by Reset, taken between jobs
@@ -565,10 +513,15 @@ func (s *slot) serve(ctx context.Context, proc process) (next *handoff, failedEa
 			s.retire(proc, logger, "pool stopped")
 			return nil, false
 		}
+		// Parked, the slot may get a job at any time. Any other event takes
+		// it off the idle list first (unpark), which gives back a job that
+		// came meanwhile.
+		p.park(s)
 		select {
-		case j := <-p.jobs:
+		case j := <-s.jobs:
 			idle.stop()
 			s.update(func(i *Info) { i.State = StateWorking })
+			p.obs.Waited(j.lane.cfg.Name, time.Since(j.queued))
 			resp, more, err := execute(proc, j.payload, p.cfg.ExecTTL)
 			if err == nil && more {
 				st := newStream()
@@ -577,6 +530,7 @@ func (s *slot) serve(ctx context.Context, proc process) (next *handoff, failedEa
 			} else {
 				j.result <- jobResult{payload: resp, err: err}
 			}
+			p.finish(j)
 			jobs++
 			s.update(func(i *Info) { i.Jobs = jobs })
 
@@ -601,20 +555,25 @@ func (s *slot) serve(ctx context.Context, proc process) (next *handoff, failedEa
 			}
 			idle.reset(p.cfg.IdleTTL)
 		case <-idle.c():
+			p.unpark(s)
 			s.replace(proc, logger, ReasonIdleTTL)
 			return nil, false
 		case <-ttl.c():
+			p.unpark(s)
 			s.replace(proc, logger, ReasonTTL)
 			return nil, false
 		case <-s.memory:
+			p.unpark(s)
 			s.replace(proc, logger, ReasonMemory)
 			return nil, false
 		case <-proc.Done():
+			p.unpark(s)
 			logger.Warn("worker exited", "err", proc.Err(), "stderr", proc.Stderr())
 			s.release(proc)
 			p.obs.Replaced(ReasonCrash)
 			return nil, succeeded == 0 && time.Since(started) < backoffReset
 		case h := <-s.swap:
+			p.unpark(s)
 			if s.gen >= h.gen {
 				// This process started after the reset began: it is new already.
 				p.stopInBackground(h.proc, logger)
@@ -624,6 +583,7 @@ func (s *slot) serve(ctx context.Context, proc process) (next *handoff, failedEa
 			p.obs.Replaced(ReasonReset)
 			return &h, false
 		case <-ctx.Done():
+			p.unpark(s)
 			s.retire(proc, logger, "pool stopped")
 			return nil, false
 		}
