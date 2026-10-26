@@ -1,6 +1,7 @@
 # Plan: M7 — RPC from PHP and plugins
 
-- **Status:** Done (2026-10-27) on `feat/m7-rpc`, waiting for the user's look before the PR. Approved by the user on
+- **Status:** Active: the items are done on `feat/m7-rpc`; the docs review and `make test-matrix` run, then the
+  user's look before the PR. Approved by the user on
   2026-10-26, with plugins at the root of the config (`plugins`, not `rpc.services`: RPC is one channel to them, and
   a plugin may later work without it); the rest delegated on 2026-10-27.
 - **Milestone:** M7
@@ -187,7 +188,7 @@ Drafted with the plan on 2026-10-26; `Proposed` until the user accepts it, which
 3. [x] K-166 `kv` (D3) — acceptance: storage semantics in `synctest` (TTL, sweeping, eviction); protobuf golden bytes
    from PHP's `roadrunner/api-dto`; PHP integration tests with `roadrunner/kv`'s `Cache`; `docs/config.md` and a
    usage section in the docs.
-4. [~] K-167 ADR-0010 (D6, drafted, `Proposed` for the user's review), from the research note on HashiCorp's plugins (`research/hashicorp-plugins.md`, done) —
+4. [x] K-167 ADR-0010 (D6, written, `Proposed`: the user accepts it at the review), from the research note on HashiCorp's plugins (`research/hashicorp-plugins.md`, done) —
    acceptance: the user accepts or adjusts it.
 5. [x] K-168 external plugins and `pkg/plugin` (D4, D5) — acceptance: the PHP kv tests pass against `kv` as an
    external plugin; tests for a crash and the restart, the start timeout, a bad config, cancellation, stop order and
