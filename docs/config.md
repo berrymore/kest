@@ -108,9 +108,9 @@ Endpoints:
 | Endpoint | |
 |---|---|
 | `GET /` | List of endpoints |
-| `GET /ready` | `200 ready` while serving traffic; `503 starting` / `503 draining` otherwise, and `503 not serving: <clusters>` while a cluster has no live worker (a pool whose workers are only being replaced still counts as serving) |
+| `GET /ready` | `200 ready` while serving traffic; `503 starting` / `503 draining` otherwise, and `503 not serving: <names>` while a cluster has no live worker or a plugin can't serve (`plugin <name>`) (a pool whose workers are only being replaced still counts as serving) |
 | `GET /server_info` | JSON: version, commit, Go version, state, start time, uptime, config file |
-| `GET /config_dump` | The effective configuration as YAML, with every default filled in, like `kest validate -dump`, but with the values of every `env` map shown as `[redacted]` (`validate -dump` shows them) |
+| `GET /config_dump` | The effective configuration as YAML, with every default filled in, like `kest validate -dump`, but with the values of every `env` map and the `plugin_config` of external plugins shown as `[redacted]` (`validate -dump` shows them) |
 | `GET /clusters` | JSON: every cluster with its `name`, `type`, whether it is `serving` (only for types that can be down: `php_workers`), and its `status`: for `php_workers` the pool's `health` (`healthy`, `degraded`, `unhealthy`), `queue_length` (all lanes), its `lanes` (the default one first, with `route` empty: `route`, `priority`, `max_workers`, `queue_timeout`, `queue_length`, `busy_workers`), and each worker's `slot`, `state`, `pid`, `jobs`, `started_at`, `age_seconds` and `memory_bytes` (when sampled) |
 | `POST /clusters/{name}/reset` | Replace the cluster's workers one by one (a rolling restart, to deploy new code), and answer when done: `200 reset done`; `404` for an unknown cluster, `409` while a reset runs, `501` for a cluster type that can't, `503` while starting or draining, `500` with the reason when a new worker failed to boot (the reset stops there; the workers it didn't reach keep serving). A client that disconnects doesn't stop the reset. |
 | `GET /metrics` | Metrics in the Prometheus text format; see [Metrics](metrics.md) |
@@ -122,10 +122,10 @@ The admin API has no authentication. Keep it on a loopback or private address.
 | Field | Default | |
 |---|---|---|
 | `drain_delay` | `0s` | After SIGINT/SIGTERM, how long the listeners keep serving new requests while `/ready` already answers `503 draining`, so that load balancers stop sending traffic before connections close. Set it to a bit more than the load balancer's health check interval. |
-| `drain_timeout` | `15s` | After SIGINT/SIGTERM (and the `drain_delay`), how long in-flight requests may take to finish before their connections are closed. The same budget then applies to stopping clusters. `0s` closes immediately. |
+| `drain_timeout` | `15s` | After SIGINT/SIGTERM (and the `drain_delay`), how long in-flight requests may take to finish before their connections are closed. The same budget then applies to each later phase: stopping the clusters, the RPC server, the plugins. `0s` closes immediately. |
 
 Shutdown order: `/ready` switches to `503 draining`; the `drain_delay` passes; listeners stop accepting and drain; clusters stop;
-the admin server stops last. A second SIGINT/SIGTERM terminates the process immediately. SIGHUP resets
+the RPC server and then the plugins stop, so that workers can call plugins until they exit; the admin server stops last. A second SIGINT/SIGTERM terminates the process immediately. SIGHUP resets
 the workers of every cluster, like `POST /clusters/{name}/reset`, and logs the outcome; the configuration is
 not reloaded.
 
@@ -577,8 +577,8 @@ clusters:
 | `raw_body` | `false` | Send `application/x-www-form-urlencoded` and `multipart/form-data` bodies as they are instead of parsing them (RoadRunner's `http.raw_body`). |
 | `retry_after` | `1s` | The `Retry-After` header of every `503` the pool answers (queue full, no worker in time, overload control, `max_buffered_bodies` full, the pool stopping), in whole seconds rounded up. `0s` leaves it out. |
 
-Every worker also gets `RR_MODE=http` and `RR_RELAY=pipes`; they override the same names from `env` or
-the inherited environment.
+Every worker also gets `RR_MODE=http` and `RR_RELAY=pipes`, and `RR_RPC` when [`rpc`](#rpc) is on; they override the
+same names from `env` or the inherited environment.
 
 **`uploads`**
 
@@ -709,7 +709,8 @@ call them while they boot and while they finish their last requests. They run wh
 plugins:
   - name: kv
     type: kv
-    config: {}
+    config:
+      storages: [{name: local}]
 ```
 
 | Field | Required | |
@@ -755,7 +756,7 @@ $cache->set('key', $value, 3600);   // any PSR-16 call
 | `storages[].max_size` | `64MB` | What the storage may hold: keys, values and about 100 bytes per item; at least 1KB |
 
 **When a storage is full**, a write removes items that have expired, then the least recently used, until the new
-item fits; `kest_kv_evictions_total` counts them. An item larger than `max_size` is an error, and so is the whole
+item fits; `kest_kv_evictions_total` counts the ones removed before they expired. An item larger than `max_size` is an error, and so is the whole
 `setMultiple()` it came in.
 
 **Where it differs from RoadRunner's memory driver**, which `roadrunner/kv`'s users won't miss:
@@ -799,7 +800,9 @@ plugins:
 | `start_timeout` | `10s` | How long the plugin may take to start, its own setup included |
 | `stop_timeout` | `10s` | How long it may take to stop; then it is killed with its process group |
 
-A plugin that fails to start fails kest's start. One that dies later is restarted, at once or after a pause that
+`kest validate` doesn't start the plugin: it checks the fields above, but not that `command` exists or what
+`plugin_config` holds, which only the plugin knows. A plugin that fails to start fails kest's start. One that dies or
+breaks the protocol later is killed and restarted, at once or after a pause that
 doubles from 100 ms to 30 s while it keeps dying; meanwhile its calls fail and `/ready` answers `503`. Its stdout and
 stderr go to the log line by line. `/config_dump` hides the values of `env` and `plugin_config`.
 

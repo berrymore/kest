@@ -312,3 +312,10 @@ Plan: `plans/M7-rpc.md`.
   (proposed, on hold) has the design, plus what a production version needs from the start: a broker for several
   instances and blue-green deploys, and reconnects as a normal case (plan `M6-unix-sockets.md` D2). Shelved on
   2026-10-26 with the user: most PHP applications don't need it; revisit with a use case.
+- [ ] K-169 Calls from plugins to kest (plugin protocol 2): the direction ADR-0010 reserves, for a plugin that hands
+  jobs to a worker pool (RoadRunner's jobs) or reads kest's state. From M7, 2026-10-27; when a plugin needs it.
+- [ ] K-170 A validate-only handshake for external plugins, so that `kest validate` checks `plugin_config` (today
+  only the plugin's start does). From M7, 2026-10-27.
+- [ ] K-171 RoadRunner's own RPC services: `informer`, `resetter`, `status`, `metrics` (metrics from PHP: postponed
+  by the user on 2026-10-26) and `app` (app-logger), each a built-in plugin, if an application needs one. From M7.
+- [ ] K-172 Locks plugin for `roadrunner-php/lock` (RoadRunner's `lock` plugin). From M7, 2026-10-27.

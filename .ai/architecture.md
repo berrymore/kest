@@ -2,7 +2,7 @@
 
 > A living document. It describes the **target** design and marks what is implemented.
 > Legend: 🟢 implemented · 🟡 in progress · ⚪ planned.
-> **Last reviewed: 2026-10-27 (M7 in progress: RPC and plugins).** Implemented: config loading and validation, extension
+> **Last reviewed: 2026-10-27 (M7 done on its branch: RPC and plugins).** Implemented: config loading and validation, extension
 > registry, server lifecycle, HTTP listeners on TCP and unix sockets with configurable limits, TLS (reloaded
 > certificates) and HTTP/2/h2c,
 > path normalization, router with `direct_response` and `redirect`, route names and matches on regex, method,
@@ -229,7 +229,8 @@ func Serve(newPlugin func(Setup) (Plugin, error)) error // pkg/plugin: an extern
 // external (internal/plugin/external): a process per plugin with a socket pair as fd 3; the protocol in
 // internal/plugin/wire (docs/plugins.md): a CONTROL handshake (Hello{protocol, name, config, max_frame_size} → Ready),
 // calls as RPC frames with kest's ids answered in any order, ERROR answers with a code (1: unknown method), CONTROL
-// cancel and stop. Calls bounded by max_concurrent_calls; a supervisor restarts a dead plugin with backoff (100 ms
+// cancel and stop. A plugin that breaks the protocol or closes its socket is killed. Calls bounded by
+// max_concurrent_calls; a supervisor restarts a dead plugin with backoff (100 ms
 // doubling to 30 s while it dies within 10 s of its start); Serving is false while it is down.
 
 // internal/rpc: the RPC server. Routes "<name>.<Method>" at the last dot, never decodes bodies; one call at a time
@@ -464,7 +465,7 @@ test/bench/                  🟢 benchmark against RoadRunner: configs, loadgen
 ## 8. Observability and admin 🟡
 
 - **Logs:** `log/slog`, text or JSON, level set in config. Worker stderr goes to logs line by line, tagged
-  with `cluster` and `worker_pid` (🟢).
+  with `cluster` and `worker_pid` (🟢); an external plugin's stdout and stderr with `plugin` and `plugin_pid` (M7).
 - **Metrics (M3):** requests (count, latency, status) per listener, virtual host, route name (M5) and cluster;
   pool queue length and wait time; workers by state; restarts by reason; worker memory. A hand-written core in
   `internal/metrics` with lock-free updates and series resolved when the graph is built; `GET /metrics` serves
@@ -487,9 +488,9 @@ test/bench/                  🟢 benchmark against RoadRunner: configs, loadgen
 
 | Endpoint | Purpose | Milestone |
 |---|---|---|
-| `GET /ready` | 200 when serving; 503 while starting, draining, or a cluster can't serve (`cluster.Prober`) | 🟢 M0, M3 |
+| `GET /ready` | 200 when serving; 503 while starting, draining, or a cluster or a plugin can't serve (`cluster.Prober`, `plugin.Prober` as `plugin <name>`) | 🟢 M0, M3, M7 |
 | `GET /server_info` | version, uptime, config path | 🟢 M0 |
-| `GET /config_dump` | effective config, defaults applied; extension configs that implement `config.Redactor` (php_workers: `env` values) redacted | 🟢 M3 |
+| `GET /config_dump` | effective config, defaults applied; extension configs that implement `config.Redactor` (php_workers: `env` values; external plugins: `env` values and `plugin_config`) redacted | 🟢 M3 |
 | `GET /clusters` | clusters with `cluster.Reporter`'s status: php_workers pools, their lanes (M5) and workers (pid, state, jobs, memory, age) | 🟢 M3 |
 | `POST /clusters/{name}/reset` | rolling restart of a pool; returns when done | 🟢 M3 |
 | `GET /metrics` | Prometheus text format (`docs/metrics.md`) | 🟢 M3 |

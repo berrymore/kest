@@ -1,7 +1,7 @@
 # Plan: M7 — RPC from PHP and plugins
 
-- **Status:** Active: the items are done on `feat/m7-rpc`; the docs review and `make test-matrix` run, then the
-  user's look before the PR. Approved by the user on
+- **Status:** Done (2026-10-27) on `feat/m7-rpc`: the docs review and `make test-matrix` ran; the user looks at the
+  branch before the PR. Approved by the user on
   2026-10-26, with plugins at the root of the config (`plugins`, not `rpc.services`: RPC is one channel to them, and
   a plugin may later work without it); the rest delegated on 2026-10-27.
 - **Milestone:** M7
@@ -193,7 +193,7 @@ Drafted with the plan on 2026-10-26; `Proposed` until the user accepts it, which
 5. [x] K-168 external plugins and `pkg/plugin` (D4, D5) — acceptance: the PHP kv tests pass against `kv` as an
    external plugin; tests for a crash and the restart, the start timeout, a bad config, cancellation, stop order and
    stray stdout; `make test-linux`; `docs/plugins.md` (the protocol), `docs/config.md`.
-6. [ ] Docs review (`review.md`), `make test-matrix`; the PR on the user's OK — acceptance: the review's findings
+6. [x] Docs review (`review.md`), `make test-matrix`; the PR on the user's OK (pending) — acceptance: the review's findings
    fixed.
 
 ## Risks / open questions
@@ -248,3 +248,15 @@ Drafted with the plan on 2026-10-26; `Proposed` until the user accepts it, which
   dies within 10 s of its start counts as a failure for the backoff, so one that can't stay up isn't restarted in a
   tight loop; `Serving` is false as soon as the connection breaks, before the supervisor notices the exit; a panic in
   a call fails that call and the plugin goes on. ADR-0010 stays `Proposed`.
+- 2026-10-27 — Deviations from the plan, for the review: K-168 was built while ADR-0010 is still `Proposed` (D6 said
+  K-168's code waits for its acceptance; the user's delegation of the rest of M7 came first, and the acceptance moved
+  to the review). D5's `Serve(func(config json.RawMessage) …)` that "exits 1" became
+  `Serve(func(Setup) (Plugin, error)) error`, which returns `ErrNotUnderKest` and leaves the exit to `main`, so that
+  it can be tested and a plugin's own `main` decides how to report. The docs review (18 findings) found a real bug: a
+  plugin that broke the protocol, or closed its socket, but kept running was never restarted and kept `/ready` at
+  503; such a plugin is now killed (an EOF waits a second for the exit first, so a crash isn't logged as a broken
+  protocol) and restarted, with a test. The rest were docs: the shutdown budget (each phase has `drain_timeout`, so
+  the systemd example's `TimeoutStopSec` went to 90), `/ready` and `/config_dump` with plugins, `RR_RPC` in the worker
+  environment, the `getting-started` page that still said kest has no RPC, the follow-ups as K-169…K-172.
+  `make test-matrix` green on PHP 8.3, 8.4 and 8.5 (`roadrunner/kv` with the pure-PHP protobuf there).
+

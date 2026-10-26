@@ -353,7 +353,10 @@ PHP `roadrunner/goridge` 4.6.0 [`src/RPC/AbstractRPC.php`](https://github.com/ro
 [`RPC.php`](https://github.com/roadrunner-php/goridge/blob/887bd3a6f89a0b95252db608856d33d7a1284406/src/RPC/RPC.php),
 [`MultiRPC.php`](https://github.com/roadrunner-php/goridge/blob/887bd3a6f89a0b95252db608856d33d7a1284406/src/RPC/MultiRPC.php),
 [`Relay.php`](https://github.com/roadrunner-php/goridge/blob/887bd3a6f89a0b95252db608856d33d7a1284406/src/Relay.php),
-`src/RPC/Codec/*.php`. Not yet run against a real client ❓ (M7 does that with the PHP library).
+`src/RPC/Codec/*.php`. **Also checked by experiment** (2026-10-27, K-900): kest's answers match goridge v4.0.0's
+codec byte for byte (`internal/rpc/testdata/goridge_frames.txt`, made with goridge itself), and PHP's
+`roadrunner/goridge` 4.6 (`RPC`, the service prefix, the raw codec, errors, `MultiRPC`) calls kest over a unix socket
+and TCP (`internal/rpc/php_integration_test.go`); `roadrunner/kv` 4.5.1 too (`internal/plugin/kv`).
 
 - **Server.** The `rpc` plugin is Go's `net/rpc` with goridge's codec on a listener: `rpc.listen`, default
   `tcp://127.0.0.1:6001`, or `unix://file.sock` (with `rpc.unix_socket` options). No authentication. It registers

@@ -164,8 +164,8 @@ reaches by name: built in, or external binaries that kest starts (after HashiCor
 Scope [K-900, K-166…K-168] (the user, 2026-10-26, `plans/M7-rpc.md`): the goridge RPC server, compatible with
 `roadrunner/goridge`, on a unix socket by default; `plugins` at the root of the config; a `kv` plugin compatible
 with `roadrunner/kv`, the first one, to hone the protocol; external plugins and a Go SDK (ADR-0010). Not now: metrics
-from PHP, RoadRunner's `informer`, `resetter`, `status` and `app` services; queues and locks stay in the icebox
-(K-901).
+from PHP, RoadRunner's `informer`, `resetter`, `status` and `app` services (K-171); queues and locks stay in the
+icebox (K-901, K-172).
 
 Exit criteria:
 - `roadrunner/kv`'s PSR-16 cache works against kest, with `kv` built in and with `kv` run as an external plugin.

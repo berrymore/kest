@@ -107,7 +107,7 @@ kest serve -c kest.yaml
 
 HTTP filters (`recovery`, `request_id`, `access_log`, `client_ip`, `headers`, `cors`, `compression`, `static`, `sendfile`) run
 in config order: the listener's, then those of the virtual host and of the route that the router picks. Clusters:
-`php_workers`.
+`php_workers`. Plugins, called from PHP through `rpc`: `kv`, `external`.
 
 ## Architecture at a glance
 

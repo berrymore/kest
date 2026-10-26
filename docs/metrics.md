@@ -85,7 +85,7 @@ For each `external` plugin:
 | Metric | Type | Labels | |
 |---|---|---|---|
 | `kest_plugin_up` | gauge | `plugin` | `1` while the plugin's process serves, `0` while it is down or restarting. |
-| `kest_plugin_restarts_total` | counter | `plugin` | Restarts after the plugin's process exited or broke the protocol. |
+| `kest_plugin_restarts_total` | counter | `plugin` | Restarts after the plugin's process exited, or was killed for breaking the protocol. |
 
 ## KV
 

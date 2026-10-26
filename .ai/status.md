@@ -23,8 +23,9 @@ Dynamic configuration).
 
 ## In progress
 
-- M7 waits for the user's look at `feat/m7-rpc` (4 item commits and docs commits on top of `main`). Then, on their OK:
-  push the branch, `gh pr create`, the user's review (ADR-0010 included), merge with squash.
+- M7 waits for the user's look at `feat/m7-rpc` (3 item commits, K-900, K-166 and K-168, one fix after the docs
+  review, and `docs:` commits; K-167's ADR is in the plan's commit). Then, on their OK: push the branch,
+  `gh pr create`, the user's review (ADR-0010 included, Q18), merge with squash.
 
 ## Next up: how to continue in a fresh session
 
@@ -33,14 +34,19 @@ Dynamic configuration).
 2. **If the user approves the branch:** run `make check`, push (`git push -u origin feat/m7-rpc`; over HTTPS with `gh`
    if SSH fails), `gh pr create` with the milestone's summary, its items, how it was tested (`make check`,
    `make test-integration`, `make test-linux`, `make test-matrix`), that the docs review ran, and the choices made
-   while the user was away (the plan's log of 2026-10-27). Ask whether ADR-0010 is accepted. Merge only on their
+   while the user was away and the deviations (the plan's log of 2026-10-27), and that K-167 has no commit of its own
+   (its ADR came with the plan). Ask whether ADR-0010 is accepted (Q18). Merge only on their
    go-ahead (`gh pr merge --squash --delete-branch`), then update this file: M7 merged, no milestone next.
-3. **After the merge:** kest follows the user's application again. Known follow-ups: calls from plugins to kest
-   (when a plugin needs them, e.g. jobs), a validate-only handshake for external plugins, RoadRunner's other
-   services (`metrics` from PHP was postponed by the user); K-153, K-150 and the icebox in `backlog.md`.
+3. **After the merge:** kest follows the user's application again. Known follow-ups in the icebox: K-169 (calls from
+   plugins to kest), K-170 (a validate-only handshake), K-171 (RoadRunner's other services, metrics from PHP
+   included), K-172 (locks), K-901 (jobs); and K-153, K-150.
 4. **Q15** (below) is still open: ask the user when it fits.
 
 ## Open questions (need a decision from the user)
+
+- **Q18** — Accept ADR-0010 (plugins by name, built in or external over goridge frames; `pkg/plugin` becomes kest's
+  first public package, rules § 2)? It is `Proposed`; M7's code follows it. The agent's suggestion: accept, with the
+  SDK marked as changing before 1.0 (as its package doc says).
 
 - **Q15** — Cap kest's `GOMAXPROCS` by default? Measured (K-149, `docs/benchmarks.md` § kest's own CPU): on a host
   shared with the PHP workers, `GOMAXPROCS=2` to `4` cuts kest's CPU per request to a third or half and lets the
