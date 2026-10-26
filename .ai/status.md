@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-10-25 (M5 merged, PR #5; M6 not started)_
+_Last updated: 2026-10-26 (roadmap reordered: M6 is unix sockets and prefork, WASM and gRPC last; M6 not planned yet)_
 
 ## Current phase
 
@@ -14,19 +14,27 @@ relay reads; research on forking booted workers (`research/prefork.md`). `plans/
 them. `make bench` against RoadRunner did not run during M5 (no RoadRunner binary); A/B runs of kest's binaries
 stood in for it.
 
+**Roadmap reordered on 2026-10-26** (the user): M6 Unix sockets and prefork, M7 WebSockets and SSE, M8 PHP → kest
+RPC, M9 Dynamic configuration, M10 WASM sandbox, M11 gRPC. Milestone numbers in entries before that date below
+follow the old order (M6 WASM, M7 Protocols, M8 Dynamic configuration).
+
 ## In progress
 
-Nothing. M6 is next; the user hasn't said to start it.
+The reorder, as a `docs:` commit on `feat/m6-sockets` (branch cut from `main`; the commit waits for the user's OK).
+M6 itself is not planned yet.
 
 ## Next up: how to continue in a fresh session
 
-1. **Git first:** `git checkout main && git pull`; `git status` is clean, `git log --oneline -3` shows M5's squash
-   commit on top.
-2. **M6 (WASM sandbox)** on a new branch `feat/m6-wasm` from `main`, once the user says to start. Read
-   `roadmap.md` § M6, `backlog.md` § M6 (K-100…K-104, K-141), ADR-0006 and `architecture.md` § 9. First write
-   `plans/M6-wasm.md` and agree its scope with the user (vertical slice first). The first step is the guest ABI
-   research and ADR (K-100: Proxy-Wasm, http-wasm, WASI stdin/stdout, custom); K-141 (per-route filter settings)
-   moved here from M5.
+1. **Git first:** `git checkout feat/m6-sockets`; `git log --oneline -3` shows the reorder's `docs:` commit on top of
+   M5's squash commit (if it isn't committed yet, ask the user).
+2. **M6 (Unix sockets and prefork):** write `plans/M6-sockets.md` and agree its scope with the user (vertical slice
+   first). Read `roadmap.md` § M6, `backlog.md` § M6 (K-029, K-154, K-164), `research/prefork.md`,
+   `research/roadrunner.md` (the worker environment: `RR_RELAY` as `pipes`, `tcp://…`, `unix://…`),
+   `architecture.md` § 4–5 (relay, pool, worker lifecycle) and ADR-0003. Likely order: K-029 socket relays (the slice: an unmodified
+   `roadrunner/worker` over `unix://`), then K-154 prefork (its ADR first, after measuring a real application's
+   boot; it needs a small PHP library from kest, and where that lives is a plan decision), K-164 unix socket listeners
+   on the side. K-153 (fewer hand-overs per job, an ADR first) touches the same pool code: decide in the plan
+   whether it joins M6.
 3. **Q15** (below) is open: ask the user when it fits.
 
 ## Open questions (need a decision from the user)
@@ -40,6 +48,10 @@ Nothing. M6 is next; the user hasn't said to start it.
 
 ## Resolved decisions
 
+- 2026-10-26 — Roadmap reordered (the user): sockets and prefork (M6), WebSockets and SSE (M7) first, PHP → kest RPC
+  a little later (M8, from the icebox), then dynamic configuration (M9), WASM (M10: "a fancy option, not a base
+  feature for starting a PHP product") and gRPC last (M11). The user plans an RR/kest-first PHP framework in a
+  separate repository, later; kest stays framework-agnostic. K-141 stays with WASM.
 - 2026-10-25 — The user checked `feat/m5-pools` locally ("all fine"), had it pushed, PR #5 opened, and merged
   (squash).
 - 2026-10-25 — M5: the user lets the agent commit each item itself after a green `make check`, until the end of the
@@ -128,6 +140,9 @@ Nothing. M6 is next; the user hasn't said to start it.
 
 ## Session log (newest first, keep ~15)
 
+- **2026-10-26** — Overview for the user; they plan a PHP framework of their own later, in another repository. The
+  roadmap reordered on their call (M6 sockets and prefork … M10 WASM, M11 gRPC) across roadmap, backlog, context,
+  architecture, README and the ADR pointers; branch `feat/m6-sockets`.
 - **2026-10-25** — M5 planned with the user (scope narrowed to the pool) and implemented on `feat/m5-pools` (the user
   delegated all steps, then left; they checked it locally, then PR #5, merged):
   K-910 route names; lanes in the pool (a dispatcher under one mutex, 3.1 → 1.8 µs per job) and on routes;
@@ -195,5 +210,3 @@ Nothing. M6 is next; the user hasn't said to start it.
   registry, httpx router, listener, admin, server lifecycle, CLI (`serve`, `validate`, `version`),
   hello example, e2e tests, `docs/config.md`. Found and fixed: port 0 counted as a duplicate address.
   Commit and squash policy added to the rules.
-- **2026-10-24** — Installed golangci-lint 2.15.0 into `~/go/bin` (release binary, no brew); the user
-  installed Composer.

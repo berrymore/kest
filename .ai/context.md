@@ -35,14 +35,17 @@ Longer term (M4+):
 
 6. **A professional upstream for the proxy in front** (ADR-0008): HTTP/1.1 and HTTP/2 (h2c), the client's
    address from trusted proxies, streamed responses, the files of `public/` that the proxy can't see (M4);
-   gRPC, WebSockets and SSE, unix sockets (M7).
+   unix socket listeners (M6); WebSockets and SSE (M7); gRPC (M11).
 7. **Worker pools and routing to them**: lanes that keep a slow endpoint from taking the whole pool, priorities,
    fast rejection under overload, a pool that grows under load, `X-Sendfile`, richer route matches (M5).
    Filters that take work off PHP (authentication, limits) come later.
-8. **WASM sandbox** on wazero: `wasm` clusters (handlers), `wasm` HTTP filters, possibly functions
-   callable from PHP (M6).
-9. Dynamic configuration: hot reload without dropping connections (M8).
-10. More plugins (queues/jobs, KV) once the core is solid.
+8. **Workers that don't boot**: a booted PHP process forks the workers of a pool over socket relays (M6).
+9. **Connections PHP can't hold**: WebSockets and SSE held by kest while PHP handles the events (M7).
+10. **PHP → kest RPC**, the channel RoadRunner's PHP libraries call (M8).
+11. Dynamic configuration: hot reload without dropping connections (M9).
+12. **WASM sandbox** on wazero: `wasm` clusters (handlers), `wasm` HTTP filters, possibly functions
+    callable from PHP (M10). An option, so it comes near the end.
+13. More plugins (queues/jobs, KV) once the core is solid.
 
 ## Non-goals (for now)
 
@@ -100,5 +103,5 @@ Longer term (M4+):
 | **Payload** | Request/response unit sent to a worker: `context` (metadata) + `body` |
 | **Codec** | Encoding of the payload context: raw, JSON, protobuf |
 | **Extension** | Compiled-in component type registered by name in a category (filter, cluster, …) |
-| **Sandbox** | Isolated WASM instance with memory and time limits (M6) |
+| **Sandbox** | Isolated WASM instance with memory and time limits (M10) |
 | **Admin server** | Separate HTTP endpoint for readiness, config dump, cluster state, metrics |
