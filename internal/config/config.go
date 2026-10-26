@@ -11,7 +11,10 @@ package config
 
 import (
 	"fmt"
+	"io/fs"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"go.yaml.in/yaml/v4"
@@ -26,6 +29,7 @@ const (
 	DefaultLogFormat    = "text"
 	DefaultAdminAddress = "127.0.0.1:9901"
 	DefaultDrainTimeout = 15 * time.Second
+	DefaultSocketMode   = "0660"
 
 	DefaultReadHeaderTimeout = 10 * time.Second
 	DefaultIdleTimeout       = 120 * time.Second
@@ -145,8 +149,12 @@ type Server struct {
 
 // Listener is a named network endpoint.
 type Listener struct {
-	Name    string `yaml:"name"`
+	Name string `yaml:"name"`
+	// Address is host:port, or unix:<path> for a unix socket; a relative
+	// path resolves against the config file's directory.
 	Address string `yaml:"address"`
+	// SocketMode is the file mode of a unix socket, in octal ("0660").
+	SocketMode string `yaml:"socket_mode,omitempty"`
 	// TLS, if set, makes the listener serve HTTPS.
 	TLS  *TLS  `yaml:"tls,omitempty"`
 	HTTP *HTTP `yaml:"http"`
@@ -345,6 +353,9 @@ func (c *Config) applyDefaults() {
 		c.Server.DrainTimeout = &d
 	}
 	for i := range c.Listeners {
+		if _, ok := UnixPath(c.Listeners[i].Address); ok && c.Listeners[i].SocketMode == "" {
+			c.Listeners[i].SocketMode = DefaultSocketMode
+		}
 		if t := c.Listeners[i].TLS; t != nil && t.MinVersion == "" {
 			t.MinVersion = TLS12
 		}
@@ -401,4 +412,26 @@ func (c *Config) applyDefaults() {
 			}
 		}
 	}
+}
+
+// UnixPath returns the socket path of a unix:<path> address.
+func UnixPath(address string) (string, bool) {
+	return strings.CutPrefix(address, "unix:")
+}
+
+// ParseSocketMode reads a socket_mode: three octal digits, optionally after
+// a 0, such as "0660".
+func ParseSocketMode(s string) (fs.FileMode, error) {
+	digits := s
+	if len(s) == 4 && s[0] == '0' {
+		digits = s[1:]
+	}
+	if len(digits) != 3 {
+		return 0, fmt.Errorf("invalid mode %q: want three octal digits, like \"0660\"", s)
+	}
+	m, err := strconv.ParseUint(digits, 8, 32)
+	if err != nil {
+		return 0, fmt.Errorf("invalid mode %q: want three octal digits, like \"0660\"", s)
+	}
+	return fs.FileMode(m), nil
 }

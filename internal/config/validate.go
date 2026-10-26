@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -85,12 +86,19 @@ func (v *validator) listeners(list []Listener, adminAddress string) {
 		path := indexPath("listeners", i)
 
 		v.name(path, l.Name, names, "listener")
-		if err := checkAddress(l.Address); err != nil {
+		if err := checkListenerAddress(l.Address); err != nil {
 			v.errorf(path+".address", "%v", err)
-		} else if other, dup := addresses[l.Address]; dup && !isEphemeral(l.Address) {
-			v.errorf(path+".address", "address %s is already used by %s", l.Address, other)
+		} else if key := v.addressKey(l.Address); addresses[key] != "" && !isEphemeral(l.Address) {
+			v.errorf(path+".address", "address %s is already used by %s", l.Address, addresses[key])
 		} else {
-			addresses[l.Address] = path + ".address"
+			addresses[key] = path + ".address"
+		}
+		if _, unix := UnixPath(l.Address); unix {
+			if _, err := ParseSocketMode(l.SocketMode); err != nil {
+				v.errorf(path+".socket_mode", "%v", err)
+			}
+		} else if l.SocketMode != "" {
+			v.errorf(path+".socket_mode", "only for unix socket addresses (unix:/path/to/kest.sock)")
 		}
 
 		if l.TLS != nil {
@@ -400,6 +408,38 @@ func checkAddress(addr string) error {
 		return fmt.Errorf("invalid port %q in address %q", port, addr)
 	}
 	return nil
+}
+
+// checkListenerAddress accepts what checkAddress does, and unix:<path>.
+func checkListenerAddress(addr string) error {
+	path, unix := UnixPath(addr)
+	switch {
+	case !unix:
+		if _, _, err := net.SplitHostPort(addr); addr != "" && err != nil {
+			return fmt.Errorf("invalid address %q: want host:port, like 127.0.0.1:8080, or unix:/path/to/kest.sock", addr)
+		}
+		return checkAddress(addr)
+	case path == "":
+		return errors.New("empty socket path: want unix:/path/to/kest.sock")
+	case strings.ContainsRune(path, 0):
+		return fmt.Errorf("invalid socket path %q", path)
+	case strings.HasSuffix(path, "/"):
+		return fmt.Errorf("invalid socket path %q: it names a directory", path)
+	}
+	return nil
+}
+
+// addressKey returns what makes two listener addresses the same: a unix
+// socket's cleaned path, resolved against the config file's directory.
+func (v *validator) addressKey(addr string) string {
+	path, unix := UnixPath(addr)
+	if !unix {
+		return addr
+	}
+	if !filepath.IsAbs(path) && v.src != nil && v.src.file != "" {
+		path = filepath.Join(filepath.Dir(v.src.file), path)
+	}
+	return "unix:" + filepath.Clean(path)
 }
 
 // isEphemeral reports whether addr asks for any free port (port 0), which

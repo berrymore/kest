@@ -80,7 +80,7 @@ internal/config/     YAML loading, env expansion, strict decoding, defaults, val
 internal/registry/   compiled-in extension categories and factories
 internal/server/     builds the component graph; start/stop order; drain
 internal/httpx/      HTTP filter chain and router
-internal/listener/   HTTP listeners
+internal/listener/   HTTP listeners on TCP and unix sockets
 internal/filters/    built-in HTTP filters, one package each: requestid/, accesslog/, recovery/, clientip/, headers/, cors/, compression/, static/, sendfile/
 internal/cluster/    cluster interface and registry category; types: phpworkers/
 internal/rrhttp/     HTTP ↔ RoadRunner HTTP payload (request context JSON/protobuf, forms, uploads, responses)

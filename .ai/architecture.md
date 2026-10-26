@@ -38,7 +38,8 @@
 
 kest is a single Go binary. At startup it reads one YAML file and builds a graph of components:
 
-- **Listeners** accept connections on an address and hand them to a protocol handler (HTTP first).
+- **Listeners** accept connections on an address (`host:port` or a unix socket) and hand them to a protocol handler
+  (HTTP first).
 - The **HTTP connection manager** runs a chain of **HTTP filters** (middleware), ending in the **router**.
 - The **router** selects a **virtual host** by `Host` and runs its filters, then the first matching **route**,
   and runs its filters and its action: forward to a **cluster**, return a **direct response** or a **redirect**. Paths are normalized before
@@ -385,7 +386,7 @@ internal/buildinfo/          🟢 version information (ldflags or embedded VCS d
 internal/config/             🟢 load, env expansion, strict decode, defaults, validation, dump
 internal/registry/           🟢 extension categories and factories
 internal/server/             🟢 build graph from config; start/stop order; drain
-internal/listener/           🟢 HTTP listeners (bind in Start, drain in Stop; limits from the http block; TLS certificates, reloaded on change)
+internal/listener/           🟢 HTTP listeners on TCP or unix sockets (bind in Start, drain in Stop; limits from the http block; TLS certificates, reloaded on change)
 internal/httpx/              🟢 filter chain, router, route actions
 internal/admin/              🟢 admin HTTP API
 internal/logging/            🟢 slog setup

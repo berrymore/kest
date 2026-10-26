@@ -134,7 +134,16 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 			}
 			opts.TLS = certs
 		}
-		s.listeners = append(s.listeners, listener.NewHTTP(l.Name, l.Address, h, opts, log, s.fail))
+		address := l.Address
+		if path, unix := config.UnixPath(address); unix {
+			address = "unix:" + resolve(configDir, path)
+			opts.SocketMode, err = config.ParseSocketMode(l.SocketMode) // validated
+			if err != nil {
+				errs.Append(err)
+				continue
+			}
+		}
+		s.listeners = append(s.listeners, listener.NewHTTP(l.Name, address, h, opts, log, s.fail))
 	}
 
 	s.admin = listener.NewHTTP("admin", cfg.Admin.Address, admin.NewHandler(s),

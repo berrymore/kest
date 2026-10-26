@@ -41,8 +41,8 @@ listeners:
 - **No peer IP.** A peer on a unix socket has no IP, so PHP gets an empty `REMOTE_ADDR` unless `client_ip` takes the
   client's address from the proxy's header. For that, `trusted_proxies` accepts `unix`: peers on a unix socket
   listener. This is explicit, as for any other proxy.
-- Address validation, duplicate checks and `/config_dump` learn the `unix:` form. A unix socket for the admin server
-  is left out unless it comes free with the same code; otherwise it goes to the backlog.
+- Address validation, duplicate checks and `/config_dump` learn the `unix:` form. The admin server stays on TCP:
+  its address keeps its own validation, and nothing asked for a socket there.
 
 **D2. WebSockets and SSE** (K-163): open. The research answers these questions, the ADR decides, and the answers
 become this plan's decisions:
@@ -78,7 +78,7 @@ become this plan's decisions:
    approves the plan's direction and D1's schema.
 2. [ ] K-163 research → `research/websockets.md` — acceptance: D2's questions answered, with sources at pinned
    versions; RoadRunner's behavior checked in its source (✅) or marked ❓.
-3. [ ] K-164 unix socket listeners (D1), while the research and the ADR are discussed — acceptance: an e2e test
+3. [x] K-164 unix socket listeners (D1), while the research and the ADR are discussed — acceptance: an e2e test
    through a unix socket; the stale file case; `client_ip` with `unix`; `docs/config.md`; the operations guide shows
    nginx's `proxy_pass http://unix:…`.
 4. [ ] K-163 the ADR, `Proposed` — acceptance: the user accepts it; the backlog gets the items of WebSockets and SSE,

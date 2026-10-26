@@ -233,7 +233,8 @@ socket relays to the icebox the same day. Plan: `plans/M6-websockets.md`. The it
 
 - [ ] K-163 Research and ADR: WebSockets and SSE held by kest while PHP handles the events (RoadRunner's
   `centrifuge` and `broadcast` plugins ❓).
-- [ ] K-164 Unix socket listeners (`address: unix:/run/kest.sock`), for a proxy on the same host.
+- [x] K-164 Unix socket listeners (`address: unix:/run/kest.sock`, `socket_mode`), for a proxy on the same host;
+  `client_ip` trusts `unix` peers (plan D1; 2026-10-26). The admin server stays on TCP: nothing asked for a socket.
 
 ## M7 — PHP → kest RPC
 

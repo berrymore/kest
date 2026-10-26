@@ -6,6 +6,7 @@ package clientip
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/netip"
 	"slices"
@@ -39,7 +40,8 @@ func init() {
 // Config configures the filter.
 type Config struct {
 	// TrustedProxies are the addresses (192.0.2.10) and networks
-	// (10.0.0.0/8) of the peers allowed to tell the client's IP.
+	// (10.0.0.0/8) of the peers allowed to tell the client's IP; "unix"
+	// trusts peers on a unix socket listener.
 	TrustedProxies []string `yaml:"trusted_proxies"`
 	// Header carries the client's IP: X-Forwarded-For, Forwarded, or a
 	// header with one address, such as X-Real-Ip or CF-Connecting-IP.
@@ -66,6 +68,9 @@ func (c *Config) Validate() error {
 			Msg: "at least one address or network is required, such as 10.0.0.0/8"})
 	}
 	for i, p := range c.TrustedProxies {
+		if p == unixPeers {
+			continue
+		}
 		if _, err := parsePrefix(p); err != nil {
 			errs = append(errs, &config.FieldError{Field: fmt.Sprintf("trusted_proxies[%d]", i), Msg: err.Error()})
 		}
@@ -87,23 +92,31 @@ func parsePrefix(s string) (netip.Prefix, error) {
 	}
 	a, err := netip.ParseAddr(s)
 	if err != nil {
-		return netip.Prefix{}, fmt.Errorf("invalid address %q: want an IP address or a network such as 10.0.0.0/8", s)
+		return netip.Prefix{}, fmt.Errorf("invalid address %q: want an IP address, a network such as 10.0.0.0/8, or %s", s, unixPeers)
 	}
 	a = a.Unmap()
 	return netip.PrefixFrom(a, a.BitLen()), nil
 }
 
+// unixPeers in TrustedProxies trusts peers on a unix socket listener.
+const unixPeers = "unix"
+
 // filter holds a validated config.
 type filter struct {
-	trusted []netip.Prefix
-	header  string // canonical
-	parse   func(values []string) []string
+	trusted   []netip.Prefix
+	trustUnix bool   // peers on a unix socket listener
+	header    string // canonical
+	parse     func(values []string) []string
 }
 
 // New returns the filter for a validated config.
 func New(cfg Config) (httpx.Filter, error) {
 	f := &filter{header: http.CanonicalHeaderKey(cfg.Header)}
 	for _, p := range cfg.TrustedProxies {
+		if p == unixPeers {
+			f.trustUnix = true
+			continue
+		}
 		prefix, err := parsePrefix(p)
 		if err != nil {
 			return nil, err
@@ -129,8 +142,7 @@ func New(cfg Config) (httpx.Filter, error) {
 // resolve records the client's IP and scheme in the request's
 // httpx.RequestInfo if the peer is trusted and says something valid.
 func (f *filter) resolve(r *http.Request) {
-	peer, err := netip.ParseAddrPort(r.RemoteAddr)
-	if err != nil || !f.isTrusted(peer.Addr().Unmap()) {
+	if !f.peerTrusted(r) {
 		return
 	}
 	info := httpx.Info(r)
@@ -154,6 +166,17 @@ func (f *filter) resolve(r *http.Request) {
 			info.Scheme = p
 		}
 	}
+}
+
+// peerTrusted reports whether the request's peer is a trusted proxy. A peer
+// on a unix socket listener has no address: "unix" in TrustedProxies trusts
+// it.
+func (f *filter) peerTrusted(r *http.Request) bool {
+	if local, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr); ok && local.Network() == "unix" {
+		return f.trustUnix
+	}
+	peer, err := netip.ParseAddrPort(r.RemoteAddr)
+	return err == nil && f.isTrusted(peer.Addr().Unmap())
 }
 
 func (f *filter) isTrusted(a netip.Addr) bool {

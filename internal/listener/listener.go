@@ -1,10 +1,11 @@
-// Package listener runs HTTP servers on network addresses.
+// Package listener runs HTTP servers on TCP addresses and unix sockets.
 package listener
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"log/slog"
 	"net"
@@ -42,6 +43,8 @@ type Options struct {
 	// with prior knowledge. Both false: net/http's defaults (HTTP/1, and
 	// HTTP/2 with TLS).
 	HTTP1, HTTP2 bool
+	// SocketMode is the file mode of a unix socket address.
+	SocketMode fs.FileMode
 	// Metrics gets the listener's metrics; nil: a registry nothing reads.
 	Metrics *metrics.Registry
 }
@@ -49,31 +52,38 @@ type Options struct {
 // HTTP serves a handler on one address. It binds in Start and drains
 // in-flight requests in Stop.
 type HTTP struct {
-	name    string
-	address string
-	server  *http.Server
-	logger  *slog.Logger
-	onFatal func(error)
+	name       string
+	address    string // host:port, or unix:<absolute path>
+	socketMode fs.FileMode
+	server     *http.Server
+	logger     *slog.Logger
+	onFatal    func(error)
 
 	certs        *Certificates // nil without TLS
 	certInterval time.Duration // how often certs are checked; replaced in tests
 
 	mu        sync.Mutex
 	ln        net.Listener
+	socket    *unixSocket        // the socket file of a unix address, once bound
 	stopWatch context.CancelFunc // stops the certificate checks; nil without TLS
 	wg        sync.WaitGroup
 }
 
-// NewHTTP creates a listener. onFatal is called if serving fails after
-// Start, for example when the listening socket breaks.
+// NewHTTP creates a listener on address: host:port, or unix:<absolute path>.
+// onFatal is called if serving fails after Start, for example when the
+// listening socket breaks.
 func NewHTTP(name, address string, handler http.Handler, opts Options, logger *slog.Logger, onFatal func(error)) *HTTP {
 	reg := opts.Metrics
 	if reg == nil {
 		reg = metrics.NewRegistry()
 	}
+	if _, unix := unixPath(address); unix {
+		handler = noPeerAddress(handler)
+	}
 	l := &HTTP{
 		name:         name,
 		address:      address,
+		socketMode:   opts.SocketMode,
 		logger:       logger,
 		onFatal:      onFatal,
 		certs:        opts.TLS,
@@ -136,22 +146,35 @@ func (l *HTTP) Name() string {
 func (l *HTTP) Addr() net.Addr {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.ln == nil {
+	switch {
+	case l.ln == nil:
 		return nil
+	case l.socket != nil:
+		return &net.UnixAddr{Name: l.socket.path, Net: "unix"} // the listener has the temporary name
 	}
 	return l.ln.Addr()
 }
 
 // Start binds the address and starts serving in the background.
 func (l *HTTP) Start(ctx context.Context) error {
-	var lc net.ListenConfig
-	ln, err := lc.Listen(ctx, "tcp", l.address)
+	var (
+		ln     net.Listener
+		socket *unixSocket
+		err    error
+	)
+	if path, unix := unixPath(l.address); unix {
+		ln, socket, err = listenUnix(ctx, path, l.socketMode)
+	} else {
+		var lc net.ListenConfig
+		ln, err = lc.Listen(ctx, "tcp", l.address)
+	}
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}
 
 	l.mu.Lock()
 	l.ln = ln
+	l.socket = socket
 	l.mu.Unlock()
 
 	serve := l.server.Serve
@@ -166,7 +189,11 @@ func (l *HTTP) Start(ctx context.Context) error {
 			l.onFatal(fmt.Errorf("listener %q: serve: %w", l.name, err))
 		}
 	})
-	l.logger.Info("listening", "address", ln.Addr().String(), "tls", l.certs != nil)
+	address := ln.Addr().String()
+	if socket != nil {
+		address = "unix:" + socket.path
+	}
+	l.logger.Info("listening", "address", address, "tls", l.certs != nil)
 	return nil
 }
 
@@ -182,5 +209,30 @@ func (l *HTTP) Stop(ctx context.Context) error {
 		l.stopWatch()
 	}
 	l.wg.Wait()
+	l.mu.Lock()
+	socket := l.socket
+	l.mu.Unlock()
+	if socket != nil {
+		if rerr := socket.remove(); rerr != nil {
+			l.logger.Warn("can't remove the socket file", "path", socket.path, "err", rerr)
+		}
+	}
 	return err
+}
+
+// unixPath returns the socket path of a unix:<path> address.
+func unixPath(address string) (string, bool) {
+	return strings.CutPrefix(address, "unix:")
+}
+
+// noPeerAddress clears the remote address of requests on a unix socket: the
+// peer has none, and Go reports "@" on Linux and "" on macOS. Only what a
+// trusted proxy says (client_ip) gives the client's IP there.
+func noPeerAddress(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r2 := new(http.Request)
+		*r2 = *r
+		r2.RemoteAddr = ""
+		next.ServeHTTP(w, r2)
+	})
 }
