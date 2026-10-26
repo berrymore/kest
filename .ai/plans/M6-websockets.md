@@ -76,12 +76,12 @@ become this plan's decisions:
 
 1. [x] Plan, roadmap and backlog after the reorder (prefork and socket relays shelved) — acceptance: the user
    approves the plan's direction and D1's schema.
-2. [ ] K-163 research → `research/websockets.md` — acceptance: D2's questions answered, with sources at pinned
+2. [x] K-163 research → `research/websockets.md` — acceptance: D2's questions answered, with sources at pinned
    versions; RoadRunner's behavior checked in its source (✅) or marked ❓.
 3. [x] K-164 unix socket listeners (D1), while the research and the ADR are discussed — acceptance: an e2e test
    through a unix socket; the stale file case; `client_ip` with `unix`; `docs/config.md`; the operations guide shows
    nginx's `proxy_pass http://unix:…`.
-4. [ ] K-163 the ADR, `Proposed` — acceptance: the user accepts it; the backlog gets the items of WebSockets and SSE,
+4. [~] K-163 the ADR, `Proposed` (ADR-0009: SSE held through GRIP, no WebSockets in M6) — acceptance: the user accepts it; the backlog gets the items of WebSockets and SSE,
    and this plan its decisions and steps, the vertical slice first.
 5. [ ] … the steps from the ADR.
 6. [ ] Docs review (`review.md`), `architecture.md`, an operations guide section on long-lived connections behind a

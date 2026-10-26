@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-10-26 (roadmap reordered; M6 WebSockets, SSE and unix sockets: plan approved, research and K-164 started)_
+_Last updated: 2026-10-26 (M6: K-164 done; the K-163 research done, ADR-0009 proposed)_
 
 ## Current phase
 
@@ -21,22 +21,28 @@ numbers in entries before that date below follow the old order (M6 WASM, M7 Prot
 ## In progress
 
 **M6 (WebSockets, SSE and unix sockets)** on `feat/m6-websockets` (renamed from `feat/m6-sockets`, not pushed):
-`plans/M6-websockets.md` approved and committed. Step 2 (K-163 research into `research/websockets.md`) and step 3
-(K-164 unix socket listeners, D1) run side by side. The agent commits each item itself after a green `make check`,
-until the end of M6.
+`plans/M6-websockets.md` approved and committed. Step 3 done: K-164 unix socket listeners (`address: unix:…`,
+`socket_mode`, `client_ip`'s `unix`), committed. Step 2 done: `research/websockets.md`. Step 4: ADR-0009 proposed
+(SSE streams held by kest, decided by PHP through a GRIP subset; WebSockets and Pusher/Mercure adapters later),
+waiting for the user (Q16). The agent commits each item itself after a green `make check`, until the end of M6.
 
 ## Next up: how to continue in a fresh session
 
 1. **Git first:** `git checkout feat/m6-websockets`; `git log --oneline -4` shows the reorders' and the plan's `docs:`
    commits on top of M5's squash commit.
-2. **M6:** see the plan's steps for what is ticked. Step 2: the K-163 research into `research/websockets.md` (RoadRunner's `centrifuge` plugin in its source at a pinned
-   version; Centrifugo, Mercure, the Pusher protocol, Swoole), and step 3 alongside it: K-164 unix socket listeners
-   (D1; read `internal/listener/listener.go`, `internal/config/validate.go` `checkAddress`,
-   `internal/filters/clientip`).
+2. **M6:** see the plan's steps for what is ticked. If the user hasn't answered Q16, walk them through ADR-0009 and
+   its alternatives (`research/websockets.md` § Options). Once accepted: set its status, add the backlog items (the
+   hub and the hold filter, the publish endpoint; icebox: WebSockets, a Mercure adapter, a broker), give the plan its
+   decisions and steps (vertical slice first: one SSE stream held and published to, end to end), and start; check
+   GRIP's subset against Pushpin's docs and source first.
 3. **Q15** (below) is open: ask the user when it fits.
 
 ## Open questions (need a decision from the user)
 
+- **Q16** — ADR-0009 (Proposed): hold SSE streams in kest through a GRIP subset (PHP answers its own subscribe
+  route with `Grip-Hold: stream` and `Grip-Channel`; publishing is an authenticated POST), with no WebSockets in M6,
+  and Pusher or Mercure adapters later over the same hub. The agent's recommendation; the alternatives and their
+  costs are in the ADR and `research/websockets.md`.
 - **Q15** — Cap kest's `GOMAXPROCS` by default? Measured (K-149, `docs/benchmarks.md` § kest's own CPU): on a host
   shared with the PHP workers, `GOMAXPROCS=2` to `4` cuts kest's CPU per request to a third or half and lets the
   pool serve 25–35 % more, since idle Go threads spin on cores PHP needs. Today it is advice in the operations guide
