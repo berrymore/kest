@@ -120,6 +120,51 @@ PHP [`src/Environment.php`](https://github.com/roadrunner-php/worker/blob/35fcf0
   RR logs each stderr chunk at info level. RR special-cases stdout starting with `Could not op` ("Could not open
   input file"), but PHP 8.5.12 prints that message to **stderr** (checked locally).
 
+## Socket relays ✅ (checked 2026-10-26 for M6)
+
+Sources at the commits of "Versions", plus `roadrunner-server/tcplisten` v1.6.1
+([`37b97d4`](https://github.com/roadrunner-server/tcplisten/tree/37b97d417f10b64e721af0cf77a77ed678bd6e2a)): pool
+[`ipc/socket/socket.go`](https://github.com/roadrunner-server/pool/blob/c0b00f97a646bf37ff9772be93ad5dfd6dfd1fe5/ipc/socket/socket.go), server [`internal.go`](https://github.com/roadrunner-server/server/blob/6e60760ccc76559aa54c107d57703a23566259f7/internal.go), PHP
+[`src/Relay.php`](https://github.com/roadrunner-php/goridge/blob/887bd3a6f89a0b95252db608856d33d7a1284406/src/Relay.php) and [`src/SocketRelay.php`](https://github.com/roadrunner-php/goridge/blob/887bd3a6f89a0b95252db608856d33d7a1284406/src/SocketRelay.php). **Also checked by
+experiment** (PHP 8.5.12, macOS): a Go server spoke to an unmodified `roadrunner/worker` 3.8.2 loop over `unix://` and
+`tcp://`; not run on Linux ❓.
+
+- **Config.** `server.relay` is `pipes` (default), `tcp://host:port` or `unix://path`, passed verbatim as `RR_RELAY`
+  ([internal.go#L63-L85](https://github.com/roadrunner-server/server/blob/6e60760ccc76559aa54c107d57703a23566259f7/internal.go#L63-L85)). `relay_timeout` was removed in April 2024 (server `e788a41`);
+  spawn, connect and handshake are bounded by `pool.allocate_timeout`. `server.relay_socket: {mode, uid, gid}` sets
+  the socket file's mode after `listen` ([tcplisten `unix_socket.go`](https://github.com/roadrunner-server/tcplisten/blob/37b97d417f10b64e721af0cf77a77ed678bd6e2a/unix_socket.go#L33-L84)).
+- **One listener per RR process**, shared by every pool ([server `plugin.go#L116`](https://github.com/roadrunner-server/server/blob/6e60760ccc76559aa54c107d57703a23566259f7/plugin.go#L116)). An existing
+  socket file at the path is removed without checking for a live listener; a file that isn't a socket stops the
+  start ([tcplisten `listener.go#L48-L62`](https://github.com/roadrunner-server/tcplisten/blob/37b97d417f10b64e721af0cf77a77ed678bd6e2a/listener.go#L48-L62)). Go's `UnixListener` removes the file on close.
+- **Matching by pid.** One accept goroutine accepts, runs the handshake (same frames as pipes) under a hard-coded
+  1-minute deadline, and stores the connection by the pid the worker reported ([socket.go#L51-L69](https://github.com/roadrunner-server/pool/blob/c0b00f97a646bf37ff9772be93ad5dfd6dfd1fe5/ipc/socket/socket.go#L51-L69));
+  a spawn polls that map every 10 ms for its child's pid ([#L141-L161](https://github.com/roadrunner-server/pool/blob/c0b00f97a646bf37ff9772be93ad5dfd6dfd1fe5/ipc/socket/socket.go#L141-L161)). So the
+  reported pid must be the spawned child's (with pipes it is ignored), and RR can't take a forked child. By reading:
+  the handshakes are serial (a silent connection holds the others up to a minute); a connection whose pid matches no
+  spawn is never closed; one accept error ends the loop for good; a worker that dies during the boot is noticed only at
+  `allocate_timeout` (the poll checks the pid, which a zombie keeps).
+- **Stdout is discarded** (`cmd.Stdout` unset, so `/dev/null`); stderr is logged at info as with pipes
+  ([pool `worker.go#L104-L118`](https://github.com/roadrunner-server/pool/blob/c0b00f97a646bf37ff9772be93ad5dfd6dfd1fe5/worker/worker.go#L104-L118)). Stop, kill and crash handling are those of pipes; a
+  connection closed by a live worker is noticed on the next exec.
+- **PHP connects lazily.** `Relay::create()` turns `unix://…` and `tcp://…` into a `SocketRelay`
+  ([Relay.php#L39-L52](https://github.com/roadrunner-php/goridge/blob/887bd3a6f89a0b95252db608856d33d7a1284406/src/Relay.php#L39-L52)); it connects on the first read, inside the first `waitPayload()`,
+  **after the application's boot**, then waits for the server's handshake ([SocketRelay.php#L62-L94](https://github.com/roadrunner-php/goridge/blob/887bd3a6f89a0b95252db608856d33d7a1284406/src/SocketRelay.php#L62-L94)).
+  It tries 11 times with 100 µs between (about 1 ms), then exits 255 (`Unable to establish connection`)
+  ([#L211-L247](https://github.com/roadrunner-php/goridge/blob/887bd3a6f89a0b95252db608856d33d7a1284406/src/SocketRelay.php#L211-L247)). The address regex rejects a unix path with `:`, an empty TCP
+  host (`tcp://:6001`, RR's own example) and IPv6 literals (`unsupported connection format`, observed).
+- **The handshake reply** is `{"pid":getmypid()}` ([Worker.php#L287-L291](https://github.com/roadrunner-php/worker/blob/35fcf09b55de68954e03dc727b710b963db9517d/src/Worker.php#L287-L291)): in a
+  `pcntl_fork` child, the child's own pid, equal to the peer pid of the socket (`LOCAL_PEERPID`, observed).
+- **Output.** `StdoutHandler` is installed whatever the relay, so `echo` after `Worker::create()` goes to stderr;
+  output before it (and bootstrap errors with `display_errors` on) goes to stdout (observed).
+- **When the server closes the socket**, the worker's read fails with `HeaderException: Unable to read frame header`
+  and nothing catches it: exit 255 (observed). After a stop frame it exits 0.
+- **Paths** must fit `sun_path`: a 147-byte path failed to bind on macOS (104 bytes; 108 on Linux).
+
+What would follow for kest, if it ever adds socket relays (K-029, in the icebox): listen before the worker starts,
+since it retries for about a millisecond; accept and send the handshake first, since the worker sends nothing; the
+wait for the connection bounds the boot; put an absolute path without `:` in `RR_RELAY`; log stdout, which carries
+the bootstrap errors RR throws away.
+
 ## Pool and supervisor in RR ✅
 
 Sources: pool [`pool/config.go`](https://github.com/roadrunner-server/pool/blob/c0b00f97a646bf37ff9772be93ad5dfd6dfd1fe5/pool/config.go),
@@ -340,6 +385,9 @@ K-040 (answered above, 2026-10-25):
 8. ✅ for HTTP: `roadrunner/http` and `roadrunner/worker` never call RPC (only `WorkerPool`, which manages pools
    over RPC, does). Libraries for RR plugins (KV, jobs, metrics, lock) need RPC by design ❓ (not checked one by
    one); `PSR7Worker` apps work without it.
+
+K-029 (answered above, 2026-10-26):
+9. ✅ Socket relays: RR's listener, pid matching, stdout, the PHP side's lazy connect → "Socket relays".
 
 ## What to learn from RR / what we do differently
 

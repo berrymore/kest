@@ -35,14 +35,17 @@ Longer term (M4+):
 
 6. **A professional upstream for the proxy in front** (ADR-0008): HTTP/1.1 and HTTP/2 (h2c), the client's
    address from trusted proxies, streamed responses, the files of `public/` that the proxy can't see (M4);
-   gRPC, WebSockets and SSE, unix sockets (M7).
+   unix socket listeners (M6); gRPC (M10).
 7. **Worker pools and routing to them**: lanes that keep a slow endpoint from taking the whole pool, priorities,
    fast rejection under overload, a pool that grows under load, `X-Sendfile`, richer route matches (M5).
    Filters that take work off PHP (authentication, limits) come later.
-8. **WASM sandbox** on wazero: `wasm` clusters (handlers), `wasm` HTTP filters, possibly functions
-   callable from PHP (M6).
-9. Dynamic configuration: hot reload without dropping connections (M8).
-10. More plugins (queues/jobs, KV) once the core is solid.
+8. **Connections PHP can't hold**: WebSockets and SSE held by kest while PHP handles the events, when an
+   application needs them (researched, `research/websockets.md`).
+9. **PHP → kest RPC**, the channel RoadRunner's PHP libraries call (M7).
+10. Dynamic configuration: hot reload without dropping connections (M8).
+11. **WASM sandbox** on wazero: `wasm` clusters (handlers), `wasm` HTTP filters, possibly functions
+    callable from PHP (M9). An option, so it comes near the end.
+12. More plugins (queues/jobs, KV) once the core is solid.
 
 ## Non-goals (for now)
 
@@ -95,10 +98,10 @@ Longer term (M4+):
 | **Lane** | A route's own queue in a pool, with a limit on the workers it takes, a priority and a queue timeout (M5) |
 | **Worker** | One long-lived child process (e.g. `php worker.php`) handling one request at a time |
 | **Supervisor** | Watches workers and recycles them on limits: TTL, idle TTL, exec TTL, memory, max jobs |
-| **Relay** | Transport between kest and a worker: pipes (stdin/stdout), unix socket, TCP |
+| **Relay** | Transport between kest and a worker: pipes (stdin/stdout); socket relays are in the icebox (K-029) |
 | **Frame** | Unit of the wire protocol on a relay (goridge-compatible, ADR-0003) |
 | **Payload** | Request/response unit sent to a worker: `context` (metadata) + `body` |
 | **Codec** | Encoding of the payload context: raw, JSON, protobuf |
 | **Extension** | Compiled-in component type registered by name in a category (filter, cluster, …) |
-| **Sandbox** | Isolated WASM instance with memory and time limits (M6) |
+| **Sandbox** | Isolated WASM instance with memory and time limits (M9) |
 | **Admin server** | Separate HTTP endpoint for readiness, config dump, cluster state, metrics |

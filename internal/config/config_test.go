@@ -131,6 +131,43 @@ listeners:
 	}
 }
 
+func TestParseUnix(t *testing.T) {
+	src := `version: v1
+listeners:
+  - name: a
+    address: unix:run/kest.sock
+    http: &http
+      virtual_hosts: [{name: a, domains: ["*"], routes: [{match: {prefix: /}, direct_response: {}}]}]
+  - name: b
+    address: unix:/run/kest/b.sock
+    socket_mode: 0600
+    http: *http
+  - name: c
+    address: 127.0.0.1:8080
+    http: *http
+`
+	cfg, err := parse(t, src, nil)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	for i, want := range []string{DefaultSocketMode, "0600", ""} {
+		if got := cfg.Listeners[i].SocketMode; got != want {
+			t.Errorf("listeners[%d].socket_mode = %q, want %q", i, got, want)
+		}
+	}
+	if path, ok := UnixPath(cfg.Listeners[1].Address); !ok || path != "/run/kest/b.sock" {
+		t.Errorf("UnixPath = %q, %v", path, ok)
+	}
+	for _, s := range []string{"0600", "600", "0060", "0777"} {
+		if _, err := ParseSocketMode(s); err != nil {
+			t.Errorf("ParseSocketMode(%q) = %v", s, err)
+		}
+	}
+	if m, _ := ParseSocketMode("0640"); m != 0o640 {
+		t.Errorf("ParseSocketMode(0640) = %o", m)
+	}
+}
+
 func TestParseErrors(t *testing.T) {
 	tests := []struct {
 		name string
@@ -230,6 +267,39 @@ listeners:
 				`kest.yaml:14:22: listeners[0].http.virtual_hosts[0].routes[1].match: set only one of prefix, path or regex`,
 				`kest.yaml:17:15: listeners[0].http.virtual_hosts[0].routes[2]: an action is required`,
 				`kest.yaml:17:22: listeners[0].http.virtual_hosts[0].routes[2].match: required: set prefix, path or regex`,
+			},
+		},
+		{
+			name: "unix addresses",
+			src: `version: v1
+admin: {address: "unix:/run/kest/admin.sock"}
+listeners:
+  - name: a
+    address: unix:run/kest.sock
+    socket_mode: "0999"
+    http: &http
+      virtual_hosts: [{name: a, domains: ["*"], routes: [{match: {prefix: /}, direct_response: {}}]}]
+  - name: b
+    address: unix:./run//kest.sock
+    http: *http
+  - name: c
+    address: "unix:"
+    http: *http
+  - name: d
+    address: 127.0.0.1:8080
+    socket_mode: "0600"
+    http: *http
+  - name: e
+    address: localhost
+    http: *http
+`,
+			want: []string{
+				`kest.yaml:2:18: admin.address: the admin server takes host:port; unix sockets are for listeners`,
+				`kest.yaml:6:18: listeners[0].socket_mode: invalid mode "0999": want three octal digits, like "0660"`,
+				`kest.yaml:10:14: listeners[1].address: address unix:./run//kest.sock is already used by listeners[0].address`,
+				`kest.yaml:13:14: listeners[2].address: empty socket path: want unix:/path/to/kest.sock`,
+				`kest.yaml:17:18: listeners[3].socket_mode: only for unix socket addresses (unix:/path/to/kest.sock)`,
+				`kest.yaml:20:14: listeners[4].address: invalid address "localhost": want host:port, like 127.0.0.1:8080, or unix:/path/to/kest.sock`,
 			},
 		},
 		{

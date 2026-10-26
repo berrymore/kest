@@ -11,9 +11,23 @@ Work items live in `backlog.md` (IDs in brackets). Reprioritization is the user'
 | M3 | Operability | ✅ done 2026-10-25 |
 | M4 | HTTP edge features (narrowed by ADR-0008) | ✅ done 2026-10-25 |
 | M5 | Worker pools and routing to them | ✅ done 2026-10-25 |
-| M6 | WASM sandbox | ⚪ |
-| M7 | Protocols: gRPC, WebSockets and SSE | ⚪ |
-| M8 | Dynamic configuration | ⚪ |
+| M6 | Unix socket listeners | ✅ done 2026-10-26 |
+| M7 | PHP → kest RPC | ⚪ candidate |
+| M8 | Dynamic configuration | ⚪ candidate |
+| M9 | WASM sandbox | ⚪ candidate |
+| M10 | gRPC | ⚪ candidate |
+
+**After M6 (2026-10-26, the user):** no milestone is scheduled, and no release yet. The user builds an application on
+kest and runs it for real; kest's work follows what that application needs, from the backlog or new items. The
+milestones below are candidates, not a schedule. A release comes once kest has proved itself in that use.
+
+Reordered with the user on 2026-10-26: what a PHP application needs from its server comes first (a channel for
+RoadRunner's PHP libraries, a reloadable config), and the WASM sandbox and gRPC, options rather than base features,
+come last.
+Prefork and socket relays went to the icebox the same day: their gain (a worker's boot, memory density) didn't pay
+for their complexity. WebSockets and SSE followed once researched: most PHP applications don't need them, so they
+wait for a use case. The PHP framework the user plans in its own repository is the first application in mind; kest
+stays framework-agnostic.
 
 kest is an application server behind a proxy, not an edge proxy (ADR-0008): a feature belongs to kest when it
 concerns how the proxy talks to the application or makes up for a weakness of PHP.
@@ -121,7 +135,7 @@ a dynamic pool size; `X-Sendfile`; route matches on method, headers, query and r
 a `route` metrics label; counting the answers of listener filters; kest's CPU per request; research on starting
 workers by forking a booted one. Plan: `plans/M5-pools.md`. Narrowed with the user on 2026-10-25: weighted clusters
 dropped (K-142), authentication, rate limiting and external authorization to the icebox (K-145…K-147), per-route
-filter settings to M6 (K-141). Merged in PR #5.
+filter settings to the WASM milestone (K-141). Merged in PR #5.
 
 Exit criteria:
 - A slow route limited to a few workers of a pool doesn't slow the pool's other routes; the metrics show where each
@@ -130,29 +144,49 @@ Exit criteria:
 - A pool grows while requests wait and shrinks when the load ends.
 - PHP hands a file to kest with `X-Sendfile`; kest sends it with ranges, only from configured directories.
 
-## M6 — WASM sandbox
+## M6 — Unix socket listeners
 
-Scope [K-100…, K-141]: an ADR on the guest ABI; wazero runtime with a compilation cache; instance pools; memory and
-time limits; `wasm` cluster; `wasm` HTTP filter, with per-route filter settings (K-141, moved from M5); example
-modules (Go/TinyGo, Rust); latency benchmarks. Possibly PHP → WASM calls through RPC.
+**Goal:** a unix socket for the proxy in front, on the same host.
 
-## M7 — Protocols
+Scope [K-164]: `address: unix:<path>` with `socket_mode`, stale socket files, `client_ip` for peers on a unix socket.
+Plan: `plans/M6-unix-sockets.md`. What was planned here before, and shelved on 2026-10-26: prefork and socket relays
+(K-154, K-029), then WebSockets and SSE (K-165; researched in K-163, ADR-0009 proposed and on hold), until an application
+needs them.
 
-**Goal:** the protocols a proxy speaks to an application server, and the connections PHP can't hold.
+Exit criteria:
+- nginx reaches kest over a unix socket; a stale socket file left by a killed kest doesn't block the start.
 
-Scope [K-160…]: gRPC on the HTTP/2 listener (an ADR first; unary calls, then server streaming; kest's own errors as
-gRPC statuses), WebSockets and SSE held by kest while PHP handles the events (an ADR first), unix socket listeners.
+## M7 — PHP → kest RPC
+
+**Goal:** a channel through which PHP calls kest, as RoadRunner's PHP libraries call RoadRunner.
+
+Scope [K-900]: the goridge RPC channel (RoadRunner's `rpc` plugin ❓); which RoadRunner PHP libraries it serves
+(metrics from PHP, worker resets, pool state) is decided first; queues, KV and locks stay in the icebox (K-901).
 
 ## M8 — Dynamic configuration
 
 Scope [K-120…]: config reload on SIGHUP or file change, diff-based apply (restart only what changed),
 draining old listeners, a config API. A design ADR first (xDS-inspired or not).
 
+## M9 — WASM sandbox
+
+Scope [K-100…, K-141]: an ADR on the guest ABI; wazero runtime with a compilation cache; instance pools; memory and
+time limits; `wasm` cluster; `wasm` HTTP filter, with per-route filter settings (K-141, moved from M5); example
+modules (Go/TinyGo, Rust); latency benchmarks. Possibly PHP → WASM calls through RPC (M7). Near the end since
+2026-10-26: an option, not what a PHP application needs to start.
+
+## M10 — gRPC
+
+Scope [K-160…K-162]: gRPC on the HTTP/2 listener (an ADR first; unary calls, then server streaming; kest's own
+errors as gRPC statuses), routed like any request. Last since 2026-10-26, after WASM.
+
 ## Later / icebox
 
-CI on GitHub Actions (K-003, deferred until a release or a second contributor), queues/jobs, KV, PHP → kest RPC,
-systemd notify and socket activation, Envoy-style hot restart (passing FDs to a new process), a FastCGI listener
-in place of PHP-FPM (K-911), embedding PHP via SAPI (would need to revisit ADR-0003).
+CI on GitHub Actions (K-003, deferred until a release or a second contributor), prefork (K-154: workers forked from a
+booted PHP process, shelved on 2026-10-26, `research/prefork.md`), socket relays (K-029), WebSockets and SSE (K-165:
+`research/websockets.md`, ADR-0009 on hold), queues/jobs, KV, systemd notify and socket activation, Envoy-style hot
+restart (passing FDs to a new process), a FastCGI listener in place of PHP-FPM (K-911), embedding PHP via SAPI (would
+need to revisit ADR-0003).
 
 ---
 

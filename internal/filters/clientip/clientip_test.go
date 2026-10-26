@@ -1,6 +1,8 @@
 package clientip
 
 import (
+	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -75,11 +77,56 @@ func TestClientIP(t *testing.T) {
 	}
 }
 
+// A peer on a unix socket listener has no address: "unix" trusts it.
+func TestUnixPeer(t *testing.T) {
+	onUnix := func(r *http.Request) *http.Request {
+		ctx := context.WithValue(r.Context(), http.LocalAddrContextKey, &net.UnixAddr{Name: "/run/kest.sock", Net: "unix"})
+		r = r.WithContext(ctx)
+		r.RemoteAddr = "" // what the listener leaves
+		return r
+	}
+	for _, tt := range []struct {
+		name    string
+		trusted []string
+		unix    bool
+		peer    string
+		ip      string
+	}{
+		{"trusted unix peer", []string{"10.0.0.0/8", "unix"}, true, "", "198.51.100.1"},
+		{"unix peer not trusted", []string{"10.0.0.0/8"}, true, "", ""},
+		{"tcp peer with only unix trusted", []string{"unix"}, false, "10.1.2.3:4000", "10.1.2.3"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := Config{TrustedProxies: tt.trusted, Header: xff}
+			if err := cfg.Validate(); err != nil {
+				t.Fatal(err)
+			}
+			f, err := New(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req := httpx.WithRequestInfo(httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody))
+			req.Header.Set("X-Forwarded-For", "198.51.100.1")
+			req.RemoteAddr = tt.peer
+			if tt.unix {
+				req = onUnix(req)
+			}
+			var ip string
+			f(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+				ip = httpx.ClientIP(r)
+			})).ServeHTTP(httptest.NewRecorder(), req)
+			if ip != tt.ip {
+				t.Errorf("client IP %q, want %q", ip, tt.ip)
+			}
+		})
+	}
+}
+
 func TestValidate(t *testing.T) {
 	c := Config{TrustedProxies: []string{"10.0.0.0/8", "::1", "10.0.0.0/33", "localhost"}, Header: "X Real"}
 	want := []string{
 		`trusted_proxies[2]: invalid network "10.0.0.0/33"`,
-		`trusted_proxies[3]: invalid address "localhost": want an IP address or a network such as 10.0.0.0/8`,
+		`trusted_proxies[3]: invalid address "localhost": want an IP address, a network such as 10.0.0.0/8, or unix`,
 		`header: must be a valid HTTP header name, got "X Real"`,
 	}
 	if err := c.Validate(); err == nil || err.Error() != strings.Join(want, "\n") {

@@ -61,4 +61,4 @@ at v1.40.1.
 - Envoy's drain sequence (`drain_timeout`, `--drain-strategy`) — details to mirror in M3/M8.
 - The names borrowed from Envoy (`normalize_path`, `merge_slashes`, `prefix_rewrite`) are from memory ❓ and
   describe kest's behavior only.
-- How the Proxy-Wasm ABI maps onto wazero, and the existing Go host implementations (M6).
+- How the Proxy-Wasm ABI maps onto wazero, and the existing Go host implementations (M9).

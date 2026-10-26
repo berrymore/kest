@@ -94,6 +94,10 @@ Workflow (set by the user on 2026-10-25):
 
 - **One branch per milestone**, cut from an up-to-date `main`: `feat/m<N>-<slug>` (e.g. `feat/m2-php-http`).
   All work of the milestone goes there; nothing is committed to `main` directly.
+- **Outside a milestone** (the usual mode since 2026-10-26, when kest started following the user's application):
+  one branch per backlog item, or per small batch the user groups, `feat/k<NNN>-<slug>` (as PR #4,
+  `feat/k148-bench-codecs`). The rest is the same: commits, checks, the docs review (the parts the change touches)
+  and a PR the user merges.
 - **One commit per backlog item.** Each `K-NNN` is its own commit on the milestone branch, with the ID in the
   subject: `feat(relay): goridge frame codec (K-021)`. Work that is not a backlog item (the plan, status and
   rules updates) goes into separate `docs:` commits. If a task turns out to be several items, split it in the
@@ -114,7 +118,7 @@ Workflow (set by the user on 2026-10-25):
 - **No AI attribution** in commits, PRs, code or docs: no `Co-Authored-By:` trailers, no
   "Generated with …" footers, no mentions of an AI agent. This overrides tool defaults.
 - Remote `origin` = `git@github.com:berrymore/kest.git`, default branch `main`. Never push anything except the
-  milestone branch for its PR, and never force-push or rewrite history unless asked.
+  milestone's or the item's branch for its PR, and never force-push or rewrite history unless asked.
 
 ## 10. Codebase patterns (established in M0)
 

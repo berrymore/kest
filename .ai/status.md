@@ -1,32 +1,38 @@
 # Status
 
-_Last updated: 2026-10-25 (M5 merged, PR #5; M6 not started)_
+_Last updated: 2026-10-26 (M6 unix socket listeners merged; no milestone scheduled: kest follows the user's app)_
 
 ## Current phase
 
-**M5 (Worker pools and routing to them) is done and merged** (PR #5, squashed into `main`). ADR-0008 still draws
-the line: kest is an application server behind a proxy. M5 made the pool the core: lanes per route
-(`route.max_workers`, `priority`, `queue_timeout`), `Retry-After` and overload control (`pool.overload`, CoDel, on
-by default after a measurement), a dynamic size (`pool.max_workers`, `scale_down_after`), the `sendfile` filter,
-route names and matches on regex, method, headers and query, the listener filters' answers in the metrics, buffered
-relay reads; research on forking booted workers (`research/prefork.md`). `plans/M5-pools.md` is the record
-(decisions D1–D10, steps 1–13, the log). The user checked the decisions taken while they were away and approved
-them. `make bench` against RoadRunner did not run during M5 (no RoadRunner binary); A/B runs of kest's binaries
-stood in for it.
+**M6 (Unix socket listeners) is done and merged** (squashed into `main`): `address: unix:<path>` with `socket_mode`,
+stale socket files handled, `client_ip` trusts `unix` peers (K-164). `plans/M6-unix-sockets.md` is the record,
+including what was planned and shelved there. Before it, **M5 (Worker pools and routing to them)** made the pool the
+core: lanes per route, overload control, a dynamic size, `sendfile`, richer route matches (`plans/M5-pools.md`).
+
+**No milestone is scheduled after M6, and no release yet** (the user, 2026-10-26). The user builds an application on
+kest and runs it for real; kest's work follows what that application needs. A release comes once kest has proved
+itself there. The remaining milestones (RPC, dynamic configuration, WASM, gRPC) are candidates in `roadmap.md`.
+
+**Roadmap reordered on 2026-10-26** (the user): M6 Unix socket listeners, M7 PHP → kest RPC, M8 Dynamic
+configuration, M9 WASM sandbox, M10 gRPC. Prefork (K-154), socket relays (K-029) and WebSockets and SSE (K-165) went
+to the icebox the same day, each after a look at what it would cost; their research stays (`research/prefork.md`,
+`research/roadrunner.md` § Socket relays, `research/websockets.md`, ADR-0009 on hold). Milestone numbers in entries
+before that date below follow the old order (M6 WASM, M7 Protocols, M8 Dynamic configuration).
 
 ## In progress
 
-Nothing. M6 is next; the user hasn't said to start it.
+Nothing.
 
 ## Next up: how to continue in a fresh session
 
-1. **Git first:** `git checkout main && git pull`; `git status` is clean, `git log --oneline -3` shows M5's squash
-   commit on top.
-2. **M6 (WASM sandbox)** on a new branch `feat/m6-wasm` from `main`, once the user says to start. Read
-   `roadmap.md` § M6, `backlog.md` § M6 (K-100…K-104, K-141), ADR-0006 and `architecture.md` § 9. First write
-   `plans/M6-wasm.md` and agree its scope with the user (vertical slice first). The first step is the guest ABI
-   research and ADR (K-100: Proxy-Wasm, http-wasm, WASI stdin/stdout, custom); K-141 (per-route filter settings)
-   moved here from M5.
+1. **Git first:** `git checkout main && git pull`; `git status` is clean, `git log --oneline -3` shows M6's squash
+   commit on top. Work on kest from here starts on a branch named after the item (`feat/k<NNN>-<slug>`) or, for a
+   batch, `feat/m<N>-<slug>` if the user makes it a milestone.
+2. **Follow the user's application.** The user builds an application on kest in another repository. Expect requests
+   from that use: a bug, a missing option, something RoadRunner does that kest doesn't. Put each in the backlog, agree
+   the scope, then fix it. Candidates already known: K-153 (fewer hand-overs per job), K-150 (OPcache and JIT in the
+   benchmark), the icebox (`backlog.md`), and the shelved features with their research (prefork, socket relays,
+   WebSockets and SSE: ADR-0009 on hold).
 3. **Q15** (below) is open: ask the user when it fits.
 
 ## Open questions (need a decision from the user)
@@ -40,6 +46,26 @@ Nothing. M6 is next; the user hasn't said to start it.
 
 ## Resolved decisions
 
+- 2026-10-26 — No release milestone for now (the agent had suggested one: binaries, CI, framework guides): the user
+  will build an application on kest and refine kest in real use; a release comes once that works. No milestone is
+  scheduled after M6. The user had the docs review, `make test-matrix` and the PR run for M6.
+- 2026-10-26 — WebSockets and SSE shelved (was Q16): the user liked ADR-0009's GRIP mechanism, then raised several
+  instances (Nomad jobs) and blue-green deploys that close held connections, and decided to wait for a use case,
+  since most PHP applications don't need SSE. The research and ADR-0009 (on hold) stay. M6 is the unix socket
+  listeners alone (`plans/M6-unix-sockets.md`).
+- 2026-10-26 — The M6 plan approved with D1's schema (`unix:` listener addresses, `socket_mode`,
+  `client_ip`'s `unix`). The agent commits each item itself after a green `make check`, until the end of M6 (push and
+  PR still on the user's OK).
+- 2026-10-26 — Prefork and socket relays shelved (the user asked whether they were worth it): `relay: unix` is no
+  faster than pipes; prefork saves a worker's boot (tens of milliseconds) and memory (unmeasured on real apps) at the
+  cost of processes kest didn't spawn, a PHP package and fork safety that falls on the application. K-154 and K-029 to
+  the icebox, the design sketch in `research/prefork.md` § Shelved. M6 is now WebSockets, SSE and unix sockets (K-164
+  joins K-163); RPC M7, dynamic configuration M8, WASM M9, gRPC M10.
+- 2026-10-26 — Roadmap reordered (the user): sockets and prefork (M6), WebSockets and SSE (M7) first, PHP → kest RPC
+  a little later (M8, from the icebox), then dynamic configuration (M9), WASM (M10: "a fancy option, not a base
+  feature for starting a PHP product") and gRPC last (M11). The user plans an RR/kest-first PHP framework in a
+  separate repository, later; kest stays framework-agnostic. K-141 stays with WASM. (Renumbered the same day, see
+  the entry above.)
 - 2026-10-25 — The user checked `feat/m5-pools` locally ("all fine"), had it pushed, PR #5 opened, and merged
   (squash).
 - 2026-10-25 — M5: the user lets the agent commit each item itself after a green `make check`, until the end of the
@@ -119,8 +145,9 @@ Nothing. M6 is next; the user hasn't said to start it.
   `opcache.enable_cli` is off; Composer 2.10.3
 - Also installed: Homebrew, Docker, git, gh (SSH protocol, logged in as `berrymore`)
 - Docker image `golang:1.27` (pulled 2026-10-24) runs `make test-linux`; the `kest-test-php:8.3`, `8.4` and `8.5`
-  images of `make test-matrix` are built from `php:<version>-cli` and `composer:2`, which BuildKit keeps in its
-  cache rather than as tagged images
+  images of `make test-matrix` are built from `php:<version>-cli` and `composer:2`; BuildKit keeps most base images
+  in its cache, `php:8.5-cli` is also a tagged image. `nginx:alpine` (nginx 1.31.8, pulled 2026-10-26) served the
+  unix socket check of K-164
 - Load testing: `test/bench/loadgen` (`make bench`), `ab` (ships with macOS); no `oha`/`wrk`. `make bench` needs
   RoadRunner's release binary (`RR=/path/to/rr`): none is installed; K-066 and K-148 downloaded 3.0.1 from the
   GitHub release (`gh release download v3.0.1 -R roadrunner-server/roadrunner`, sha256 checked) into a scratch
@@ -128,6 +155,16 @@ Nothing. M6 is next; the user hasn't said to start it.
 
 ## Session log (newest first, keep ~15)
 
+- **2026-10-26** — Overview for the user; they plan a PHP framework of their own later, in another repository. The
+  roadmap reordered on their call across roadmap, backlog, context, architecture, README and the ADR pointers. A
+  plan for M6 "Unix sockets and prefork" drafted; RoadRunner's socket relays checked in source and by experiment
+  (`research/roadrunner.md` § Socket relays: PHP connects lazily after the boot and retries for a millisecond, RR
+  matches connections by pid and throws stdout away). Then the user questioned `relay: unix` and prefork: both
+  shelved; M6 became WebSockets, SSE and unix sockets. K-164 unix socket listeners done; the WebSockets and SSE
+  research (`research/websockets.md`) and ADR-0009 (SSE held through GRIP); the user then shelved WebSockets and
+  SSE too (blue-green deploys and several instances need a broker and reconnect handling; no use case yet). M6 is the
+  unix socket listeners alone, branch `feat/m6-unix-sockets`; docs review, `make test-matrix`, PR. No release and no
+  milestone next: the user builds an application on kest and kest follows it.
 - **2026-10-25** — M5 planned with the user (scope narrowed to the pool) and implemented on `feat/m5-pools` (the user
   delegated all steps, then left; they checked it locally, then PR #5, merged):
   K-910 route names; lanes in the pool (a dispatcher under one mutex, 3.1 → 1.8 µs per job) and on routes;
@@ -195,5 +232,3 @@ Nothing. M6 is next; the user hasn't said to start it.
   registry, httpx router, listener, admin, server lifecycle, CLI (`serve`, `validate`, `version`),
   hello example, e2e tests, `docs/config.md`. Found and fixed: port 0 counted as a duplicate address.
   Commit and squash policy added to the rules.
-- **2026-10-24** — Installed golangci-lint 2.15.0 into `~/go/bin` (release binary, no brew); the user
-  installed Composer.

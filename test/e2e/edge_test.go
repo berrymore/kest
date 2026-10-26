@@ -256,3 +256,87 @@ listeners:
 		t.Errorf("preflight = %d %v", preflight.StatusCode, preflight.Header)
 	}
 }
+
+// unixClient sends every request through the unix socket at path.
+func unixClient(path string) *http.Client {
+	return &http.Client{Transport: &http.Transport{
+		DisableKeepAlives: true,
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, "unix", path)
+		},
+	}}
+}
+
+// A proxy on the same host reaches kest through a unix socket, and the
+// socket file a killed kest leaves behind doesn't block the next start.
+func TestUnixListener(t *testing.T) {
+	dir, err := os.MkdirTemp("", "kest") //nolint:usetesting // t.TempDir's paths can pass the socket path limit on macOS
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	adminAddr := freeAddr(t)
+	configPath := filepath.Join(dir, "kest.yaml")
+	socket := filepath.Join(dir, "kest.sock")
+	writeFile(t, configPath, `version: v1
+admin: {address: "`+adminAddr+`"}
+listeners:
+  - name: main
+    address: unix:kest.sock
+    socket_mode: "0600"
+    http:
+      filters:
+        - type: access_log
+        - type: client_ip
+          config: {trusted_proxies: [unix]}
+      virtual_hosts:
+        - name: default
+          domains: ["*"]
+          routes:
+            - match: {prefix: /}
+              direct_response: {body: "over a socket\n"}
+`)
+
+	k := serve(t, configPath, adminAddr)
+	client := unixClient(socket)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://kest/", http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Forwarded-For", "198.51.100.1")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || string(body) != "over a socket\n" {
+		t.Errorf("GET through the socket = %d %q", resp.StatusCode, body)
+	}
+	if info, err := os.Lstat(socket); err != nil || info.Mode().Perm() != 0o600 {
+		t.Errorf("socket file: %v, %v; want mode 0600", info, err)
+	}
+	if logs := k.logs.String(); !strings.Contains(logs, "remote=198.51.100.1") {
+		t.Errorf("the access log doesn't show the client the proxy reported:\n%s", logs)
+	}
+
+	// Killed, kest leaves the socket file behind; the next start replaces it.
+	if err := k.cmd.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-k.exited; err == nil {
+		t.Fatal("kest exited cleanly after SIGKILL")
+	}
+	if _, err := os.Lstat(socket); err != nil {
+		t.Fatalf("no stale socket file after a kill: %v", err)
+	}
+	k = serve(t, configPath, adminAddr)
+	if resp := do(t, unixClient(socket), "http://kest/"); resp.Body != "over a socket\n" {
+		t.Errorf("GET after a restart = %d %q", resp.Status, resp.Body)
+	}
+	k.stop(t)
+	if _, err := os.Lstat(socket); !os.IsNotExist(err) {
+		t.Errorf("the socket file is still there after a clean stop: %v", err)
+	}
+}

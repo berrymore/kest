@@ -42,7 +42,6 @@ Milestone definitions: `roadmap.md`.
 - [x] K-027 Respawn with exponential backoff; pool health state.
 - [x] K-028 Integration test: PHP echo worker on `roadrunner/worker` (formerly `spiral/roadrunner-worker`;
   `testdata/php/` + composer; pin the package versions in `composer.lock`).
-- [ ] K-029 Unix socket / TCP relays (only if a deployment needs them; pipes cover kest's workers so far).
 
 ## M2 — PHP HTTP (MVP)
 
@@ -227,7 +226,27 @@ IDs start at K-140: the milestones were renumbered on 2026-10-25 (ADR-0008), and
   between releases belongs to the proxy or the orchestrator, and an A/B split needs a sticky assignment that PHP
   does itself (ADR-0008).
 
-## M6 — WASM sandbox
+## M6 — Unix socket listeners
+
+Reordered with the user on 2026-10-26 (`roadmap.md`): prefork and socket relays, then WebSockets and SSE, were planned
+here and went to the icebox the same day. Plan: `plans/M6-unix-sockets.md`.
+
+- [x] K-163 Research and ADR: WebSockets and SSE held by kest while PHP handles the events (2026-10-26:
+  `research/websockets.md`; ADR-0009 proposes SSE streams held through a GRIP subset). The feature itself was then
+  shelved: K-165.
+- [x] K-164 Unix socket listeners (`address: unix:/run/kest.sock`, `socket_mode`), for a proxy on the same host;
+  `client_ip` trusts `unix` peers (plan D1; 2026-10-26). The admin server stays on TCP: nothing asked for a socket.
+
+## M7 — PHP → kest RPC
+
+- [ ] K-900 PHP → kest RPC channel (RoadRunner `rpc` plugin equivalent). From the icebox on 2026-10-26.
+
+## M8 — Dynamic configuration
+
+- [ ] K-120 Design ADR: reload model, graph diffing, listener handover.
+- [ ] K-121 Reload on SIGHUP / file change with diff-based apply.
+
+## M9 — WASM sandbox
 
 - [ ] K-100 Research and ADR: guest ABI (Proxy-Wasm, http-wasm, WASI stdin/stdout, custom).
 - [ ] K-101 wazero runtime, compilation cache, instance pool, memory and time limits.
@@ -238,21 +257,13 @@ IDs start at K-140: the milestones were renumbered on 2026-10-25 (ADR-0008), and
   route (Envoy's `typed_per_filter_config`). Moved from M5 on 2026-10-25: the `wasm` filter extends the filter
   model here.
 
-## M7 — Protocols
+## M10 — gRPC
 
 - [ ] K-160 Research and ADR: gRPC in kest. RoadRunner's `grpc` plugin ❓ (what PHP gets, which call types),
   the codec to PHP workers, gRPC statuses for kest's own errors (`RESOURCE_EXHAUSTED`, `DEADLINE_EXCEEDED`),
   `grpc-timeout` as the request's deadline.
 - [ ] K-161 gRPC unary calls to `php_workers` on the HTTP/2 listener, routed like any request.
 - [ ] K-162 gRPC server streaming over streamed worker responses (K-088).
-- [ ] K-163 Research and ADR: WebSockets and SSE held by kest while PHP handles the events (RoadRunner's
-  `centrifuge` and `broadcast` plugins ❓).
-- [ ] K-164 Unix socket listeners (`address: unix:/run/kest.sock`), for a proxy on the same host.
-
-## M8 — Dynamic configuration
-
-- [ ] K-120 Design ADR: reload model, graph diffing, listener handover.
-- [ ] K-121 Reload on SIGHUP / file change with diff-based apply.
 
 ## Deferred
 
@@ -262,9 +273,8 @@ IDs start at K-140: the milestones were renumbered on 2026-10-25 (ADR-0008), and
 
 ## Ideas / icebox
 
-- [ ] K-900 PHP → kest RPC channel (RoadRunner `rpc` plugin equivalent).
 - [ ] K-901 Queues/jobs plugin.
-- [-] K-902 gRPC listener with PHP workers. Superseded by M7 (K-160…K-162).
+- [-] K-902 gRPC listener with PHP workers. Superseded by M10 (K-160…K-162).
 - [ ] K-903 systemd notify and socket activation.
 - [ ] K-904 Envoy-style hot restart (FD passing to the new process).
 - [-] K-906 ACME (automatic TLS certificates). Dropped: the proxy in front gets the certificates (ADR-0008).
@@ -278,6 +288,15 @@ IDs start at K-140: the milestones were renumbered on 2026-10-25 (ADR-0008), and
   2026-10-25.
 - [ ] K-147 External authorization through a cluster: a subrequest to a small PHP pool decides, and the headers it
   returns go to the main request (Envoy's `ext_authz`). Moved from M5 on 2026-10-25.
-- [ ] K-154 Prefork mode (opt-in): a booted PHP "template" forks the workers of a pool on kest's request; children
-  connect over a unix socket (needs K-029) and are known by their handshake pid. An ADR first, after measuring a real
-  application's boot (`research/prefork.md`). From K-152, 2026-10-25.
+- [ ] K-029 Unix socket relays between kest and its workers (`RR_RELAY=unix://…`). Deferred in M1; scheduled for M6
+  and shelved again on 2026-10-26: no faster than pipes, and only prefork needed them. RoadRunner's are described in
+  `research/roadrunner.md` § Socket relays.
+- [ ] K-154 Prefork mode (opt-in): a booted PHP "template" forks the workers of a pool on kest's request; each child
+  connects over a unix socket of its own (K-029). From K-152, 2026-10-25. Shelved on 2026-10-26 with the user: the
+  gain is memory density (unmeasured on real applications) and a worker's boot, the cost is processes kest didn't
+  spawn, a PHP package, and fork safety that falls on the application. Revisit when a deployment runs short of memory,
+  or when a framework designed to be fork-safe can make it safe by default. Design sketch in `research/prefork.md`.
+- [ ] K-165 WebSockets and SSE held by kest while PHP handles the events: the feature K-163 researched. ADR-0009
+  (proposed, on hold) has the design, plus what a production version needs from the start: a broker for several
+  instances and blue-green deploys, and reconnects as a normal case (plan `M6-unix-sockets.md` D2). Shelved on
+  2026-10-26 with the user: most PHP applications don't need it; revisit with a use case.

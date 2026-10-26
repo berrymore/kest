@@ -2,8 +2,9 @@
 
 > A living document. It describes the **target** design and marks what is implemented.
 > Legend: 🟢 implemented · 🟡 in progress · ⚪ planned.
-> **Last reviewed: 2026-10-25 (M5 done, merged).** Implemented: config loading and validation, extension
-> registry, server lifecycle, HTTP listeners with configurable limits, TLS (reloaded certificates) and HTTP/2/h2c,
+> **Last reviewed: 2026-10-26 (M6 done, merged).** Implemented: config loading and validation, extension
+> registry, server lifecycle, HTTP listeners on TCP and unix sockets with configurable limits, TLS (reloaded
+> certificates) and HTTP/2/h2c,
 > path normalization, router with `direct_response` and `redirect`, route names and matches on regex, method,
 > headers and query; the goridge relay and the worker pool with rolling resets, streamed answers, lanes (worker
 > limits, priorities, queue timeouts), overload control and a dynamic size (`internal/relay`, `internal/worker`);
@@ -29,7 +30,7 @@
                 │                    ├─ direct_response, redirect                       │
                 │                    └─ route → Cluster                                 │
                 │                               ├─ php_workers ─▶ Pool ─▶ Relay ────────┼──▶ php worker.php × N
-                │                               └─ wasm (M6)  ─▶ wazero instances       │
+                │                               └─ wasm (M9)  ─▶ wazero instances       │
                 │                                                                       │
                 │  Admin server (127.0.0.1:9901): /ready /server_info /config_dump        │
                 │                                 /clusters /metrics                     │
@@ -38,7 +39,8 @@
 
 kest is a single Go binary. At startup it reads one YAML file and builds a graph of components:
 
-- **Listeners** accept connections on an address and hand them to a protocol handler (HTTP first).
+- **Listeners** accept connections on an address (`host:port` or a unix socket) and hand them to a protocol handler
+  (HTTP first).
 - The **HTTP connection manager** runs a chain of **HTTP filters** (middleware), ending in the **router**.
 - The **router** selects a **virtual host** by `Host` and runs its filters, then the first matching **route**,
   and runs its filters and its action: forward to a **cluster**, return a **direct response** or a **redirect**. Paths are normalized before
@@ -185,7 +187,8 @@ var Filters = registry.NewCategory[Filter]("http filter")
 // the router and request_id; filters read it after the inner handler returns (access_log), whatever their
 // order. httpx.ResponseWriter records the status and body size; httpx.BeforeHeader edits a response header just
 // before it goes out (headers, cors, compression). RequestInfo.ClientIP/Scheme come from client_ip
-// (httpx.ClientIP, httpx.Scheme). Built in: request_id, access_log, recovery, client_ip, headers, cors, compression,
+// (httpx.ClientIP, httpx.Scheme). A unix socket listener clears r.RemoteAddr (its peer has no address: Go says "@"
+// on Linux, "" on macOS); client_ip tells such peers by http.LocalAddrContextKey's network ("unix"). Built in: request_id, access_log, recovery, client_ip, headers, cors, compression,
 // static, sendfile.
 
 // internal/cluster: the name lives in config/BuildContext, not on the interface.
@@ -245,7 +248,7 @@ type Frame struct {
 	Options []uint32
 	Payload []byte
 }
-func NewConn(r io.Reader, w io.Writer, maxPayload int) *Conn // Send / Receive; pipes now, sockets later
+func NewConn(r io.Reader, w io.Writer, maxPayload int) *Conn // Send / Receive; pipes (socket relays: icebox, K-029)
 ```
 
 Layering (dependencies point down only):
@@ -350,7 +353,11 @@ Extra slots (beyond Workers, M5): Parked ──▶ Starting ──▶ Ready ⇄ 
 3. Start clusters (M2+: `php_workers` starts its pool and waits for every handshake, bounded by a startup
    timeout).
 4. Start the admin server, then the listeners (bind ports; a TLS listener also starts its certificate checks,
-   stopped in `Stop` after the drain). If anything fails to start, the components already started are stopped and
+   stopped in `Stop` after the drain). A unix socket listener removes a stale socket file first (one whose connect is
+   refused; a live socket or a file that isn't a socket is an error), binds under a temporary name in the same
+   directory, sets `socket_mode`, and links the socket into place, so nobody connects before the mode applies and a
+   file that appeared meanwhile isn't replaced. In `Stop` it removes the file, if it is still its socket
+   (`os.SameFile`). If anything fails to start, the components already started are stopped and
    `Run` returns the error.
 5. Mark ready (`/ready` returns 200); `Server.Ready()` is closed.
 
@@ -385,7 +392,7 @@ internal/buildinfo/          🟢 version information (ldflags or embedded VCS d
 internal/config/             🟢 load, env expansion, strict decode, defaults, validation, dump
 internal/registry/           🟢 extension categories and factories
 internal/server/             🟢 build graph from config; start/stop order; drain
-internal/listener/           🟢 HTTP listeners (bind in Start, drain in Stop; limits from the http block; TLS certificates, reloaded on change)
+internal/listener/           🟢 HTTP listeners on TCP or unix sockets (bind in Start, drain in Stop; limits from the http block; TLS certificates, reloaded on change)
 internal/httpx/              🟢 filter chain, router, route actions
 internal/admin/              🟢 admin HTTP API
 internal/logging/            🟢 slog setup
@@ -395,9 +402,9 @@ internal/filters/            🟢 built-in HTTP filters, one package each: reque
 internal/cluster/phpworkers/ 🟢 php_workers: config, worker environment, pool lifecycle, HTTP handler
 internal/rrhttp/             🟢 HTTP ↔ RoadRunner HTTP payload (request context JSON/protobuf, form trees, responses)
 internal/worker/             🟢 process, pool, supervisor (language-agnostic); workertest/ has fake workers
-internal/relay/              🟢 goridge-compatible frame codec and Conn (pipes; sockets later, K-029)
+internal/relay/              🟢 goridge-compatible frame codec and Conn (pipes; socket relays in the icebox, K-029)
 internal/metrics/            🟢 metrics core and text exposition (ADR-0007), Go and process metrics; metricstest/ for tests
-internal/wasm/               ⚪ (M6) wazero runtime, module cache, instance pools
+internal/wasm/               ⚪ (M9) wazero runtime, module cache, instance pools
 examples/                    🟢 runnable configs (PHP apps from M2)
 docs/                        🟢 user documentation: getting started, config reference, metrics, operations, benchmarks
 test/e2e/                    🟢 end-to-end tests: build the binary with -race, run it against configs
@@ -435,7 +442,7 @@ test/bench/                  🟢 benchmark against RoadRunner: configs, loadgen
 | `POST /clusters/{name}/reset` | rolling restart of a pool; returns when done | 🟢 M3 |
 | `GET /metrics` | Prometheus text format (`docs/metrics.md`) | 🟢 M3 |
 
-## 9. WASM sandbox (M6) ⚪
+## 9. WASM sandbox (M9) ⚪
 
 Runtime: wazero (ADR-0006, pure Go). Planned uses:
 
@@ -446,7 +453,7 @@ Runtime: wazero (ADR-0006, pure Go). Planned uses:
 Shared mechanics: compile once with a compilation cache, pool instances, set per-call memory limits and
 deadlines (context cancellation), and use host functions for logging and config. The guest ABI is still
 open: Proxy-Wasm, http-wasm, WASI stdin/stdout (CGI-style) or a custom one. It will be decided by an ADR
-at the start of M6.
+at the start of M9.
 
 ## 10. Open design questions
 
@@ -458,4 +465,4 @@ at the start of M6.
 | Q-D | Cluster interface: `http.Handler`, or a kest request/response type shared by php, wasm and proxy? | ✅ M4: `http.Handler` stays |
 | Q-E | Metrics: `prometheus/client_golang`, OpenTelemetry metrics, or a minimal custom exposition? | ✅ ADR-0007 (2026-10-25): a hand-written core with the Prometheus text format |
 | Q-F | Per-route priority and queueing inside one pool, on top of pool isolation | ✅ M5: lanes with a worker limit, strict priority and a queue timeout per route (`plans/M5-pools.md` D2) |
-| Q-G | PHP → kest RPC (RoadRunner's `rpc` plugin equivalent): needed for which PHP libraries? | Not for HTTP: `roadrunner/http` and `roadrunner/worker` don't use it (K-040); libraries for RR's KV, jobs, metrics, lock plugins do |
+| Q-G | PHP → kest RPC (RoadRunner's `rpc` plugin equivalent): needed for which PHP libraries? | Not for HTTP: `roadrunner/http` and `roadrunner/worker` don't use it (K-040); libraries for RR's KV, jobs, metrics, lock plugins do; M7 decides which kest serves |

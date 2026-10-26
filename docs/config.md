@@ -100,7 +100,7 @@ The admin HTTP server, for probes and introspection.
 
 | Field | Default | |
 |---|---|---|
-| `address` | `127.0.0.1:9901` | Must differ from every listener address |
+| `address` | `127.0.0.1:9901` | `host:port` only (unix sockets are for listeners); must differ from every listener address |
 
 Endpoints:
 
@@ -135,9 +135,18 @@ At least one listener is required.
 | Field | Required | |
 |---|---|---|
 | `name` | yes | Unique listener name |
-| `address` | yes | `host:port` to bind; must be unique (except port `0`) |
+| `address` | yes | `host:port` to bind, or `unix:<path>` for a unix socket (a relative path resolves against the config file's directory); must be unique (except port `0`) |
+| `socket_mode` | no | Unix sockets only, default `0660`: the socket file's mode, in octal. It decides which local users may connect |
 | `tls` | no | Serve HTTPS with these certificates; see below |
 | `http` | yes | HTTP is the only protocol so far |
+
+A unix socket listener is for a proxy on the same host (see the [operations guide](operations.md#behind-a-proxy)).
+kest binds the socket under a temporary name, sets its mode and only then moves it into place, so nobody connects
+before the mode applies. At start it removes a socket file nobody listens on (left by a killed kest), and refuses to
+start if another process listens on the path or a file that isn't a socket is there. It removes the file when it
+stops. The path must fit the OS's limit (107 bytes on Linux, 103 on macOS), and its directory must leave room for the
+15-byte temporary name (`/.kest-` and eight characters). A peer on a unix socket has no IP address, so PHP sees
+an empty `REMOTE_ADDR` unless [`client_ip`](#filters) trusts `unix`.
 
 ### `listeners[].tls`
 
@@ -245,7 +254,7 @@ but only from peers listed in `trusted_proxies`:
 
 | Field | Default | |
 |---|---|---|
-| `trusted_proxies` | — | Required. The addresses (`192.0.2.10`, `2001:db8::1`) and networks (`10.0.0.0/8`) of the proxies allowed to tell the client's IP. |
+| `trusted_proxies` | — | Required. The addresses (`192.0.2.10`, `2001:db8::1`) and networks (`10.0.0.0/8`) of the proxies allowed to tell the client's IP, and `unix` for peers on a [unix socket listener](#listeners), which have no IP. |
 | `header` | `X-Forwarded-For` | Where the IP is: `X-Forwarded-For`, `Forwarded` (its `for=` parameters), or a header with one address set by the proxy, such as `X-Real-Ip` or `CF-Connecting-IP`. |
 
 When a request comes from a trusted proxy, kest reads the list from the end: the first address that isn't a trusted

@@ -80,7 +80,7 @@ internal/config/     YAML loading, env expansion, strict decoding, defaults, val
 internal/registry/   compiled-in extension categories and factories
 internal/server/     builds the component graph; start/stop order; drain
 internal/httpx/      HTTP filter chain and router
-internal/listener/   HTTP listeners
+internal/listener/   HTTP listeners on TCP and unix sockets
 internal/filters/    built-in HTTP filters, one package each: requestid/, accesslog/, recovery/, clientip/, headers/, cors/, compression/, static/, sendfile/
 internal/cluster/    cluster interface and registry category; types: phpworkers/
 internal/rrhttp/     HTTP ↔ RoadRunner HTTP payload (request context JSON/protobuf, forms, uploads, responses)
@@ -128,7 +128,8 @@ Full list: `.ai/rules.md`. The ones that matter most:
 Full workflow: `.ai/rules.md` § 9.
 
 - Remote: `origin` → `git@github.com:berrymore/kest.git` (public). Default branch: `main`.
-- **One branch per milestone** from `main`: `feat/m<N>-<slug>`. Nothing is committed to `main` directly.
+- **One branch per milestone** from `main`: `feat/m<N>-<slug>`; outside a milestone, one per backlog item:
+  `feat/k<NNN>-<slug>`. Nothing is committed to `main` directly.
 - **One commit per backlog item** (`K-NNN` in the subject), plus separate `docs:` commits for plans and status.
 - **Ask before every commit**, unless the user said otherwise for the current milestone. `make check` first.
 - **Merge via PR:** at the end of the milestone, run the docs review (`.ai/review.md`: `make docs-check` plus the
@@ -146,7 +147,7 @@ Full workflow: `.ai/rules.md` § 9.
 | `.ai/context.md` | Vision, goals, non-goals, principles, glossary |
 | `.ai/rules.md` | Engineering rules and workflow conventions |
 | `.ai/architecture.md` | Living architecture: components, config model, interfaces, lifecycle |
-| `.ai/roadmap.md` | Milestones M0…M8 with exit criteria; definition of 1.0 |
+| `.ai/roadmap.md` | Milestones M0…M10 with exit criteria; definition of 1.0 |
 | `.ai/backlog.md` | All known work items (`K-NNN`), grouped by milestone |
 | `.ai/plans/` | Step-by-step plans for the active milestone/feature |
 | `.ai/decisions/` | Architecture Decision Records (`NNNN-title.md`) |
