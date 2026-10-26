@@ -29,7 +29,7 @@
                 │                    ├─ direct_response, redirect                       │
                 │                    └─ route → Cluster                                 │
                 │                               ├─ php_workers ─▶ Pool ─▶ Relay ────────┼──▶ php worker.php × N
-                │                               └─ wasm (M10) ─▶ wazero instances       │
+                │                               └─ wasm (M9)  ─▶ wazero instances       │
                 │                                                                       │
                 │  Admin server (127.0.0.1:9901): /ready /server_info /config_dump        │
                 │                                 /clusters /metrics                     │
@@ -375,7 +375,7 @@ Extra slots (beyond Workers, M5): Parked ──▶ Starting ──▶ Ready ⇄ 
   a slot whose process started after the reset began (a newer generation) drops the offered one.
 - M4 🟢: TLS certificates: each TLS listener checks its files every 10s (size and mtime) and swaps a pair that
   changed once it holds still for a check; a pair that fails to load keeps the old one.
-- M9: full config reload: diff the old and new graphs and restart only the components that changed.
+- M8: full config reload: diff the old and new graphs and restart only the components that changed.
 
 ## 7. Package layout
 
@@ -395,9 +395,9 @@ internal/filters/            🟢 built-in HTTP filters, one package each: reque
 internal/cluster/phpworkers/ 🟢 php_workers: config, worker environment, pool lifecycle, HTTP handler
 internal/rrhttp/             🟢 HTTP ↔ RoadRunner HTTP payload (request context JSON/protobuf, form trees, responses)
 internal/worker/             🟢 process, pool, supervisor (language-agnostic); workertest/ has fake workers
-internal/relay/              🟢 goridge-compatible frame codec and Conn (pipes; sockets in M6, K-029)
+internal/relay/              🟢 goridge-compatible frame codec and Conn (pipes; socket relays in the icebox, K-029)
 internal/metrics/            🟢 metrics core and text exposition (ADR-0007), Go and process metrics; metricstest/ for tests
-internal/wasm/               ⚪ (M10) wazero runtime, module cache, instance pools
+internal/wasm/               ⚪ (M9) wazero runtime, module cache, instance pools
 examples/                    🟢 runnable configs (PHP apps from M2)
 docs/                        🟢 user documentation: getting started, config reference, metrics, operations, benchmarks
 test/e2e/                    🟢 end-to-end tests: build the binary with -race, run it against configs
@@ -435,7 +435,7 @@ test/bench/                  🟢 benchmark against RoadRunner: configs, loadgen
 | `POST /clusters/{name}/reset` | rolling restart of a pool; returns when done | 🟢 M3 |
 | `GET /metrics` | Prometheus text format (`docs/metrics.md`) | 🟢 M3 |
 
-## 9. WASM sandbox (M10) ⚪
+## 9. WASM sandbox (M9) ⚪
 
 Runtime: wazero (ADR-0006, pure Go). Planned uses:
 
@@ -446,7 +446,7 @@ Runtime: wazero (ADR-0006, pure Go). Planned uses:
 Shared mechanics: compile once with a compilation cache, pool instances, set per-call memory limits and
 deadlines (context cancellation), and use host functions for logging and config. The guest ABI is still
 open: Proxy-Wasm, http-wasm, WASI stdin/stdout (CGI-style) or a custom one. It will be decided by an ADR
-at the start of M10.
+at the start of M9.
 
 ## 10. Open design questions
 
@@ -458,4 +458,4 @@ at the start of M10.
 | Q-D | Cluster interface: `http.Handler`, or a kest request/response type shared by php, wasm and proxy? | ✅ M4: `http.Handler` stays |
 | Q-E | Metrics: `prometheus/client_golang`, OpenTelemetry metrics, or a minimal custom exposition? | ✅ ADR-0007 (2026-10-25): a hand-written core with the Prometheus text format |
 | Q-F | Per-route priority and queueing inside one pool, on top of pool isolation | ✅ M5: lanes with a worker limit, strict priority and a queue timeout per route (`plans/M5-pools.md` D2) |
-| Q-G | PHP → kest RPC (RoadRunner's `rpc` plugin equivalent): needed for which PHP libraries? | Not for HTTP: `roadrunner/http` and `roadrunner/worker` don't use it (K-040); libraries for RR's KV, jobs, metrics, lock plugins do; M8 decides which kest serves |
+| Q-G | PHP → kest RPC (RoadRunner's `rpc` plugin equivalent): needed for which PHP libraries? | Not for HTTP: `roadrunner/http` and `roadrunner/worker` don't use it (K-040); libraries for RR's KV, jobs, metrics, lock plugins do; M7 decides which kest serves |

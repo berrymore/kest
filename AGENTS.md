@@ -146,7 +146,7 @@ Full workflow: `.ai/rules.md` § 9.
 | `.ai/context.md` | Vision, goals, non-goals, principles, glossary |
 | `.ai/rules.md` | Engineering rules and workflow conventions |
 | `.ai/architecture.md` | Living architecture: components, config model, interfaces, lifecycle |
-| `.ai/roadmap.md` | Milestones M0…M11 with exit criteria; definition of 1.0 |
+| `.ai/roadmap.md` | Milestones M0…M10 with exit criteria; definition of 1.0 |
 | `.ai/backlog.md` | All known work items (`K-NNN`), grouped by milestone |
 | `.ai/plans/` | Step-by-step plans for the active milestone/feature |
 | `.ai/decisions/` | Architecture Decision Records (`NNNN-title.md`) |

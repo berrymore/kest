@@ -130,7 +130,7 @@ dependency), the reset stops there and the call answers `500` with the worker's 
 reach still run the old code and keep serving, so roll the code back and reset again. `409` means a reset is
 running already.
 
-Configuration changes need a restart of kest; reloading the config is planned (M9).
+Configuration changes need a restart of kest; reloading the config is planned (M8).
 
 In development, a cluster's `reload` block resets the workers by itself when files change. Leave it off in
 production: deploys should decide when workers switch to new code.

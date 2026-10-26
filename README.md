@@ -134,12 +134,11 @@ Details: [`.ai/architecture.md`](.ai/architecture.md).
 | **M3** Operability ✅ | Metrics, admin API, rolling restarts, access logs, limits, benchmarks |
 | **M4** HTTP features ✅ | TLS, HTTP/2 and h2c, trusted proxies, static files, compression, CORS, redirects, streaming |
 | **M5** Worker pools and routing ✅ | Lanes per route (worker limits, priorities, queue timeouts), overload control, dynamic pool size, `X-Sendfile`, richer matches |
-| **M6** Unix sockets and prefork | Socket relays, workers forked from a booted PHP process, unix socket listeners |
-| **M7** WebSockets and SSE | Long-lived connections held by kest, events handled by PHP |
-| **M8** PHP → kest RPC | The channel RoadRunner's PHP libraries call |
-| **M9** Dynamic config | Hot reload of the config file, config API |
-| **M10** WASM sandbox | wazero runtime, `wasm` clusters and filters |
-| **M11** gRPC | gRPC on the HTTP/2 listener, routed to PHP workers |
+| **M6** WebSockets, SSE and unix sockets | Long-lived connections held by kest, events handled by PHP; unix socket listeners |
+| **M7** PHP → kest RPC | The channel RoadRunner's PHP libraries call |
+| **M8** Dynamic config | Hot reload of the config file, config API |
+| **M9** WASM sandbox | wazero runtime, `wasm` clusters and filters |
+| **M10** gRPC | gRPC on the HTTP/2 listener, routed to PHP workers |
 
 ## Try it
 

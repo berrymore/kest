@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-10-26 (roadmap reordered: M6 is unix sockets and prefork, WASM and gRPC last; M6 not planned yet)_
+_Last updated: 2026-10-26 (roadmap reordered; M6 WebSockets, SSE and unix sockets: plan approved, research and K-164 started)_
 
 ## Current phase
 
@@ -14,27 +14,25 @@ relay reads; research on forking booted workers (`research/prefork.md`). `plans/
 them. `make bench` against RoadRunner did not run during M5 (no RoadRunner binary); A/B runs of kest's binaries
 stood in for it.
 
-**Roadmap reordered on 2026-10-26** (the user): M6 Unix sockets and prefork, M7 WebSockets and SSE, M8 PHP → kest
-RPC, M9 Dynamic configuration, M10 WASM sandbox, M11 gRPC. Milestone numbers in entries before that date below
-follow the old order (M6 WASM, M7 Protocols, M8 Dynamic configuration).
+**Roadmap reordered on 2026-10-26** (the user): M6 WebSockets, SSE and unix sockets, M7 PHP → kest RPC, M8 Dynamic
+configuration, M9 WASM sandbox, M10 gRPC; prefork (K-154) and socket relays (K-029) to the icebox. Milestone
+numbers in entries before that date below follow the old order (M6 WASM, M7 Protocols, M8 Dynamic configuration).
 
 ## In progress
 
-The reorder, as a `docs:` commit on `feat/m6-sockets` (branch cut from `main`; the commit waits for the user's OK).
-M6 itself is not planned yet.
+**M6 (WebSockets, SSE and unix sockets)** on `feat/m6-websockets` (renamed from `feat/m6-sockets`, not pushed):
+`plans/M6-websockets.md` approved and committed. Step 2 (K-163 research into `research/websockets.md`) and step 3
+(K-164 unix socket listeners, D1) run side by side. The agent commits each item itself after a green `make check`,
+until the end of M6.
 
 ## Next up: how to continue in a fresh session
 
-1. **Git first:** `git checkout feat/m6-sockets`; `git log --oneline -3` shows the reorder's `docs:` commit on top of
-   M5's squash commit (if it isn't committed yet, ask the user).
-2. **M6 (Unix sockets and prefork):** write `plans/M6-sockets.md` and agree its scope with the user (vertical slice
-   first). Read `roadmap.md` § M6, `backlog.md` § M6 (K-029, K-154, K-164), `research/prefork.md`,
-   `research/roadrunner.md` (the worker environment: `RR_RELAY` as `pipes`, `tcp://…`, `unix://…`),
-   `architecture.md` § 4–5 (relay, pool, worker lifecycle) and ADR-0003. Likely order: K-029 socket relays (the slice: an unmodified
-   `roadrunner/worker` over `unix://`), then K-154 prefork (its ADR first, after measuring a real application's
-   boot; it needs a small PHP library from kest, and where that lives is a plan decision), K-164 unix socket listeners
-   on the side. K-153 (fewer hand-overs per job, an ADR first) touches the same pool code: decide in the plan
-   whether it joins M6.
+1. **Git first:** `git checkout feat/m6-websockets`; `git log --oneline -4` shows the reorders' and the plan's `docs:`
+   commits on top of M5's squash commit.
+2. **M6:** see the plan's steps for what is ticked. Step 2: the K-163 research into `research/websockets.md` (RoadRunner's `centrifuge` plugin in its source at a pinned
+   version; Centrifugo, Mercure, the Pusher protocol, Swoole), and step 3 alongside it: K-164 unix socket listeners
+   (D1; read `internal/listener/listener.go`, `internal/config/validate.go` `checkAddress`,
+   `internal/filters/clientip`).
 3. **Q15** (below) is open: ask the user when it fits.
 
 ## Open questions (need a decision from the user)
@@ -48,10 +46,19 @@ M6 itself is not planned yet.
 
 ## Resolved decisions
 
+- 2026-10-26 — `plans/M6-websockets.md` approved with D1's schema (`unix:` listener addresses, `socket_mode`,
+  `client_ip`'s `unix`). The agent commits each item itself after a green `make check`, until the end of M6 (push and
+  PR still on the user's OK).
+- 2026-10-26 — Prefork and socket relays shelved (the user asked whether they were worth it): `relay: unix` is no
+  faster than pipes; prefork saves a worker's boot (tens of milliseconds) and memory (unmeasured on real apps) at the
+  cost of processes kest didn't spawn, a PHP package and fork safety that falls on the application. K-154 and K-029 to
+  the icebox, the design sketch in `research/prefork.md` § Shelved. M6 is now WebSockets, SSE and unix sockets (K-164
+  joins K-163); RPC M7, dynamic configuration M8, WASM M9, gRPC M10.
 - 2026-10-26 — Roadmap reordered (the user): sockets and prefork (M6), WebSockets and SSE (M7) first, PHP → kest RPC
   a little later (M8, from the icebox), then dynamic configuration (M9), WASM (M10: "a fancy option, not a base
   feature for starting a PHP product") and gRPC last (M11). The user plans an RR/kest-first PHP framework in a
-  separate repository, later; kest stays framework-agnostic. K-141 stays with WASM.
+  separate repository, later; kest stays framework-agnostic. K-141 stays with WASM. (Renumbered the same day, see
+  the entry above.)
 - 2026-10-25 — The user checked `feat/m5-pools` locally ("all fine"), had it pushed, PR #5 opened, and merged
   (squash).
 - 2026-10-25 — M5: the user lets the agent commit each item itself after a green `make check`, until the end of the
@@ -141,8 +148,11 @@ M6 itself is not planned yet.
 ## Session log (newest first, keep ~15)
 
 - **2026-10-26** — Overview for the user; they plan a PHP framework of their own later, in another repository. The
-  roadmap reordered on their call (M6 sockets and prefork … M10 WASM, M11 gRPC) across roadmap, backlog, context,
-  architecture, README and the ADR pointers; branch `feat/m6-sockets`.
+  roadmap reordered on their call across roadmap, backlog, context, architecture, README and the ADR pointers. A
+  plan for M6 "Unix sockets and prefork" drafted; RoadRunner's socket relays checked in source and by experiment
+  (`research/roadrunner.md` § Socket relays: PHP connects lazily after the boot and retries for a millisecond, RR
+  matches connections by pid and throws stdout away). Then the user questioned `relay: unix` and prefork: both
+  shelved; M6 became WebSockets, SSE and unix sockets (`plans/M6-websockets.md`), branch `feat/m6-websockets`.
 - **2026-10-25** — M5 planned with the user (scope narrowed to the pool) and implemented on `feat/m5-pools` (the user
   delegated all steps, then left; they checked it locally, then PR #5, merged):
   K-910 route names; lanes in the pool (a dispatcher under one mutex, 3.1 → 1.8 µs per job) and on routes;

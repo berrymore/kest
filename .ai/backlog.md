@@ -226,33 +226,25 @@ IDs start at K-140: the milestones were renumbered on 2026-10-25 (ADR-0008), and
   between releases belongs to the proxy or the orchestrator, and an A/B split needs a sticky assignment that PHP
   does itself (ADR-0008).
 
-## M6 — Unix sockets and prefork
+## M6 — WebSockets, SSE and unix sockets
 
-Reordered with the user on 2026-10-26 (`roadmap.md`): sockets, prefork, WebSockets and SSE first, WASM and gRPC last.
-
-- [ ] K-029 Unix socket and TCP relays: a pool's workers connect to kest (`RR_RELAY=unix://…` or `tcp://…`)
-  instead of talking over pipes; prefork needs them (K-154). Deferred in M1 until a deployment needed them;
-  scheduled on 2026-10-26.
-- [ ] K-154 Prefork mode (opt-in): a booted PHP "template" forks the workers of a pool on kest's request; children
-  connect over a unix socket (needs K-029) and are known by their handshake pid. An ADR first, after measuring a real
-  application's boot (`research/prefork.md`). From K-152, 2026-10-25.
-- [ ] K-164 Unix socket listeners (`address: unix:/run/kest.sock`), for a proxy on the same host.
-
-## M7 — WebSockets and SSE
+Reordered with the user on 2026-10-26 (`roadmap.md`): WebSockets and SSE first, WASM and gRPC last; prefork and
+socket relays to the icebox the same day. Plan: `plans/M6-websockets.md`. The items after the ADR are added with it.
 
 - [ ] K-163 Research and ADR: WebSockets and SSE held by kest while PHP handles the events (RoadRunner's
   `centrifuge` and `broadcast` plugins ❓).
+- [ ] K-164 Unix socket listeners (`address: unix:/run/kest.sock`), for a proxy on the same host.
 
-## M8 — PHP → kest RPC
+## M7 — PHP → kest RPC
 
 - [ ] K-900 PHP → kest RPC channel (RoadRunner `rpc` plugin equivalent). From the icebox on 2026-10-26.
 
-## M9 — Dynamic configuration
+## M8 — Dynamic configuration
 
 - [ ] K-120 Design ADR: reload model, graph diffing, listener handover.
 - [ ] K-121 Reload on SIGHUP / file change with diff-based apply.
 
-## M10 — WASM sandbox
+## M9 — WASM sandbox
 
 - [ ] K-100 Research and ADR: guest ABI (Proxy-Wasm, http-wasm, WASI stdin/stdout, custom).
 - [ ] K-101 wazero runtime, compilation cache, instance pool, memory and time limits.
@@ -263,7 +255,7 @@ Reordered with the user on 2026-10-26 (`roadmap.md`): sockets, prefork, WebSocke
   route (Envoy's `typed_per_filter_config`). Moved from M5 on 2026-10-25: the `wasm` filter extends the filter
   model here.
 
-## M11 — gRPC
+## M10 — gRPC
 
 - [ ] K-160 Research and ADR: gRPC in kest. RoadRunner's `grpc` plugin ❓ (what PHP gets, which call types),
   the codec to PHP workers, gRPC statuses for kest's own errors (`RESOURCE_EXHAUSTED`, `DEADLINE_EXCEEDED`),
@@ -280,7 +272,7 @@ Reordered with the user on 2026-10-26 (`roadmap.md`): sockets, prefork, WebSocke
 ## Ideas / icebox
 
 - [ ] K-901 Queues/jobs plugin.
-- [-] K-902 gRPC listener with PHP workers. Superseded by M11 (K-160…K-162).
+- [-] K-902 gRPC listener with PHP workers. Superseded by M10 (K-160…K-162).
 - [ ] K-903 systemd notify and socket activation.
 - [ ] K-904 Envoy-style hot restart (FD passing to the new process).
 - [-] K-906 ACME (automatic TLS certificates). Dropped: the proxy in front gets the certificates (ADR-0008).
@@ -294,3 +286,11 @@ Reordered with the user on 2026-10-26 (`roadmap.md`): sockets, prefork, WebSocke
   2026-10-25.
 - [ ] K-147 External authorization through a cluster: a subrequest to a small PHP pool decides, and the headers it
   returns go to the main request (Envoy's `ext_authz`). Moved from M5 on 2026-10-25.
+- [ ] K-029 Unix socket relays between kest and its workers (`RR_RELAY=unix://…`). Deferred in M1; scheduled for M6
+  and dropped again on 2026-10-26: no faster than pipes, and only prefork needed them. RoadRunner's are described in
+  `research/roadrunner.md` § Socket relays.
+- [ ] K-154 Prefork mode (opt-in): a booted PHP "template" forks the workers of a pool on kest's request; each child
+  connects over a unix socket of its own (K-029). From K-152, 2026-10-25. Shelved on 2026-10-26 with the user: the
+  gain is memory density (unmeasured on real applications) and a worker's boot, the cost is processes kest didn't
+  spawn, a PHP package, and fork safety that falls on the application. Revisit when a deployment runs short of memory,
+  or when a framework designed to be fork-safe can make it safe by default. Design sketch in `research/prefork.md`.
