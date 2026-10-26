@@ -1,15 +1,16 @@
 # Status
 
-_Last updated: 2026-10-27 (M7 RPC from PHP and plugins done on `feat/m7-rpc`, not pushed: the user checks the branch)_
+_Last updated: 2026-10-27 (M7 RPC from PHP and plugins: PR to `main` open, waiting for the user's review and merge)_
 
 ## Current phase
 
-**M7 (RPC from PHP and plugins) is done on `feat/m7-rpc`**, committed locally, not pushed and without a PR: the
-user delegated the rest of the milestone on 2026-10-27 and checks the branch before the PR (`plans/M7-rpc.md`, Done).
+**M7 (RPC from PHP and plugins) is done; its PR from `feat/m7-rpc` to `main` is open** (`gh pr list`), waiting for
+the user's review and merge (`plans/M7-rpc.md`, Done). The user delegated the rest of the milestone on 2026-10-27,
+looked at the branch, accepted ADR-0010 and had the PR opened.
 PHP workers call kest through goridge RPC on a unix socket (`roadrunner/goridge` unchanged, answers byte for byte as
 RoadRunner's); `plugins` at the root of the config, called by name; the `kv` plugin serves `roadrunner/kv`'s PSR-16
 cache (`examples/php-kv`); external plugins run as programs kest starts, written with the public SDK `pkg/plugin`
-(`docs/plugins.md`). ADR-0010 is `Proposed`: its acceptance is the user's call, at the review.
+(`docs/plugins.md`). ADR-0010 accepted.
 
 Before M7, **M6 (Unix socket listeners)** was merged (`plans/M6-unix-sockets.md`), and the user had decided that kest
 follows the application they build on it, with no release yet. M7 is that application's first request.
@@ -23,20 +24,15 @@ Dynamic configuration).
 
 ## In progress
 
-- M7 waits for the user's look at `feat/m7-rpc` (3 item commits, K-900, K-166 and K-168, one fix after the docs
-  review, and `docs:` commits; K-167's ADR is in the plan's commit). Then, on their OK: push the branch,
-  `gh pr create`, the user's review (ADR-0010 included, Q18), merge with squash.
+- M7's PR waits for the user's review (3 item commits, K-900, K-166 and K-168, one fix after the docs review, and
+  `docs:` commits; K-167's ADR is in the plan's commit). Merge with squash on their go-ahead.
 
 ## Next up: how to continue in a fresh session
 
-1. **Git first:** `git checkout feat/m7-rpc`; `git log --oneline main..` shows the plan, K-900, K-166, K-168 and the
-   docs review's fixes.
-2. **If the user approves the branch:** run `make check`, push (`git push -u origin feat/m7-rpc`; over HTTPS with `gh`
-   if SSH fails), `gh pr create` with the milestone's summary, its items, how it was tested (`make check`,
-   `make test-integration`, `make test-linux`, `make test-matrix`), that the docs review ran, and the choices made
-   while the user was away and the deviations (the plan's log of 2026-10-27), and that K-167 has no commit of its own
-   (its ADR came with the plan). Ask whether ADR-0010 is accepted (Q18). Merge only on their
-   go-ahead (`gh pr merge --squash --delete-branch`), then update this file: M7 merged, no milestone next.
+1. **Git first:** `git checkout feat/m7-rpc`; `gh pr list` shows M7's PR.
+2. **If the user asks for changes:** fix them on the branch, run `make check` (and `make test-integration` for PHP
+   paths), run the docs review again (`review.md`), push. **On the go-ahead:** `gh pr merge --squash --delete-branch`,
+   update local `main`, delete the local branch, then update this file: M7 merged, no milestone next.
 3. **After the merge:** kest follows the user's application again. Known follow-ups in the icebox: K-169 (calls from
    plugins to kest), K-170 (a validate-only handshake), K-171 (RoadRunner's other services, metrics from PHP
    included), K-172 (locks), K-901 (jobs); and K-153, K-150.
@@ -44,9 +40,6 @@ Dynamic configuration).
 
 ## Open questions (need a decision from the user)
 
-- **Q18** — Accept ADR-0010 (plugins by name, built in or external over goridge frames; `pkg/plugin` becomes kest's
-  first public package, rules § 2)? It is `Proposed`; M7's code follows it. The agent's suggestion: accept, with the
-  SDK marked as changing before 1.0 (as its package doc says).
 
 - **Q15** — Cap kest's `GOMAXPROCS` by default? Measured (K-149, `docs/benchmarks.md` § kest's own CPU): on a host
   shared with the PHP workers, `GOMAXPROCS=2` to `4` cuts kest's CPU per request to a third or half and lets the
@@ -57,12 +50,15 @@ Dynamic configuration).
 
 ## Resolved decisions
 
+- 2026-10-27 — Q18: the user accepted ADR-0010 (plugins by name, built in or external over goridge frames;
+  `pkg/plugin` is kest's first public package, changing before 1.0) and had the branch pushed and the PR opened.
+
 - 2026-10-27 — The user delegated the rest of M7: finish it on `feat/m7-rpc`, `kv` as the first full plugin, commit
   as the agent sees fit, no PR (the user checks the branch first). The agent decides and records the choices in the
   plan's log; ADR-0010's status stays the user's call.
 - 2026-10-26 — Q17: the user approved `plans/M7-rpc.md` and its schema with one change: plugins at the root of the
   config (`plugins`), not inside `rpc`, since RPC is only the channel from the workers and a plugin may work with
-  kest without it. ADR-0010 stays `Proposed` until the user accepts it.
+  kest without it. ADR-0010 was `Proposed` until the user accepted it on 2026-10-27.
 
 - 2026-10-26 — No release milestone for now (the agent had suggested one: binaries, CI, framework guides): the user
   will build an application on kest and refine kest in real use; a release comes once that works. No milestone is
@@ -179,7 +175,8 @@ Dynamic configuration).
   bit; PHP's client, `MultiRPC` included, over unix and TCP); K-166 `kv` (`roadrunner/kv` passed all 13 checks on
   the first run; `examples/php-kv`); K-168 external plugins, the SDK `pkg/plugin`, the protocol
   (`docs/plugins.md`), `internal/proc` moved out of `internal/worker`; kv as an external plugin passes the same checks.
-  Docs review and `make test-matrix`. Not pushed.
+  Docs review (a real bug among its 18 findings: a plugin that broke the protocol was never restarted) and
+  `make test-matrix`. The user accepted ADR-0010; the branch pushed and the PR opened.
 
 - **2026-10-26** — The user asked for M7: a channel from workers to kest, RoadRunner compatible, unix sockets by
   default, no metrics for now; then proposed plugins after HashiCorp's (mounted by name, built in or external

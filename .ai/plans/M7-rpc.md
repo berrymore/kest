@@ -188,7 +188,7 @@ Drafted with the plan on 2026-10-26; `Proposed` until the user accepts it, which
 3. [x] K-166 `kv` (D3) — acceptance: storage semantics in `synctest` (TTL, sweeping, eviction); protobuf golden bytes
    from PHP's `roadrunner/api-dto`; PHP integration tests with `roadrunner/kv`'s `Cache`; `docs/config.md` and a
    usage section in the docs.
-4. [x] K-167 ADR-0010 (D6, written, `Proposed`: the user accepts it at the review), from the research note on HashiCorp's plugins (`research/hashicorp-plugins.md`, done) —
+4. [x] K-167 ADR-0010 (D6; accepted by the user on 2026-10-27), from the research note on HashiCorp's plugins (`research/hashicorp-plugins.md`, done) —
    acceptance: the user accepts or adjusts it.
 5. [x] K-168 external plugins and `pkg/plugin` (D4, D5) — acceptance: the PHP kv tests pass against `kv` as an
    external plugin; tests for a crash and the restart, the start timeout, a bad config, cancellation, stop order and
@@ -259,4 +259,4 @@ Drafted with the plan on 2026-10-26; `Proposed` until the user accepts it, which
   the systemd example's `TimeoutStopSec` went to 90), `/ready` and `/config_dump` with plugins, `RR_RPC` in the worker
   environment, the `getting-started` page that still said kest has no RPC, the follow-ups as K-169…K-172.
   `make test-matrix` green on PHP 8.3, 8.4 and 8.5 (`roadrunner/kv` with the pure-PHP protobuf there).
-
+- 2026-10-27 — The user looked at the branch, accepted ADR-0010 (Q18) and had the branch pushed and the PR opened.

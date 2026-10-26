@@ -1,6 +1,6 @@
 # ADR-0010: Plugins by name, built in or external over goridge frames, called from PHP through RPC
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-10-27)
 - **Date:** 2026-10-26
 - **Deciders:** user, agent
 
@@ -79,6 +79,5 @@ We will:
 - Negative / costs: a protocol and a public package to keep stable; a supervisor for plugin processes; an external
   plugin's config is only checked when it starts (`kest validate` can't); calls to an external plugin cost a hop
   over a socket.
-- Follow-ups: K-168 (external plugins, `pkg/plugin`, `docs/plugins.md`; done on `feat/m7-rpc` while this ADR waits
-  for the user's review); calls from plugins to kest when a plugin needs them; a validate-only handshake if
+- Follow-ups: K-168 (external plugins, `pkg/plugin`, `docs/plugins.md`; done in M7); calls from plugins to kest when a plugin needs them; a validate-only handshake if
   `kest validate` should check plugin configs.

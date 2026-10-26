@@ -248,7 +248,7 @@ Plan: `plans/M7-rpc.md`.
 - [x] K-166 `kv` plugin: in-memory storages compatible with `roadrunner/kv` (PSR-16), bounded by `max_size` with
   eviction (plan D3).
 - [x] K-167 ADR-0010: plugins (by name, one interface built in and external, the plugin protocol, `pkg/plugin`);
-  research note `research/hashicorp-plugins.md` (plan D6). Written 2026-10-26, `Proposed` until the user accepts it.
+  research note `research/hashicorp-plugins.md` (plan D6). Written 2026-10-26, accepted by the user on 2026-10-27.
 - [x] K-168 External plugins: the `external` plugin type, the protocol on goridge frames over a socketpair, the
   supervisor, the Go SDK in `pkg/plugin`, `docs/plugins.md`; `kv` passes its PHP tests as an external plugin (plan
   D4, D5).
