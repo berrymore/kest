@@ -11,11 +11,15 @@ Work items live in `backlog.md` (IDs in brackets). Reprioritization is the user'
 | M3 | Operability | ✅ done 2026-10-25 |
 | M4 | HTTP edge features (narrowed by ADR-0008) | ✅ done 2026-10-25 |
 | M5 | Worker pools and routing to them | ✅ done 2026-10-25 |
-| M6 | Unix socket listeners | 🟡 done on its branch, PR pending |
-| M7 | PHP → kest RPC | ⚪ |
-| M8 | Dynamic configuration | ⚪ |
-| M9 | WASM sandbox | ⚪ |
-| M10 | gRPC | ⚪ |
+| M6 | Unix socket listeners | ✅ done 2026-10-26 |
+| M7 | PHP → kest RPC | ⚪ candidate |
+| M8 | Dynamic configuration | ⚪ candidate |
+| M9 | WASM sandbox | ⚪ candidate |
+| M10 | gRPC | ⚪ candidate |
+
+**After M6 (2026-10-26, the user):** no milestone is scheduled, and no release yet. The user builds an application on
+kest and runs it for real; kest's work follows what that application needs, from the backlog or new items. The
+milestones below are candidates, not a schedule. A release comes once kest has proved itself in that use.
 
 Reordered with the user on 2026-10-26: what a PHP application needs from its server comes first (connections PHP
 can't hold, a reloadable config), and the WASM sandbox and gRPC, options rather than base features, come last.

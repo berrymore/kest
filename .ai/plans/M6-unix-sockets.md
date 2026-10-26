@@ -1,7 +1,7 @@
 # Plan: M6 — Unix socket listeners
 
-- **Status:** Active (approved by the user on 2026-10-26, D1's schema included). K-164 is done; the docs review and
-  the PR remain. WebSockets and SSE were planned here and shelved the same day (D2).
+- **Status:** Done (2026-10-26), merged through its PR on the user's OK. Approved by the user on 2026-10-26, D1's
+  schema included. WebSockets and SSE were planned here and shelved the same day (D2).
 - **Milestone:** M6
 - **Backlog:** K-164; K-163 (research done, then shelved)
 
@@ -67,7 +67,7 @@ ADR-0009 stays `Proposed`, on hold, with these notes.
 3. [x] K-164 unix socket listeners (D1) — acceptance: an e2e test through a unix socket; the stale file case;
    `client_ip` with `unix`; `docs/config.md`; the operations guide shows nginx's `proxy_pass http://unix:…`.
 4. [-] K-163 the ADR — proposed (ADR-0009), then shelved with WebSockets and SSE (D2).
-5. [ ] Docs review (`review.md`), `make test-matrix`; the PR on the user's OK — acceptance: the review's findings
+5. [x] Docs review (`review.md`), `make test-matrix`; the PR on the user's OK — acceptance: the review's findings
    fixed.
 
 ## Risks / open questions
@@ -82,3 +82,5 @@ ADR-0009 stays `Proposed`, on hold, with these notes.
 - 2026-10-26 — The user asked how it would work, then raised several instances (Nomad) and blue-green deploys that
   close held connections, and shelved WebSockets and SSE until a use case: most PHP applications don't need them. The
   research and the ADR stay as the starting point. M6 is the unix socket listeners alone.
+- 2026-10-26 — The docs review and `make test-matrix`, then the PR on the user's OK. No milestone after M6 and no
+  release yet: the user builds an application on kest and kest follows what it needs.
