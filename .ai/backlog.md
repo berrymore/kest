@@ -237,9 +237,21 @@ here and went to the icebox the same day. Plan: `plans/M6-unix-sockets.md`.
 - [x] K-164 Unix socket listeners (`address: unix:/run/kest.sock`, `socket_mode`), for a proxy on the same host;
   `client_ip` trusts `unix` peers (plan D1; 2026-10-26). The admin server stays on TCP: nothing asked for a socket.
 
-## M7 — PHP → kest RPC
+## M7 — RPC from PHP and plugins
 
-- [ ] K-900 PHP → kest RPC channel (RoadRunner `rpc` plugin equivalent). From the icebox on 2026-10-26.
+Plan: `plans/M7-rpc.md`.
+
+- [ ] K-900 PHP → kest RPC channel (RoadRunner `rpc` plugin equivalent). From the icebox on 2026-10-26. Narrowed on
+  2026-10-26: the RPC server compatible with `roadrunner/goridge` (unix socket by default, a private one without an
+  address), `RR_RPC` for workers; `plugins` at the root of the config, a registry category, called by name (plan D1,
+  D2).
+- [ ] K-166 `kv` plugin: in-memory storages compatible with `roadrunner/kv` (PSR-16), bounded by `max_size` with
+  eviction (plan D3).
+- [ ] K-167 ADR-0010: plugins (by name, one interface built in and external, the plugin protocol, `pkg/plugin`);
+  research note `research/hashicorp-plugins.md` (plan D6).
+- [ ] K-168 External plugins: the `external` plugin type, the protocol on goridge frames over a socketpair, the
+  supervisor, the Go SDK in `pkg/plugin`, `docs/plugins.md`; `kv` passes its PHP tests as an external plugin (plan
+  D4, D5).
 
 ## M8 — Dynamic configuration
 

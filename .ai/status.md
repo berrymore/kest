@@ -1,39 +1,38 @@
 # Status
 
-_Last updated: 2026-10-26 (M6 unix socket listeners merged; no milestone scheduled: kest follows the user's app)_
+_Last updated: 2026-10-27 (M7 RPC from PHP and plugins: plan approved, K-900 in progress on `feat/m7-rpc`)_
 
 ## Current phase
 
-**M6 (Unix socket listeners) is done and merged** (squashed into `main`): `address: unix:<path>` with `socket_mode`,
-stale socket files handled, `client_ip` trusts `unix` peers (K-164). `plans/M6-unix-sockets.md` is the record,
-including what was planned and shelved there. Before it, **M5 (Worker pools and routing to them)** made the pool the
-core: lanes per route, overload control, a dynamic size, `sendfile`, richer route matches (`plans/M5-pools.md`).
+**M7 (RPC from PHP and plugins) is in progress** (`plans/M7-rpc.md`, Active, branch `feat/m7-rpc`). The user asked
+for it on 2026-10-26: a channel from workers to kest, compatible with RoadRunner's PHP libraries, on a unix socket by
+default; plugins at the root of the config (`plugins`), built in or external binaries kest starts (after HashiCorp's
+plugins), called from PHP through RPC by name; `kv` first, to hone the protocol. Metrics from PHP: not now. Research
+done: `research/roadrunner.md` § RPC and § KV, `research/hashicorp-plugins.md`. ADR-0010 is `Proposed`.
 
-**No milestone is scheduled after M6, and no release yet** (the user, 2026-10-26). The user builds an application on
-kest and runs it for real; kest's work follows what that application needs. A release comes once kest has proved
-itself there. The remaining milestones (RPC, dynamic configuration, WASM, gRPC) are candidates in `roadmap.md`.
+Before M7, **M6 (Unix socket listeners)** was merged (`plans/M6-unix-sockets.md`), and the user had decided that kest
+follows the application they build on it, with no release yet. M7 is that application's first request.
 
-**Roadmap reordered on 2026-10-26** (the user): M6 Unix socket listeners, M7 PHP → kest RPC, M8 Dynamic
-configuration, M9 WASM sandbox, M10 gRPC. Prefork (K-154), socket relays (K-029) and WebSockets and SSE (K-165) went
-to the icebox the same day, each after a look at what it would cost; their research stays (`research/prefork.md`,
-`research/roadrunner.md` § Socket relays, `research/websockets.md`, ADR-0009 on hold). Milestone numbers in entries
-before that date below follow the old order (M6 WASM, M7 Protocols, M8 Dynamic configuration).
+**Roadmap reordered on 2026-10-26** (the user): M6 Unix socket listeners, M7 PHP → kest RPC (now "RPC from PHP and
+plugins"), M8 Dynamic configuration, M9 WASM sandbox, M10 gRPC. Prefork (K-154), socket relays (K-029)
+and WebSockets and SSE (K-165) went to the icebox the same day, each after a look at what it would cost; their
+research stays (`research/prefork.md`, `research/roadrunner.md` § Socket relays, `research/websockets.md`, ADR-0009
+on hold). Milestone numbers in entries before that date below follow the old order (M6 WASM, M7 Protocols, M8
+Dynamic configuration).
 
 ## In progress
 
-Nothing.
+- M7, K-900: the RPC server (`internal/rpc`), `plugins` and `rpc` in the config, the plugin category
+  (`internal/plugin`), `RR_RPC` in `php_workers`.
 
 ## Next up: how to continue in a fresh session
 
-1. **Git first:** `git checkout main && git pull`; `git status` is clean, `git log --oneline -3` shows M6's squash
-   commit on top. Work on kest from here starts on a branch named after the item (`feat/k<NNN>-<slug>`) or, for a
-   batch, `feat/m<N>-<slug>` if the user makes it a milestone.
-2. **Follow the user's application.** The user builds an application on kest in another repository. Expect requests
-   from that use: a bug, a missing option, something RoadRunner does that kest doesn't. Put each in the backlog, agree
-   the scope, then fix it. Candidates already known: K-153 (fewer hand-overs per job), K-150 (OPcache and JIT in the
-   benchmark), the icebox (`backlog.md`), and the shelved features with their research (prefork, socket relays,
-   WebSockets and SSE: ADR-0009 on hold).
-3. **Q15** (below) is open: ask the user when it fits.
+1. **Git first:** `git checkout feat/m7-rpc`; see `git status` and `git log --oneline main..`.
+2. **Read** `plans/M7-rpc.md` (D1–D6, the steps and the log), `research/roadrunner.md` § RPC and § KV,
+   `research/hashicorp-plugins.md`, then `architecture.md` § 4 (registry, lifecycle) and § 6 (start/stop order).
+3. **Continue the plan's steps:** K-900, then K-166 `kv`; K-168 waits for the user to accept ADR-0010 (K-167,
+   `Proposed`). Update `context.md`, `README.md` and `architecture.md` with M7's name and scope as the code lands.
+4. **Q15** (below) is still open: ask the user when it fits.
 
 ## Open questions (need a decision from the user)
 
@@ -45,6 +44,10 @@ Nothing.
   The agent's suggestion: keep the advice, no default, until a deployment shows otherwise.
 
 ## Resolved decisions
+
+- 2026-10-26 — Q17: the user approved `plans/M7-rpc.md` and its schema with one change: plugins at the root of the
+  config (`plugins`), not inside `rpc`, since RPC is only the channel from the workers and a plugin may work with
+  kest without it. ADR-0010 stays `Proposed` until the user accepts it.
 
 - 2026-10-26 — No release milestone for now (the agent had suggested one: binaries, CI, framework guides): the user
   will build an application on kest and refine kest in real use; a release comes once that works. No milestone is
@@ -154,6 +157,13 @@ Nothing.
   directory. Without `ext-protobuf`: `PHPRC` pointing at a copy of `php.ini` without its first line.
 
 ## Session log (newest first, keep ~15)
+
+- **2026-10-26** — The user asked for M7: a channel from workers to kest, RoadRunner compatible, unix sockets by
+  default, no metrics for now; then proposed plugins after HashiCorp's (mounted by name, built in or external
+  binaries) and `kv` as the first service. Checked in source: goridge's RPC codec and PHP client, RoadRunner's rpc
+  and kv plugins, the memory driver (its quirks: a past TTL keeps the item forever, `MExpire` wipes values) and
+  `roadrunner/kv` 4.5.1; go-plugin and Vault's mounts through a background agent (`research/hashicorp-plugins.md`).
+  `plans/M7-rpc.md` drafted on `feat/m7-rpc`, waiting for approval (Q17).
 
 - **2026-10-26** — Overview for the user; they plan a PHP framework of their own later, in another repository. The
   roadmap reordered on their call across roadmap, backlog, context, architecture, README and the ADR pointers. A
