@@ -33,7 +33,7 @@ type Source interface {
 	StartedAt() time.Time
 	ConfigFile() string
 	// NotServing names the clusters that can't serve requests now
-	// (cluster.Prober).
+	// (cluster.Prober), and the plugins, as "plugin <name>" (plugin.Prober).
 	NotServing() []string
 	// Clusters describes every cluster, in config order.
 	Clusters() []ClusterInfo

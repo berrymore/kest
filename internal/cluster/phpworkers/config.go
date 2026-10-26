@@ -240,7 +240,7 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	wc := c.worker("", nil)
+	wc := c.worker("", nil, "")
 	if err := wc.Validate(); err != nil {
 		for _, e := range unwrapAll(err) {
 			if fe, ok := errors.AsType[*worker.FieldError](e); ok {
@@ -298,11 +298,12 @@ func lower(list []string) []string {
 }
 
 // worker returns the pool configuration. configDir resolves a relative
-// Dir; environ is kest's environment, inherited if InheritEnv is set.
-func (c *Config) worker(configDir string, environ []string) worker.Config {
+// Dir; environ is kest's environment, inherited if InheritEnv is set;
+// rpcAddress, if set, is RR_RPC.
+func (c *Config) worker(configDir string, environ []string, rpcAddress string) worker.Config {
 	return worker.Config{
 		Command:         slices.Clone(c.Command),
-		Env:             c.environment(environ),
+		Env:             c.environment(environ, rpcAddress),
 		Dir:             resolve(configDir, c.Dir),
 		Workers:         c.Pool.Workers,
 		MaxWorkers:      c.Pool.MaxWorkers,
@@ -325,9 +326,9 @@ func (c *Config) worker(configDir string, environ []string) worker.Config {
 }
 
 // environment returns the workers' environment: environ if inherited, then
-// Env, then RR_MODE=http (the pool adds RR_RELAY=pipes). For a repeated
-// name, the last value wins.
-func (c *Config) environment(environ []string) []string {
+// Env, then RR_MODE=http and, when rpc is on, RR_RPC (the pool adds
+// RR_RELAY=pipes). For a repeated name, the last value wins.
+func (c *Config) environment(environ []string, rpcAddress string) []string {
 	var env []string
 	if c.InheritEnv {
 		env = slices.Clone(environ)
@@ -335,7 +336,11 @@ func (c *Config) environment(environ []string) []string {
 	for _, k := range slices.Sorted(maps.Keys(c.Env)) {
 		env = append(env, k+"="+c.Env[k])
 	}
-	return append(env, "RR_MODE=http")
+	env = append(env, "RR_MODE=http")
+	if rpcAddress != "" {
+		env = append(env, "RR_RPC="+rpcAddress)
+	}
+	return env
 }
 
 // resolve makes a relative name relative to dir.

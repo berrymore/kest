@@ -180,7 +180,7 @@ Drafted with the plan on 2026-10-26; `Proposed` until the user accepts it, which
 
 1. [x] Plan, research (`research/roadrunner.md` § RPC, § KV), backlog — acceptance: the user approves the plan and
    the schema of D1–D4.
-2. [ ] K-900 the RPC server and plugins (D1, D2) — acceptance: unit tests on frames (golden frames from goridge's
+2. [x] K-900 the RPC server and plugins (D1, D2) — acceptance: unit tests on frames (golden frames from goridge's
    codec, fuzz), routing, `net/rpc`'s error messages, the bounds, start and stop order; a PHP integration test calls
    a test plugin through `RPC::create(getenv('RR_RPC'))`; the private default socket; `docs/config.md`.
 3. [ ] K-166 `kv` (D3) — acceptance: storage semantics in `synctest` (TTL, sweeping, eviction); protobuf golden bytes
@@ -214,3 +214,12 @@ Drafted with the plan on 2026-10-26; `Proposed` until the user accepts it, which
 - 2026-10-26 — The user approved the plan with one change: plugins at the root of the config (`plugins`), since RPC
   is only the channel from the workers, and a plugin may work with kest without it one day. "Services" became
   "plugins" throughout; the name of a plugin is what RPC routes by.
+- 2026-10-27 — K-900 done: `internal/rpc` (server, frames, metrics), `internal/plugin` (the interface and category),
+  `plugins` and `rpc` in the config, `RR_RPC` from `php_workers`, start and stop order in `server`. Found on the way:
+  goridge ORs `ERROR` into the codec bit of an error answer (`0x48` for JSON), so the research note was corrected;
+  the answers now match goridge v4's codec byte for byte (`internal/rpc/testdata/goridge_frames.txt`, made with a
+  scratch program on goridge v4.0.0). PHP's real client (`roadrunner/goridge` 4.6: `RPC`, the service prefix, the raw
+  codec, errors, `MultiRPC`) passes over the private socket and over TCP. Decided while coding: `rpc:` alone turns
+  RPC on (YAML null is taken as `{}`); a TCP address needs a host, no IPv6 literal and a fixed port, since PHP's
+  goridge can't parse the others and workers get the address before kest binds it; `listener.ListenUnix` is
+  exported for the RPC socket. `make check`, `make test-integration`, `make test-linux` green.

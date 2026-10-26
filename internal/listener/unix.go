@@ -31,18 +31,18 @@ func maxSocketPath() int {
 // directory; eight random characters follow.
 const tmpPrefix = ".kest-"
 
-// unixSocket is the file of a listening unix socket.
-type unixSocket struct {
+// UnixSocket is the file of a listening unix socket.
+type UnixSocket struct {
 	path string
 	info fs.FileInfo // to remove the file only while it is still this socket
 }
 
-// listenUnix binds a unix socket at path with mode. It binds under a
+// ListenUnix binds a unix socket at path with mode. It binds under a
 // temporary name in the same directory, sets the mode, and links the socket
 // into place: nobody can connect before the mode applies, and a file that
 // appears at path meanwhile is not replaced. A stale socket at path, one that
 // nobody listens on, is removed first.
-func listenUnix(ctx context.Context, path string, mode fs.FileMode) (net.Listener, *unixSocket, error) {
+func ListenUnix(ctx context.Context, path string, mode fs.FileMode) (net.Listener, *UnixSocket, error) {
 	tmp := filepath.Join(filepath.Dir(path), tmpPrefix+rand.Text()[:8])
 	switch limit := maxSocketPath(); {
 	case len(path) > limit:
@@ -82,11 +82,11 @@ func listenUnix(ctx context.Context, path string, mode fs.FileMode) (net.Listene
 		_ = os.Remove(path)
 		return nil, nil, err
 	}
-	return ln, &unixSocket{path: path, info: info}, nil
+	return ln, &UnixSocket{path: path, info: info}, nil
 }
 
-// remove deletes the socket file, unless something else has replaced it.
-func (s *unixSocket) remove() error {
+// Remove deletes the socket file, unless something else has replaced it.
+func (s *UnixSocket) Remove() error {
 	info, err := os.Lstat(s.path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):

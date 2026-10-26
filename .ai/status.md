@@ -22,15 +22,16 @@ Dynamic configuration).
 
 ## In progress
 
-- M7, K-900: the RPC server (`internal/rpc`), `plugins` and `rpc` in the config, the plugin category
-  (`internal/plugin`), `RR_RPC` in `php_workers`.
+- M7, delegated by the user on 2026-10-27 ("bring it to the final PR in one branch, kv included; commit as you see
+  fit; don't open the PR, I'll check the branch"): K-900 done and committed; next K-166 `kv`, then K-167, K-168, the
+  docs review and `make test-matrix`. ADR-0010 stays `Proposed` for the user's review.
 
 ## Next up: how to continue in a fresh session
 
 1. **Git first:** `git checkout feat/m7-rpc`; see `git status` and `git log --oneline main..`.
 2. **Read** `plans/M7-rpc.md` (D1–D6, the steps and the log), `research/roadrunner.md` § RPC and § KV,
    `research/hashicorp-plugins.md`, then `architecture.md` § 4 (registry, lifecycle) and § 6 (start/stop order).
-3. **Continue the plan's steps:** K-900, then K-166 `kv`; K-168 waits for the user to accept ADR-0010 (K-167,
+3. **Continue the plan's steps:** K-166 `kv` next (K-900 is done); K-168 waits for the user to accept ADR-0010 (K-167,
    `Proposed`). Update `context.md`, `README.md` and `architecture.md` with M7's name and scope as the code lands.
 4. **Q15** (below) is still open: ask the user when it fits.
 
@@ -45,6 +46,9 @@ Dynamic configuration).
 
 ## Resolved decisions
 
+- 2026-10-27 — The user delegated the rest of M7: finish it on `feat/m7-rpc`, `kv` as the first full plugin, commit
+  as the agent sees fit, no PR (the user checks the branch first). The agent decides and records the choices in the
+  plan's log; ADR-0010's status stays the user's call.
 - 2026-10-26 — Q17: the user approved `plans/M7-rpc.md` and its schema with one change: plugins at the root of the
   config (`plugins`), not inside `rpc`, since RPC is only the channel from the workers and a plugin may work with
   kest without it. ADR-0010 stays `Proposed` until the user accepts it.

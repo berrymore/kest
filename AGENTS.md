@@ -83,6 +83,8 @@ internal/httpx/      HTTP filter chain and router
 internal/listener/   HTTP listeners on TCP and unix sockets
 internal/filters/    built-in HTTP filters, one package each: requestid/, accesslog/, recovery/, clientip/, headers/, cors/, compression/, static/, sendfile/
 internal/cluster/    cluster interface and registry category; types: phpworkers/
+internal/plugin/     plugin interface and registry category (ADR-0010): what PHP calls through RPC
+internal/rpc/        the RPC server: goridge RPC from PHP workers, routed to plugins by name
 internal/rrhttp/     HTTP ↔ RoadRunner HTTP payload (request context JSON/protobuf, forms, uploads, responses)
 internal/relay/      goridge frame codec and connection (RoadRunner worker protocol)
 internal/worker/     worker processes, pool, supervisor; workertest/ fakes, testdata/php/ for integration

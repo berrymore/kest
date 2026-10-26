@@ -33,6 +33,7 @@ import (
 	_ "github.com/berrymore/kest/internal/filters/sendfile"
 	_ "github.com/berrymore/kest/internal/filters/static"
 	"github.com/berrymore/kest/internal/httpx"
+	"github.com/berrymore/kest/internal/plugin"
 )
 
 var linkRE = regexp.MustCompile(`!?\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)`)
@@ -271,6 +272,11 @@ func TestConfigReference(t *testing.T) {
 	}
 	for _, typ := range httpx.Filters.Types() {
 		if f, _ := httpx.Filters.Lookup(typ); f.NewConfig != nil {
+			collectFields(reflect.TypeOf(f.NewConfig()), fields)
+		}
+	}
+	for _, typ := range plugin.Types.Types() {
+		if f, _ := plugin.Types.Lookup(typ); f.NewConfig != nil {
 			collectFields(reflect.TypeOf(f.NewConfig()), fields)
 		}
 	}

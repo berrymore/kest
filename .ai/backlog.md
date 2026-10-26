@@ -241,7 +241,7 @@ here and went to the icebox the same day. Plan: `plans/M6-unix-sockets.md`.
 
 Plan: `plans/M7-rpc.md`.
 
-- [ ] K-900 PHP → kest RPC channel (RoadRunner `rpc` plugin equivalent). From the icebox on 2026-10-26. Narrowed on
+- [x] K-900 PHP → kest RPC channel (RoadRunner `rpc` plugin equivalent). From the icebox on 2026-10-26. Narrowed on
   2026-10-26: the RPC server compatible with `roadrunner/goridge` (unix socket by default, a private one without an
   address), `RR_RPC` for workers; `plugins` at the root of the config, a registry category, called by name (plan D1,
   D2).

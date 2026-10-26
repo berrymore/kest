@@ -49,8 +49,9 @@ clusters:
   kest.yaml:13:32: listeners[0].http.virtual_hosts[0].routes[0].route.cluster: unknown cluster "nope"
   ```
 
-- **Names** (listeners, virtual hosts, clusters, routes) are 1–64 characters: letters, digits, `_`, `.`, `-`,
-  starting with a letter or digit. They must be unique within their kind; route names in the whole config.
+- **Names** (listeners, virtual hosts, clusters, routes, plugins) are 1–64 characters: letters, digits, `_`, `.`,
+  `-`, starting with a letter or digit; plugin names without `.`. They must be unique within their kind; route names
+  in the whole config.
 - **Durations** are Go duration strings: `500ms`, `30s`, `1m30s`. A bare number such as `30` is
   rejected, since the unit would be ambiguous.
 - **Sizes** are integers with an optional unit: `512`, `64KB`, `128MB`, `1GiB`. Every unit is a power
@@ -696,3 +697,69 @@ forms to 10000 fields and 1000 multipart parts.
 | `exec_ttl` or the route `timeout` expired | `504` |
 | The worker reported an error (`$worker->error()`) | `500` |
 | The worker crashed, broke the protocol, or sent an invalid or too large response | `502` |
+
+## `plugins`
+
+Named components that PHP workers call through [`rpc`](#rpc): a call to `kv.Set` goes to the plugin named `kv`,
+method `Set`. A plugin is built into kest or, later in M7, an external binary that kest starts. Plugins start before
+the clusters and stop after them, so workers can call them while they boot and while they finish their last
+requests. They run whether `rpc` is on or not.
+
+```yaml
+plugins:
+  - name: kv
+    type: kv
+    config: {}
+```
+
+| Field | Required | |
+|---|---|---|
+| `name` | yes | Unique plugin name, without `.`: what PHP calls, as in `kv.Set` |
+| `type` | yes | Implementation |
+| `config` | depends on the type | Type-specific options |
+
+No plugin types are compiled in yet. An unknown `type` is rejected with the list of known types. A plugin that
+can't serve makes `/ready` answer `503`, naming it as `plugin <name>`.
+
+## `rpc`
+
+The channel through which PHP workers call [plugins](#plugins): goridge RPC, as RoadRunner's PHP libraries speak it,
+so `roadrunner/goridge`'s `RPC` client (formerly `spiral/goridge`) works unchanged. The block turns it on; `rpc:`
+alone, or `rpc: {}`, takes the defaults.
+
+```yaml
+rpc:
+  address: unix:/run/kest/rpc.sock   # optional
+  max_connections: 1024
+  max_frame_size: 16MB
+  call_timeout: 30s
+```
+
+| Field | Default | |
+|---|---|---|
+| `address` | a private socket | `unix:<path>` (relative to the config file's directory) or `host:port`. Without it, kest makes a directory only its own user can enter in the temporary directory, puts the socket there, and removes both when it stops |
+| `socket_mode` | `"0660"` | File mode of a socket at `address`, as for [listeners](#listeners) |
+| `max_connections` | `1024` | Open connections at once; one more is closed at once and logged |
+| `max_frame_size` | `16MB` | The largest call or answer, 1KB to 1GB. A larger call closes its connection; a larger answer is an error |
+| `call_timeout` | `30s` | How long a plugin may take to answer; then the caller gets an error |
+
+**Workers find it** through `RR_RPC`, which `php_workers` sets when `rpc` is on (`unix:///path/to/rpc.sock` or
+`tcp://host:port`), as RoadRunner does:
+
+```php
+use Spiral\Goridge\RPC\RPC;
+use Spiral\RoadRunner\Environment;
+
+$rpc = RPC::create(Environment::fromGlobals()->getRPCAddress());
+```
+
+The private socket suits workers. Give `address` for PHP processes that kest doesn't start, such as cron jobs and
+console commands, and set them `RR_RPC` to the same address. There is no authentication, as in RoadRunner: keep a
+socket's mode tight, or a TCP address on loopback. PHP's goridge can't parse a socket path with `:`, a TCP address
+without a host (`:6001`) or an IPv6 address, so kest rejects them; a TCP port must be fixed (not `0`).
+
+**Compatibility.** Calls and answers are RoadRunner's frames, byte for byte, and errors carry `net/rpc`'s messages
+(`rpc: can't find service nope.Echo`, `rpc: can't find method kv.Nope`), which PHP libraries look for. One call at a
+time per connection, as PHP sends them. RoadRunner's own services (`informer`, `resetter`, `status`, `metrics`,
+`app`) are not served.
+

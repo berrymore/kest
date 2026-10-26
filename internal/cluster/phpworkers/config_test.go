@@ -63,7 +63,7 @@ func build(t *testing.T, block string) (cluster.Cluster, error) {
 
 func TestConfigDefaults(t *testing.T) {
 	c := decode(t, "      command: [php, worker.php]\n")
-	got := c.worker("/srv/app", []string{"PATH=/bin", "HOME=/root"})
+	got := c.worker("/srv/app", []string{"PATH=/bin", "HOME=/root"}, "")
 	want := worker.DefaultConfig()
 	want.Command = []string{"php", "worker.php"}
 	want.Dir = "/srv/app"
@@ -110,7 +110,7 @@ func TestConfigFull(t *testing.T) {
         max_worker_memory: 256MB
         watch_tick: 1s
 `)
-	got := c.worker("/srv", []string{"SECRET=x"})
+	got := c.worker("/srv", []string{"SECRET=x"}, "")
 	want := worker.Config{
 		Command:         []string{"/usr/bin/php", "-d", "memory_limit=256M", "public/worker.php"},
 		Env:             []string{"APP_ENV=prod", "DEBUG=false", "WORKERS=4", "RR_MODE=http"},
@@ -227,18 +227,22 @@ func TestEnvironment(t *testing.T) {
 		name    string
 		inherit bool
 		env     map[string]string
+		rpc     string
 		want    []string
 	}{
-		{"inherit", true, nil, []string{"PATH=/bin", "RR_MODE=jobs", "APP_ENV=dev", "RR_MODE=http"}},
-		{"override", true, map[string]string{"APP_ENV": "prod", "B": "2", "A": "1"},
+		{"inherit", true, nil, "", []string{"PATH=/bin", "RR_MODE=jobs", "APP_ENV=dev", "RR_MODE=http"}},
+		{"override", true, map[string]string{"APP_ENV": "prod", "B": "2", "A": "1"}, "",
 			[]string{"PATH=/bin", "RR_MODE=jobs", "APP_ENV=dev", "A=1", "APP_ENV=prod", "B=2", "RR_MODE=http"}},
-		{"explicit only", false, map[string]string{"A": "1"}, []string{"A=1", "RR_MODE=http"}},
-		{"rr_mode always wins", false, map[string]string{"RR_MODE": "grpc"}, []string{"RR_MODE=grpc", "RR_MODE=http"}},
+		{"explicit only", false, map[string]string{"A": "1"}, "", []string{"A=1", "RR_MODE=http"}},
+		{"rr_mode always wins", false, map[string]string{"RR_MODE": "grpc"}, "",
+			[]string{"RR_MODE=grpc", "RR_MODE=http"}},
+		{"rpc on", false, map[string]string{"RR_RPC": "tcp://127.0.0.1:6001"}, "unix:///tmp/kest/rpc.sock",
+			[]string{"RR_RPC=tcp://127.0.0.1:6001", "RR_MODE=http", "RR_RPC=unix:///tmp/kest/rpc.sock"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := Config{InheritEnv: tt.inherit, Env: tt.env}
-			got := c.environment(environ)
+			got := c.environment(environ, tt.rpc)
 			if !slices.Equal(got, tt.want) {
 				t.Errorf("environment = %q, want %q", got, tt.want)
 			}

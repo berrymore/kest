@@ -44,6 +44,9 @@ type BuildContext struct {
 	ConfigDir string
 	// Metrics is the server's metrics registry; use MetricsRegistry.
 	Metrics *metrics.Registry
+	// RPCAddress is where workers reach the RPC server, as RR_RPC carries it
+	// ("unix:///path/to/rpc.sock"); empty when rpc is off.
+	RPCAddress string
 }
 
 // MetricsRegistry returns the registry components register their metrics
