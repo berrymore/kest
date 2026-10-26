@@ -22,6 +22,8 @@ ExecReload=/bin/kill -HUP $MAINPID
 TimeoutStopSec=60
 Restart=on-failure
 User=www-data
+# /run/kest for a unix socket listener: /run is emptied at boot
+RuntimeDirectory=kest
 LimitNOFILE=65536
 
 [Install]
@@ -97,7 +99,8 @@ upstream kest {
 }
 ```
 
-The directory must exist and be writable by kest. kest removes a socket file left by a killed kest when it starts,
+The directory must exist and be writable by kest; the systemd unit above creates `/run/kest` with
+`RuntimeDirectory`. kest removes a socket file left by a killed kest when it starts,
 refuses to start while another process listens on the path, and removes the file when it stops. A peer on a unix
 socket has no IP address: without `client_ip` and `unix` in its `trusted_proxies`, PHP sees an empty `REMOTE_ADDR`.
 
@@ -156,7 +159,7 @@ dependency), the reset stops there and the call answers `500` with the worker's 
 reach still run the old code and keep serving, so roll the code back and reset again. `409` means a reset is
 running already.
 
-Configuration changes need a restart of kest; reloading the config is planned (M8).
+Configuration changes need a restart of kest; reloading the config is a candidate for a later milestone (M8).
 
 In development, a cluster's `reload` block resets the workers by itself when files change. Leave it off in
 production: deploys should decide when workers switch to new code.

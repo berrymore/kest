@@ -21,8 +21,9 @@ Work items live in `backlog.md` (IDs in brackets). Reprioritization is the user'
 kest and runs it for real; kest's work follows what that application needs, from the backlog or new items. The
 milestones below are candidates, not a schedule. A release comes once kest has proved itself in that use.
 
-Reordered with the user on 2026-10-26: what a PHP application needs from its server comes first (connections PHP
-can't hold, a reloadable config), and the WASM sandbox and gRPC, options rather than base features, come last.
+Reordered with the user on 2026-10-26: what a PHP application needs from its server comes first (a channel for
+RoadRunner's PHP libraries, a reloadable config), and the WASM sandbox and gRPC, options rather than base features,
+come last.
 Prefork and socket relays went to the icebox the same day: their gain (a worker's boot, memory density) didn't pay
 for their complexity. WebSockets and SSE followed once researched: most PHP applications don't need them, so they
 wait for a use case. The PHP framework the user plans in its own repository is the first application in mind; kest
@@ -149,7 +150,7 @@ Exit criteria:
 
 Scope [K-164]: `address: unix:<path>` with `socket_mode`, stale socket files, `client_ip` for peers on a unix socket.
 Plan: `plans/M6-unix-sockets.md`. What was planned here before, and shelved on 2026-10-26: prefork and socket relays
-(K-154, K-029), then WebSockets and SSE (K-163: researched, ADR-0009 proposed and on hold), until an application
+(K-154, K-029), then WebSockets and SSE (K-165; researched in K-163, ADR-0009 proposed and on hold), until an application
 needs them.
 
 Exit criteria:
@@ -182,7 +183,7 @@ errors as gRPC statuses), routed like any request. Last since 2026-10-26, after 
 ## Later / icebox
 
 CI on GitHub Actions (K-003, deferred until a release or a second contributor), prefork (K-154: workers forked from a
-booted PHP process, shelved on 2026-10-26, `research/prefork.md`), socket relays (K-029), WebSockets and SSE (K-163:
+booted PHP process, shelved on 2026-10-26, `research/prefork.md`), socket relays (K-029), WebSockets and SSE (K-165:
 `research/websockets.md`, ADR-0009 on hold), queues/jobs, KV, systemd notify and socket activation, Envoy-style hot
 restart (passing FDs to a new process), a FastCGI listener in place of PHP-FPM (K-911), embedding PHP via SAPI (would
 need to revisit ADR-0003).

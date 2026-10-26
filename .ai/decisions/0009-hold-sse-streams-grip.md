@@ -6,10 +6,11 @@
 
 ## Context
 
-M6 was about the connections PHP can't hold (`plans/M6-unix-sockets.md` § D2, where the feature was shelved). The goal is that a browser keeps a live
-connection to kest while no PHP worker is busy for it, PHP decides who may connect and subscribe, and a message PHP
-publishes reaches every subscriber. Today an SSE endpoint in PHP works through streamed responses (K-088), but it
-ties up one worker per open stream, so a pool of 16 workers serves 16 listeners.
+The feature is about the connections PHP can't hold. It was planned for M6 and shelved there
+(`plans/M6-unix-sockets.md` § D2). The goal is that a browser keeps a live connection to kest while no PHP worker is
+busy for it, PHP decides who may connect and subscribe, and a message PHP publishes reaches every subscriber. Today
+an SSE endpoint in PHP works through streamed responses (K-088), but it ties up one worker per open stream, so a
+pool of 16 workers serves 16 listeners.
 
 The research (`research/websockets.md`, K-163) found:
 
@@ -40,7 +41,8 @@ first (ADR-0005), and kest stays behind a proxy (ADR-0008).
 
 ## Decision
 
-We will hold SSE streams in kest, decided by PHP through a subset of GRIP, and leave WebSockets out of M6.
+We will hold SSE streams in kest, decided by PHP through a subset of GRIP, and leave WebSockets out of the first
+version.
 
 1. **Subscribing is an ordinary request to PHP.**
    - The browser's `EventSource` request goes through kest's routing to the app's own route, with its session,
@@ -63,7 +65,7 @@ We will hold SSE streams in kest, decided by PHP through a subset of GRIP, and l
    - metrics on streams, channels, published and dropped items.
 4. **No history in kest.** A reconnect is a new request to PHP with `Last-Event-ID`, so the app can replay what was
    missed in the first body. Several kest instances (a broker behind the hub) come later.
-5. **WebSockets are not in M6.** SSE down plus ordinary POSTs to PHP up covers notifications, live updates, chat and
+5. **WebSockets are not in the first version.** SSE down plus ordinary POSTs to PHP up covers notifications, live updates, chat and
    dashboards. WebSockets, and the stock clients Echo and Turbo, come later as adapters over the same hub when an app
    needs them:
    - GRIP's WebSocket-over-HTTP, where a connection's events reach PHP as requests;
@@ -90,7 +92,7 @@ We will hold SSE streams in kest, decided by PHP through a subset of GRIP, and l
   come next on the same hub.
 - **E. Build nothing; document Reverb or the Mercure hub next to kest, behind nginx.** It costs nothing and solves the
   problem today. It stays the advice for apps that want Echo or Turbo before an adapter exists. But kest would hold no
-  connection, and M6's goal and the user's priority would go unmet.
+  connection, and the feature's goal would go unmet.
 - **kest's own header names instead of GRIP's.** They cost the same, but GRIP is documented, keeps apps portable to
   Pushpin and Fastly Fanout, and spares kest a contract of its own.
 

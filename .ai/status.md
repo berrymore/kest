@@ -14,7 +14,7 @@ kest and runs it for real; kest's work follows what that application needs. A re
 itself there. The remaining milestones (RPC, dynamic configuration, WASM, gRPC) are candidates in `roadmap.md`.
 
 **Roadmap reordered on 2026-10-26** (the user): M6 Unix socket listeners, M7 PHP → kest RPC, M8 Dynamic
-configuration, M9 WASM sandbox, M10 gRPC. Prefork (K-154), socket relays (K-029) and WebSockets and SSE (K-163) went
+configuration, M9 WASM sandbox, M10 gRPC. Prefork (K-154), socket relays (K-029) and WebSockets and SSE (K-165) went
 to the icebox the same day, each after a look at what it would cost; their research stays (`research/prefork.md`,
 `research/roadrunner.md` § Socket relays, `research/websockets.md`, ADR-0009 on hold). Milestone numbers in entries
 before that date below follow the old order (M6 WASM, M7 Protocols, M8 Dynamic configuration).
@@ -145,8 +145,9 @@ Nothing.
   `opcache.enable_cli` is off; Composer 2.10.3
 - Also installed: Homebrew, Docker, git, gh (SSH protocol, logged in as `berrymore`)
 - Docker image `golang:1.27` (pulled 2026-10-24) runs `make test-linux`; the `kest-test-php:8.3`, `8.4` and `8.5`
-  images of `make test-matrix` are built from `php:<version>-cli` and `composer:2`, which BuildKit keeps in its
-  cache rather than as tagged images
+  images of `make test-matrix` are built from `php:<version>-cli` and `composer:2`; BuildKit keeps most base images
+  in its cache, `php:8.5-cli` is also a tagged image. `nginx:alpine` (nginx 1.31.8, pulled 2026-10-26) served the
+  unix socket check of K-164
 - Load testing: `test/bench/loadgen` (`make bench`), `ab` (ships with macOS); no `oha`/`wrk`. `make bench` needs
   RoadRunner's release binary (`RR=/path/to/rr`): none is installed; K-066 and K-148 downloaded 3.0.1 from the
   GitHub release (`gh release download v3.0.1 -R roadrunner-server/roadrunner`, sha256 checked) into a scratch

@@ -128,7 +128,8 @@ Full list: `.ai/rules.md`. The ones that matter most:
 Full workflow: `.ai/rules.md` § 9.
 
 - Remote: `origin` → `git@github.com:berrymore/kest.git` (public). Default branch: `main`.
-- **One branch per milestone** from `main`: `feat/m<N>-<slug>`. Nothing is committed to `main` directly.
+- **One branch per milestone** from `main`: `feat/m<N>-<slug>`; outside a milestone, one per backlog item:
+  `feat/k<NNN>-<slug>`. Nothing is committed to `main` directly.
 - **One commit per backlog item** (`K-NNN` in the subject), plus separate `docs:` commits for plans and status.
 - **Ask before every commit**, unless the user said otherwise for the current milestone. `make check` first.
 - **Merge via PR:** at the end of the milestone, run the docs review (`.ai/review.md`: `make docs-check` plus the

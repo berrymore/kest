@@ -98,7 +98,7 @@ Longer term (M4+):
 | **Lane** | A route's own queue in a pool, with a limit on the workers it takes, a priority and a queue timeout (M5) |
 | **Worker** | One long-lived child process (e.g. `php worker.php`) handling one request at a time |
 | **Supervisor** | Watches workers and recycles them on limits: TTL, idle TTL, exec TTL, memory, max jobs |
-| **Relay** | Transport between kest and a worker: pipes (stdin/stdout), unix socket, TCP |
+| **Relay** | Transport between kest and a worker: pipes (stdin/stdout); socket relays are in the icebox (K-029) |
 | **Frame** | Unit of the wire protocol on a relay (goridge-compatible, ADR-0003) |
 | **Payload** | Request/response unit sent to a worker: `context` (metadata) + `body` |
 | **Codec** | Encoding of the payload context: raw, JSON, protobuf |

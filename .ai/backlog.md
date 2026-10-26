@@ -231,6 +231,9 @@ IDs start at K-140: the milestones were renumbered on 2026-10-25 (ADR-0008), and
 Reordered with the user on 2026-10-26 (`roadmap.md`): prefork and socket relays, then WebSockets and SSE, were planned
 here and went to the icebox the same day. Plan: `plans/M6-unix-sockets.md`.
 
+- [x] K-163 Research and ADR: WebSockets and SSE held by kest while PHP handles the events (2026-10-26:
+  `research/websockets.md`; ADR-0009 proposes SSE streams held through a GRIP subset). The feature itself was then
+  shelved: K-165.
 - [x] K-164 Unix socket listeners (`address: unix:/run/kest.sock`, `socket_mode`), for a proxy on the same host;
   `client_ip` trusts `unix` peers (plan D1; 2026-10-26). The admin server stays on TCP: nothing asked for a socket.
 
@@ -286,14 +289,14 @@ here and went to the icebox the same day. Plan: `plans/M6-unix-sockets.md`.
 - [ ] K-147 External authorization through a cluster: a subrequest to a small PHP pool decides, and the headers it
   returns go to the main request (Envoy's `ext_authz`). Moved from M5 on 2026-10-25.
 - [ ] K-029 Unix socket relays between kest and its workers (`RR_RELAY=unix://…`). Deferred in M1; scheduled for M6
-  and dropped again on 2026-10-26: no faster than pipes, and only prefork needed them. RoadRunner's are described in
+  and shelved again on 2026-10-26: no faster than pipes, and only prefork needed them. RoadRunner's are described in
   `research/roadrunner.md` § Socket relays.
 - [ ] K-154 Prefork mode (opt-in): a booted PHP "template" forks the workers of a pool on kest's request; each child
   connects over a unix socket of its own (K-029). From K-152, 2026-10-25. Shelved on 2026-10-26 with the user: the
   gain is memory density (unmeasured on real applications) and a worker's boot, the cost is processes kest didn't
   spawn, a PHP package, and fork safety that falls on the application. Revisit when a deployment runs short of memory,
   or when a framework designed to be fork-safe can make it safe by default. Design sketch in `research/prefork.md`.
-- [ ] K-163 WebSockets and SSE held by kest while PHP handles the events. Researched on 2026-10-26
-  (`research/websockets.md`); ADR-0009 proposes SSE streams held through a GRIP subset, with a broker for several
-  instances and deploys as a normal case (plan `M6-unix-sockets.md` D2). Shelved the same day with the user: most PHP
-  applications don't need it; revisit with a use case.
+- [ ] K-165 WebSockets and SSE held by kest while PHP handles the events: the feature K-163 researched. ADR-0009
+  (proposed, on hold) has the design, plus what a production version needs from the start: a broker for several
+  instances and blue-green deploys, and reconnects as a normal case (plan `M6-unix-sockets.md` D2). Shelved on
+  2026-10-26 with the user: most PHP applications don't need it; revisit with a use case.

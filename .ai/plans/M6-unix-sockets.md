@@ -3,7 +3,7 @@
 - **Status:** Done (2026-10-26), merged through its PR on the user's OK. Approved by the user on 2026-10-26, D1's
   schema included. WebSockets and SSE were planned here and shelved the same day (D2).
 - **Milestone:** M6
-- **Backlog:** K-164; K-163 (research done, then shelved)
+- **Backlog:** K-164; K-163 (research and ADR); the feature itself shelved as K-165
 
 ## Goal
 
@@ -65,7 +65,8 @@ ADR-0009 stays `Proposed`, on hold, with these notes.
 1. [x] Plan, roadmap and backlog after the reorders — acceptance: the user approves the plan and D1's schema.
 2. [x] K-163 research → `research/websockets.md` — acceptance: D2's questions answered, with sources.
 3. [x] K-164 unix socket listeners (D1) — acceptance: an e2e test through a unix socket; the stale file case;
-   `client_ip` with `unix`; `docs/config.md`; the operations guide shows nginx's `proxy_pass http://unix:…`.
+   `client_ip` with `unix`; `docs/config.md`; the operations guide shows nginx's `proxy_pass http://unix:…` (it shows
+   an `upstream` block instead, which keeps connections alive; both were checked, see the log).
 4. [-] K-163 the ADR — proposed (ADR-0009), then shelved with WebSockets and SSE (D2).
 5. [x] Docs review (`review.md`), `make test-matrix`; the PR on the user's OK — acceptance: the review's findings
    fixed.
@@ -82,5 +83,10 @@ ADR-0009 stays `Proposed`, on hold, with these notes.
 - 2026-10-26 — The user asked how it would work, then raised several instances (Nomad) and blue-green deploys that
   close held connections, and shelved WebSockets and SSE until a use case: most PHP applications don't need them. The
   research and the ADR stay as the starting point. M6 is the unix socket listeners alone.
-- 2026-10-26 — The docs review and `make test-matrix`, then the PR on the user's OK. No milestone after M6 and no
+- 2026-10-26 — Checked with real nginx 1.31.8 (`nginx:alpine` in Docker, kest built for linux/arm64): kest ran as
+  the `nginx` user with `socket_mode: "0660"` on `/run/kest/kest.sock`, and nginx reached it both through
+  `upstream { server unix:…; keepalive 32; }` and through `proxy_pass http://unix:/run/kest/kest.sock:/`.
+  `client_ip` with `unix` took the last untrusted hop of `X-Forwarded-For`, so a client's forged entry was ignored.
+- 2026-10-26 — The docs review (12 findings, all fixed; one was a bug: Linux takes 107-byte socket paths, not 108,
+  and the temporary name needs room in the directory) and `make test-matrix`, then the PR on the user's OK. No milestone after M6 and no
   release yet: the user builds an application on kest and kest follows what it needs.
