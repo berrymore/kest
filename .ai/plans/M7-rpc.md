@@ -1,7 +1,6 @@
 # Plan: M7 — RPC from PHP and plugins
 
-- **Status:** Done (2026-10-27) on `feat/m7-rpc`: the docs review and `make test-matrix` ran; the user looks at the
-  branch before the PR. Approved by the user on
+- **Status:** Done (2026-10-27), merged through PR #7 on the user's go-ahead. Approved by the user on
   2026-10-26, with plugins at the root of the config (`plugins`, not `rpc.services`: RPC is one channel to them, and
   a plugin may later work without it); the rest delegated on 2026-10-27.
 - **Milestone:** M7
@@ -193,7 +192,7 @@ Drafted with the plan on 2026-10-26; `Proposed` until the user accepts it, which
 5. [x] K-168 external plugins and `pkg/plugin` (D4, D5) — acceptance: the PHP kv tests pass against `kv` as an
    external plugin; tests for a crash and the restart, the start timeout, a bad config, cancellation, stop order and
    stray stdout; `make test-linux`; `docs/plugins.md` (the protocol), `docs/config.md`.
-6. [x] Docs review (`review.md`), `make test-matrix`; the PR on the user's OK (pending) — acceptance: the review's findings
+6. [x] Docs review (`review.md`), `make test-matrix`; the PR on the user's OK (#7, merged) — acceptance: the review's findings
    fixed.
 
 ## Risks / open questions
@@ -259,4 +258,4 @@ Drafted with the plan on 2026-10-26; `Proposed` until the user accepts it, which
   the systemd example's `TimeoutStopSec` went to 90), `/ready` and `/config_dump` with plugins, `RR_RPC` in the worker
   environment, the `getting-started` page that still said kest has no RPC, the follow-ups as K-169…K-172.
   `make test-matrix` green on PHP 8.3, 8.4 and 8.5 (`roadrunner/kv` with the pure-PHP protobuf there).
-- 2026-10-27 — The user looked at the branch, accepted ADR-0010 (Q18) and had the branch pushed and the PR opened.
+- 2026-10-27 — The user looked at the branch, accepted ADR-0010 (Q18), had PR #7 opened and merged (squash).

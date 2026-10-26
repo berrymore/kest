@@ -2,7 +2,7 @@
 
 > A living document. It describes the **target** design and marks what is implemented.
 > Legend: 🟢 implemented · 🟡 in progress · ⚪ planned.
-> **Last reviewed: 2026-10-27 (M7 done on its branch: RPC and plugins).** Implemented: config loading and validation, extension
+> **Last reviewed: 2026-10-27 (M7 done, merged: RPC and plugins).** Implemented: config loading and validation, extension
 > registry, server lifecycle, HTTP listeners on TCP and unix sockets with configurable limits, TLS (reloaded
 > certificates) and HTTP/2/h2c,
 > path normalization, router with `direct_response` and `redirect`, route names and matches on regex, method,
