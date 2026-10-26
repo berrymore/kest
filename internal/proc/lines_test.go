@@ -1,4 +1,4 @@
-package worker
+package proc
 
 import (
 	"bytes"
@@ -9,8 +9,8 @@ import (
 	"testing"
 )
 
-func TestStderrLogLines(t *testing.T) {
-	long := strings.Repeat("x", maxStderrLine)
+func TestLineLogLines(t *testing.T) {
+	long := strings.Repeat("x", maxLine)
 	tests := []struct {
 		name   string
 		writes []string
@@ -28,15 +28,15 @@ func TestStderrLogLines(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			logs := &logBuffer{}
-			l := newStderrLog(logs.logger())
+			l := NewLineLog(logs.logger(), "worker stderr")
 			for _, w := range tt.writes {
 				if n, err := l.Write([]byte(w)); n != len(w) || err != nil {
 					t.Fatalf("Write = %d, %v; want %d, nil", n, err, len(w))
 				}
 			}
-			l.flush()
+			l.Flush()
 
-			got := logs.stderrLines()
+			got := logs.lines()
 			if len(got) != len(tt.want) {
 				t.Fatalf("logged %d lines, want %d: %.200q", len(got), len(tt.want), got)
 			}
@@ -49,33 +49,33 @@ func TestStderrLogLines(t *testing.T) {
 	}
 }
 
-func TestStderrLogTail(t *testing.T) {
-	l := newStderrLog(slog.New(slog.DiscardHandler))
-	if got := l.tail(); got != "" {
+func TestLineLogTail(t *testing.T) {
+	l := NewLineLog(slog.New(slog.DiscardHandler), "worker stderr")
+	if got := l.Tail(); got != "" {
 		t.Errorf("tail of nothing = %q", got)
 	}
 
 	_, _ = l.Write([]byte("PHP Warning: one\nPHP Fatal error: two\n"))
-	if got, want := l.tail(), "PHP Warning: one\nPHP Fatal error: two"; got != want {
+	if got, want := l.Tail(), "PHP Warning: one\nPHP Fatal error: two"; got != want {
 		t.Errorf("tail = %q, want %q", got, want)
 	}
 
 	// Past the limit, the tail starts at a line boundary and ends with the
 	// latest output, whatever the write sizes.
-	for _, size := range []int{1, 100, stderrTail, 3 * stderrTail} {
-		l := newStderrLog(slog.New(slog.DiscardHandler))
+	for _, size := range []int{1, 100, tailSize, 3 * tailSize} {
+		l := NewLineLog(slog.New(slog.DiscardHandler), "worker stderr")
 		data := []byte(strings.Repeat("filler line\n", 1000) + "last words")
 		for len(data) > 0 {
 			n := min(size, len(data))
 			_, _ = l.Write(data[:n])
 			data = data[n:]
 		}
-		got := l.tail()
+		got := l.Tail()
 		if !strings.HasPrefix(got, "filler line\n") || !strings.HasSuffix(got, "\nlast words") {
 			t.Errorf("writes of %d bytes: tail = %.30q…%.30q", size, got, got[max(0, len(got)-30):])
 		}
-		if len(got) > stderrTail {
-			t.Errorf("writes of %d bytes: tail is %d bytes, limit %d", size, len(got), stderrTail)
+		if len(got) > tailSize {
+			t.Errorf("writes of %d bytes: tail is %d bytes, limit %d", size, len(got), tailSize)
 		}
 	}
 }
@@ -93,32 +93,22 @@ func (b *logBuffer) Write(p []byte) (int, error) {
 }
 
 func (b *logBuffer) logger() *slog.Logger {
-	return slog.New(slog.NewJSONHandler(b, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	return slog.New(slog.NewJSONHandler(b, nil))
 }
 
-// records returns the logged records with the given message.
-func (b *logBuffer) records(msg string) []map[string]any {
+// lines returns the lines logged as "worker stderr".
+func (b *logBuffer) lines() []string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	var out []map[string]any
+	var out []string
 	for line := range bytes.Lines(b.buf.Bytes()) {
-		var r map[string]any
+		var r struct{ Msg, Line string }
 		if err := json.Unmarshal(line, &r); err != nil {
 			panic(err)
 		}
-		if r["msg"] == msg {
-			out = append(out, r)
+		if r.Msg == "worker stderr" {
+			out = append(out, r.Line)
 		}
-	}
-	return out
-}
-
-// stderrLines returns the worker stderr lines that were logged.
-func (b *logBuffer) stderrLines() []string {
-	var out []string
-	for _, r := range b.records("worker stderr") {
-		s, _ := r["line"].(string)
-		out = append(out, s)
 	}
 	return out
 }

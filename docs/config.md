@@ -701,9 +701,9 @@ forms to 10000 fields and 1000 multipart parts.
 ## `plugins`
 
 Named components that PHP workers call through [`rpc`](#rpc): a call to `kv.Set` goes to the plugin named `kv`,
-method `Set`. A plugin is built into kest or, later in M7, an external binary that kest starts. Plugins start before
-the clusters and stop after them, so workers can call them while they boot and while they finish their last
-requests. They run whether `rpc` is on or not.
+method `Set`. A plugin is built into kest, or an [external](#external) program that kest starts
+([Plugins](plugins.md) shows how to write one). Plugins start before the clusters and stop after them, so workers can
+call them while they boot and while they finish their last requests. They run whether `rpc` is on or not.
 
 ```yaml
 plugins:
@@ -718,8 +718,8 @@ plugins:
 | `type` | yes | Implementation |
 | `config` | depends on the type | Type-specific options |
 
-Built-in type: [`kv`](#kv). An unknown `type` is rejected with the list of known types. A plugin that can't serve
-makes `/ready` answer `503`, naming it as `plugin <name>`.
+Built-in types: [`kv`](#kv), [`external`](#external). An unknown `type` is rejected with the list of known types. A
+plugin that can't serve makes `/ready` answer `503`, naming it as `plugin <name>`.
 
 ### `kv`
 
@@ -771,6 +771,37 @@ item fits; `kest_kv_evictions_total` counts them. An item larger than `max_size`
 The values are what PHP stores: `roadrunner/kv` serializes them (`serialize()` by default, igbinary or sodium on
 request) and speaks protobuf, which the `protobuf` PHP extension makes faster. Only `kv` of `roadrunner/kv`'s plugins
 exists in kest: there is no `boltdb`, `redis` or `memcached` driver.
+
+### `external`
+
+A plugin that runs as a program of its own, which kest starts, supervises and talks to over a socket pair:
+[Plugins](plugins.md) describes the SDK for Go and the protocol.
+
+```yaml
+plugins:
+  - name: greeter
+    type: external
+    config:
+      command: [./bin/greeter, --verbose]
+      env: {GREETER_DEBUG: "1"}
+      plugin_config: {greeting: Hello}
+```
+
+| Field | Default | |
+|---|---|---|
+| `command` | required | The executable and its arguments. A relative executable is relative to `dir` |
+| `dir` | the config file's directory | Working directory, relative to the config file |
+| `env` | — | Added to the plugin's environment |
+| `inherit_env` | `true` | Pass kest's own environment to the plugin |
+| `plugin_config` | — | The plugin's own config, any YAML with string keys; the plugin gets it as JSON. `/config_dump` hides it |
+| `max_concurrent_calls` | `64` | Calls in progress at once; more wait for a place within their timeout |
+| `max_frame_size` | `16MB` | The largest call or answer on the plugin's socket, 1KB to 1GB; keep it at least `rpc.max_frame_size` |
+| `start_timeout` | `10s` | How long the plugin may take to start, its own setup included |
+| `stop_timeout` | `10s` | How long it may take to stop; then it is killed with its process group |
+
+A plugin that fails to start fails kest's start. One that dies later is restarted, at once or after a pause that
+doubles from 100 ms to 30 s while it keeps dying; meanwhile its calls fail and `/ready` answers `503`. Its stdout and
+stderr go to the log line by line. `/config_dump` hides the values of `env` and `plugin_config`.
 
 ## `rpc`
 

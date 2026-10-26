@@ -27,8 +27,8 @@ stays bounded:
 - `route` on the `kest_pool_*` metrics: the lane of a pool. A route with `max_workers`, `priority` or `queue_timeout`
   has a lane of its own, labeled with the route's name; the other routes to the cluster share its default lane,
   labeled `""`.
-- `plugin` on the `kest_rpc_*` metrics: a plugin's name, empty for calls to a name no plugin has. `storage`: a
-  storage of a `kv` plugin.
+- `plugin`: a plugin's name; on `kest_rpc_*`, empty for calls to a name no plugin has. `storage`: a storage of a
+  `kv` plugin.
 - `code`: the HTTP status code of the response.
 - `state`, `reason`: the fixed values listed below.
 - `cert_file`: a TLS certificate file from the config.
@@ -77,6 +77,15 @@ When `rpc` is on:
 | `kest_rpc_refused_connections_total` | counter | | Connections closed at once because `rpc.max_connections` were open. |
 | `kest_rpc_calls_total` | counter | `plugin`, `result` | Calls by result: `ok`, `error` (the plugin answered an error, or the answer was over `rpc.max_frame_size`), `unknown` (no such plugin or method), `timeout` (over `rpc.call_timeout`). |
 | `kest_rpc_call_duration_seconds` | histogram | `plugin` | How long plugins took to answer. Buckets from 100 µs to 30 s. |
+
+## Plugins
+
+For each `external` plugin:
+
+| Metric | Type | Labels | |
+|---|---|---|---|
+| `kest_plugin_up` | gauge | `plugin` | `1` while the plugin's process serves, `0` while it is down or restarting. |
+| `kest_plugin_restarts_total` | counter | `plugin` | Restarts after the plugin's process exited or broke the protocol. |
 
 ## KV
 

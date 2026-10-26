@@ -186,9 +186,9 @@ Drafted with the plan on 2026-10-26; `Proposed` until the user accepts it, which
 3. [x] K-166 `kv` (D3) — acceptance: storage semantics in `synctest` (TTL, sweeping, eviction); protobuf golden bytes
    from PHP's `roadrunner/api-dto`; PHP integration tests with `roadrunner/kv`'s `Cache`; `docs/config.md` and a
    usage section in the docs.
-4. [~] K-167 ADR-0010 (D6, drafted), from the research note on HashiCorp's plugins (`research/hashicorp-plugins.md`, done) —
+4. [~] K-167 ADR-0010 (D6, drafted, `Proposed` for the user's review), from the research note on HashiCorp's plugins (`research/hashicorp-plugins.md`, done) —
    acceptance: the user accepts or adjusts it.
-5. [ ] K-168 external plugins and `pkg/plugin` (D4, D5) — acceptance: the PHP kv tests pass against `kv` as an
+5. [x] K-168 external plugins and `pkg/plugin` (D4, D5) — acceptance: the PHP kv tests pass against `kv` as an
    external plugin; tests for a crash and the restart, the start timeout, a bad config, cancellation, stop order and
    stray stdout; `make test-linux`; `docs/plugins.md` (the protocol), `docs/config.md`.
 6. [ ] Docs review (`review.md`), `make test-matrix`; the PR on the user's OK — acceptance: the review's findings
@@ -232,3 +232,17 @@ Drafted with the plan on 2026-10-26; `Proposed` until the user accepts it, which
   besides its key and value against `max_size`, so that many tiny items are bounded too; stored values are copied
   out of the call's payload, which they would keep alive; metrics `kest_kv_items`, `kest_kv_bytes`,
   `kest_kv_max_bytes`, `kest_kv_evictions_total`; a `Set` with an item over `max_size` stores nothing.
+- 2026-10-27 — K-168 done: `pkg/plugin` (the SDK: the interface moved there from `internal/plugin`, which aliases it;
+  `Serve` with `Setup{Name, Config}`), `internal/plugin/wire` (the protocol, shared by both ends),
+  `internal/plugin/external` (process, socket pair as fd 3, handshake, multiplexed calls with cancel, supervisor with
+  backoff, `kest_plugin_up`, `kest_plugin_restarts_total`), `internal/proc` (process group, `Pdeathsig`, `KillGroup` and
+  the line logger moved out of `internal/worker`, shared now), `docs/plugins.md`. `kv` built as an external plugin
+  (`internal/plugin/external/testdata/kvplugin`) passes the same `roadrunner/kv` checks as the built-in one
+  (`kv/kvtest`), and the php-kv example runs with it through the real binary. Decided while coding: the socket pair is
+  made close-on-exec under `syscall.ForkLock`, so that no PHP worker starting at the same moment inherits the plugin's
+  end (the plugin would then never see kest go); a failed answer carries a third option, a code (`1` for an unknown
+  method), since kest needs it for `net/rpc`'s message; `max_frame_size` is a field of the external plugin (16MB)
+  and goes to the plugin in the handshake, which the SDK uses to refuse an answer that wouldn't fit; a plugin that
+  dies within 10 s of its start counts as a failure for the backoff, so one that can't stay up isn't restarted in a
+  tight loop; `Serving` is false as soon as the connection breaks, before the supervisor notices the exit; a panic in
+  a call fails that call and the plugin goes on. ADR-0010 stays `Proposed`.

@@ -158,6 +158,7 @@ keeps the workers' shared state in kest's `kv` plugin, through `roadrunner/kv`.
 - [Getting started](docs/getting-started.md): your first PHP app on kest, long-lived workers, Symfony,
   coming from RoadRunner.
 - [Configuration reference](docs/config.md).
+- [Plugins](docs/plugins.md): what PHP calls through RPC; writing an external plugin with the Go SDK, and its protocol.
 - [Metrics](docs/metrics.md): what `GET /metrics` reports, with example queries.
 - [Operations](docs/operations.md): the proxy in front, TLS, signals, probes, deploys with rolling resets, sizing,
   troubleshooting.

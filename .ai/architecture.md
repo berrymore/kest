@@ -13,8 +13,8 @@
 > `access_log`, `recovery`, `client_ip`, `headers`, `cors`, `compression`, `static`, `sendfile`, on listeners, virtual hosts and
 > routes;
 > metrics (`internal/metrics`); admin `/ready`, `/server_info`, `/config_dump`, `/clusters`,
-> `POST /clusters/{name}/reset`, `/metrics`; the RPC server (`internal/rpc`) and the plugin category
-> (`internal/plugin`), M7.
+> `POST /clusters/{name}/reset`, `/metrics`; the RPC server (`internal/rpc`), plugins (`internal/plugin`): `kv`
+> and external ones with the SDK (`pkg/plugin`), M7.
 
 ## 1. Big picture 🟡
 
@@ -34,7 +34,7 @@
                 │                               └─ wasm (M9)  ─▶ wazero instances       │       │
                 │                                                                       │       │ RR_RPC
                 │  RPC server (goridge RPC) ◀───────────────────────────────────────────┼───────┘
-                │      └─ <name>.<Method> ─▶ plugins: kv (M7), external binaries (M7)   │
+                │      └─ <name>.<Method> ─▶ plugins: kv, external ─▶ socket pair ────────┼──▶ plugin process
                 │  Admin server (127.0.0.1:9901): /ready /server_info /config_dump        │
                 │                                 /clusters /metrics                     │
                 └───────────────────────────────────────────────────────────────────────┘
@@ -54,7 +54,8 @@ kest is a single Go binary. At startup it reads one YAML file and builds a graph
   using a framed protocol (ADR-0003), and is watched by a **supervisor**.
 - The **admin server** exposes readiness, effective config, cluster and worker state, and metrics.
 - **Plugins** are named components that PHP calls through the **RPC server** (M7, ADR-0010): goridge RPC on a unix
-  socket, as RoadRunner's PHP libraries speak it. A call `kv.Set` goes to the plugin named `kv`.
+  socket, as RoadRunner's PHP libraries speak it. A call `kv.Set` goes to the plugin named `kv`. A plugin is built in
+  (`kv`) or an external program that kest starts and talks to over a socket pair (`external`, written with the SDK).
 
 ## 2. Request flow: HTTP → PHP 🟢
 
@@ -210,8 +211,8 @@ var Types = registry.NewCategory[Cluster]("cluster")
 // queue_timeout gets a handler of its own, in a lane of the cluster's pool; the router asks for it through
 // httpx.ClusterLookup(cluster, *Lane) while the graph is built, and locates *config.FieldError at the route action.
 
-// internal/plugin (M7, ADR-0010): what PHP calls through RPC, by the plugin's name. The interface moves to the
-// public pkg/plugin with the SDK (K-168).
+// pkg/plugin (M7, ADR-0010), the public SDK: what PHP calls through RPC, by the plugin's name. internal/plugin
+// aliases these types and holds the registry category.
 type Call struct {
 	Method string // "Set" for kv.Set
 	Codec  Codec  // goridge's codec bits: CodecProto, CodecJSON, CodecRaw, CodecMsgpack, CodecGob
@@ -220,10 +221,16 @@ type Call struct {
 type Plugin interface {
 	Call(ctx context.Context, c Call) ([]byte, error) // the answer in c.Codec; ErrUnknownMethod for net/rpc's message
 }
-var Types = registry.NewCategory[Plugin]("plugin")
+var Types = registry.NewCategory[Plugin]("plugin") // internal/plugin
+func Serve(newPlugin func(Setup) (Plugin, error)) error // pkg/plugin: an external plugin's main; Setup{Name, Config}
 // Optional: Start/Stop, Prober { Serving() bool } (/ready).
 // Built in: kv (internal/plugin/kv): storages behind one mutex each, a map, an LRU list and an expiry heap; expired
 // items are invisible at once and swept every second; over max_size, expired then least recently used go.
+// external (internal/plugin/external): a process per plugin with a socket pair as fd 3; the protocol in
+// internal/plugin/wire (docs/plugins.md): a CONTROL handshake (Hello{protocol, name, config, max_frame_size} → Ready),
+// calls as RPC frames with kest's ids answered in any order, ERROR answers with a code (1: unknown method), CONTROL
+// cancel and stop. Calls bounded by max_concurrent_calls; a supervisor restarts a dead plugin with backoff (100 ms
+// doubling to 30 s while it dies within 10 s of its start); Serving is false while it is down.
 
 // internal/rpc: the RPC server. Routes "<name>.<Method>" at the last dot, never decodes bodies; one call at a time
 // per connection; answers and errors byte for byte as goridge's net/rpc codec (testdata/goridge_frames.txt).
@@ -287,7 +294,9 @@ cmd/kest ─▶ server ─▶ config, registry ─▶ metrics
                                ─▶ rrhttp ─▶ worker ─▶ relay
                   ─▶ admin ─▶ metrics, cluster
                   ─▶ rpc ─▶ plugin, relay, listener (unix sockets)
-                  ─▶ plugin ─▶ registry
+                  ─▶ plugin/* ─▶ plugin ─▶ pkg/plugin (SDK) ─▶ plugin/wire ─▶ relay
+                             ─▶ proc (external)
+                  ─▶ cluster/phpworkers ─▶ worker ─▶ proc
 ```
 
 `metrics` is a leaf that every component can use through `registry.BuildContext`.
@@ -366,8 +375,9 @@ Extra slots (beyond Workers, M5): Parked ──▶ Starting ──▶ Ready ⇄ 
 - Backoff applies after a worker fails without completing a job within 10 s of its start; the pool never
   panics, `Health()` reports it.
 - Processes: explicit environment (`Config.Env` + `RR_RELAY=pipes`; `php_workers` builds it from kest's
-  environment unless `inherit_env: false`, then `env`, then `RR_MODE=http`), own process group (SIGKILL hits the
-  group), `Pdeathsig` on Linux, stderr logged line by line with `worker_pid`.
+  environment unless `inherit_env: false`, then `env`, then `RR_MODE=http` and, with rpc on, `RR_RPC`), own process
+  group (SIGKILL hits the group), `Pdeathsig` on Linux, stderr logged line by line with `worker_pid`
+  (`internal/proc`, shared with external plugins).
 
 ## 6. Startup, shutdown, reload 🟢 (config reload ⚪)
 
@@ -431,9 +441,13 @@ internal/cluster/            🟢 Cluster interface and registry category
 internal/leaktest/           🟢 goroutine-leak check for test binaries (goleak)
 internal/filters/            🟢 built-in HTTP filters, one package each: requestid/, accesslog/, recovery/, clientip/, headers/, cors/, compression/, static/, sendfile/
 internal/cluster/phpworkers/ 🟢 php_workers: config, worker environment, pool lifecycle, HTTP handler
-internal/plugin/             🟡 plugin interface and registry category (M7, ADR-0010)
-internal/plugin/kv/          🟢 kv: in-memory storages for roadrunner/kv (TTL, LRU within max_size, hand-written kv.v1 protobuf)
-internal/rpc/                🟡 the RPC server: goridge RPC from workers, routed to plugins (M7)
+internal/plugin/             🟢 plugin registry category, the SDK's types under kest's names (M7, ADR-0010)
+internal/plugin/kv/          🟢 kv: in-memory storages for roadrunner/kv (TTL, LRU within max_size, hand-written kv.v1 protobuf); kvtest/ runs roadrunner/kv's checks
+internal/plugin/external/    🟢 external plugins: process, socket pair, handshake, multiplexed calls, supervisor
+internal/plugin/wire/        🟢 the external plugin protocol, shared by kest and the SDK
+internal/proc/               🟢 child processes: process group, Pdeathsig, KillGroup, output logged line by line
+internal/rpc/                🟢 the RPC server: goridge RPC from workers, routed to plugins (M7)
+pkg/plugin/                  🟢 the plugin SDK (public): Plugin, Call, Codec, Serve
 internal/rrhttp/             🟢 HTTP ↔ RoadRunner HTTP payload (request context JSON/protobuf, form trees, responses)
 internal/worker/             🟢 process, pool, supervisor (language-agnostic); workertest/ has fake workers
 internal/relay/              🟢 goridge-compatible frame codec and Conn (pipes; socket relays in the icebox, K-029)
@@ -464,8 +478,10 @@ test/bench/                  🟢 benchmark against RoadRunner: configs, loadgen
   `kest_pool_rejected_total`, `kest_pool_queue_length`, `kest_pool_lane_workers`) and reads states, queues and memory
   at scrape time. M4 adds
   `kest_tls_*` (certificate expiry, failed handshakes) per listener.
-- **RPC (M7):** `kest_rpc_connections`, `kest_rpc_refused_connections_total`, `kest_rpc_calls_total{plugin, result}`,
-  `kest_rpc_call_duration_seconds{plugin}`; the plugin label is a configured name, never what a client sent.
+- **RPC and plugins (M7):** `kest_rpc_connections`, `kest_rpc_refused_connections_total`,
+  `kest_rpc_calls_total{plugin, result}`, `kest_rpc_call_duration_seconds{plugin}`; the plugin label is a configured
+  name, never what a client sent. `kest_kv_{items,bytes,max_bytes,evictions_total}{plugin, storage}`;
+  `kest_plugin_up{plugin}`, `kest_plugin_restarts_total{plugin}` for external plugins.
 - **Tracing:** OpenTelemetry later; the `request_id` filter exists (M3).
 - **Admin API**, modeled on Envoy's admin interface:
 

@@ -43,11 +43,12 @@ We will:
    - a socketpair as the transport, passed as fd 3, so there is no socket file, no handshake on stdout, and the
      plugin's stdout and stderr are just logs;
    - a `CONTROL` handshake with the protocol version, the plugin's name and its config as JSON;
-   - calls as RPC frames with kest's ids, many in flight and answered in any order, bounded per plugin; cancel and
-     stop as `CONTROL` frames, then SIGKILL after a timeout;
+   - calls as RPC frames with kest's ids, many in flight and answered in any order, bounded per plugin; a failed
+     answer carries a code (1: unknown method, for `net/rpc`'s message); cancel and stop as `CONTROL` frames, then
+     SIGKILL after a timeout;
    - room for calls from the plugin to kest (ids per direction), unused until a plugin needs them (one that hands
      jobs to a worker pool).
-4. **Publish a small Go SDK**, `pkg/plugin` (`Plugin`, `Call`, `Serve`), and document the protocol
+4. **Publish a small Go SDK**, `pkg/plugin` (`Plugin`, `Call`, `Codec`, `Setup`, `Serve`), and document the protocol
    (`docs/plugins.md`) so plugins can be written in other languages. Before 1.0 the protocol and the package may
    change; the handshake carries the version, and breaking changes go into the changelog.
 5. **Trust the config.** kest runs the binaries its config names: no catalog, no checksums, no plugin directory.
@@ -78,5 +79,6 @@ We will:
 - Negative / costs: a protocol and a public package to keep stable; a supervisor for plugin processes; an external
   plugin's config is only checked when it starts (`kest validate` can't); calls to an external plugin cost a hop
   over a socket.
-- Follow-ups: K-168 (external plugins, `pkg/plugin`, `docs/plugins.md`); calls from plugins to kest when a plugin
-  needs them; a validate-only handshake if `kest validate` should check plugin configs.
+- Follow-ups: K-168 (external plugins, `pkg/plugin`, `docs/plugins.md`; done on `feat/m7-rpc` while this ADR waits
+  for the user's review); calls from plugins to kest when a plugin needs them; a validate-only handshake if
+  `kest validate` should check plugin configs.

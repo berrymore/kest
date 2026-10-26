@@ -37,18 +37,19 @@ func init() {
 	})
 }
 
-// Config is the kv plugin's config.
+// Config is the kv plugin's config. The JSON tags let it run as an external
+// plugin too, which gets its config as JSON.
 type Config struct {
-	Storages []Storage `yaml:"storages"`
+	Storages []Storage `yaml:"storages" json:"storages"`
 }
 
 // Storage is one named storage; PHP selects it by name:
 // (new Factory($rpc))->select('local').
 type Storage struct {
-	Name string `yaml:"name"`
+	Name string `yaml:"name" json:"name"`
 	// MaxSize bounds keys and values, plus about 100 bytes per item. Over
 	// it, expired items go first, then the least recently used.
-	MaxSize config.ByteSize `yaml:"max_size"`
+	MaxSize config.ByteSize `yaml:"max_size" json:"max_size"`
 }
 
 // Validate checks the config and fills in the defaults of storages, which

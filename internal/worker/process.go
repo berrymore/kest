@@ -12,9 +12,9 @@ import (
 	"os"
 	"os/exec"
 	"slices"
-	"syscall"
 	"time"
 
+	"github.com/berrymore/kest/internal/proc"
 	"github.com/berrymore/kest/internal/relay"
 )
 
@@ -67,7 +67,7 @@ type execProcess struct {
 	conn   *relay.Conn
 	stdin  *os.File // write end
 	stdout *os.File // read end
-	stderr *stderrLog
+	stderr *proc.LineLog
 	done   chan struct{}
 	err    error // set before done is closed
 }
@@ -89,15 +89,15 @@ func startProcess(ctx context.Context, cfg processConfig, logger *slog.Logger) (
 		return nil, fmt.Errorf("create stdout pipe: %w", err)
 	}
 
-	stderr := newStderrLog(logger)
+	stderr := proc.NewLineLog(logger, "worker stderr")
 	cmd := exec.CommandContext(ctx, cfg.command[0], cfg.command[1:]...) //nolint:gosec // the command is the operator's config
 	cmd.Env = slices.Concat(cfg.env, []string{"RR_RELAY=pipes"})
 	cmd.Dir = cfg.dir
 	cmd.Stdin = inR
 	cmd.Stdout = outW
 	cmd.Stderr = stderr
-	cmd.SysProcAttr = sysProcAttr()
-	cmd.Cancel = func() error { return killGroup(cmd.Process.Pid) }
+	cmd.SysProcAttr = proc.SysProcAttr()
+	cmd.Cancel = func() error { return proc.KillGroup(cmd.Process.Pid) }
 	cmd.WaitDelay = waitDelay
 
 	if err := cmd.Start(); err != nil {
@@ -106,7 +106,7 @@ func startProcess(ctx context.Context, cfg processConfig, logger *slog.Logger) (
 	}
 	// The child has its own copies now.
 	closeAll(inR, outW)
-	stderr.setLogger(logger.With("worker_pid", cmd.Process.Pid))
+	stderr.SetLogger(logger.With("worker_pid", cmd.Process.Pid))
 
 	p := &execProcess{
 		cmd:    cmd,
@@ -122,7 +122,7 @@ func startProcess(ctx context.Context, cfg processConfig, logger *slog.Logger) (
 
 func (p *execProcess) wait() {
 	err := p.cmd.Wait()
-	p.stderr.flush()
+	p.stderr.Flush()
 	p.err = err
 	close(p.done)
 }
@@ -130,7 +130,7 @@ func (p *execProcess) wait() {
 func (p *execProcess) Pid() int              { return p.cmd.Process.Pid }
 func (p *execProcess) Conn() *relay.Conn     { return p.conn }
 func (p *execProcess) Done() <-chan struct{} { return p.done }
-func (p *execProcess) Stderr() string        { return p.stderr.tail() }
+func (p *execProcess) Stderr() string        { return p.stderr.Tail() }
 
 func (p *execProcess) UnreadStdout(n int) []byte {
 	out := p.conn.Buffered() // the relay reads ahead: those bytes come first
@@ -154,22 +154,12 @@ func (p *execProcess) Kill() {
 	select {
 	case <-p.done:
 	default:
-		_ = killGroup(p.cmd.Process.Pid)
+		_ = proc.KillGroup(p.cmd.Process.Pid)
 	}
 }
 
 func (p *execProcess) Close() {
 	closeAll(p.stdin, p.stdout)
-}
-
-// killGroup sends SIGKILL to the process group the worker leads (Setpgid),
-// so that processes the worker started die with it.
-func killGroup(pid int) error {
-	err := syscall.Kill(-pid, syscall.SIGKILL)
-	if errors.Is(err, syscall.ESRCH) {
-		return os.ErrProcessDone
-	}
-	return err
 }
 
 func closeAll(files ...*os.File) {

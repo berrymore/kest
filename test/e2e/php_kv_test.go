@@ -5,6 +5,7 @@ package e2e
 import (
 	"io"
 	"net/http"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -72,4 +73,63 @@ func TestServePHPKVExample(t *testing.T) {
 		}
 	}
 	k.stop(t)
+}
+
+// The same example with kv as an external plugin: the kv plugin built with
+// the SDK, started by kest from the config.
+func TestServePHPKVExternalPlugin(t *testing.T) {
+	dir, err := filepath.Abs("../../examples/php-kv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	requirePHP(t, dir)
+	tmp := t.TempDir()
+	bin := filepath.Join(tmp, "kvplugin")
+	build := exec.CommandContext(t.Context(), "go", "build", "-o", bin, "../../internal/plugin/external/testdata/kvplugin")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("go build: %v\n%s", err, out)
+	}
+
+	listenAddr, adminAddr := freeAddr(t), freeAddr(t)
+	cfg := filepath.Join(tmp, "kest.yaml")
+	writeFile(t, cfg, `version: v1
+admin: {address: "`+adminAddr+`"}
+listeners:
+  - name: main
+    address: `+listenAddr+`
+    http: {virtual_hosts: [{name: d, domains: ["*"], routes: [{match: {prefix: /}, route: {cluster: app}}]}]}
+clusters:
+  - name: app
+    type: php_workers
+    config:
+      command: [php, worker.php]
+      dir: `+dir+`
+      pool: {workers: 2}
+plugins:
+  - name: kv
+    type: external
+    config:
+      command: [`+bin+`]
+      plugin_config:
+        storages: [{name: local, max_size: 1MB}]
+rpc:
+`)
+	k := serve(t, cfg, adminAddr)
+	for i := 1; i <= 5; i++ {
+		code, body, err := get(t, "http://"+listenAddr+"/")
+		if err != nil || code != http.StatusOK || !strings.HasPrefix(body, "visits: "+strconv.Itoa(i)+" ") {
+			t.Fatalf("GET / #%d = %d %q, %v", i, code, body, err)
+		}
+	}
+	_, metrics, err := get(t, "http://"+adminAddr+"/metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(metrics, `kest_plugin_up{plugin="kv"} 1`+"\n") {
+		t.Errorf("/metrics has no kest_plugin_up 1 for kv")
+	}
+	k.stop(t)
+	if logs := k.logs.String(); !strings.Contains(logs, "plugin started") {
+		t.Errorf("no log of the plugin's start:\n%s", logs)
+	}
 }
