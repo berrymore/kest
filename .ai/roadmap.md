@@ -12,7 +12,7 @@ Work items live in `backlog.md` (IDs in brackets). Reprioritization is the user'
 | M4 | HTTP edge features (narrowed by ADR-0008) | ✅ done 2026-10-25 |
 | M5 | Worker pools and routing to them | ✅ done 2026-10-25 |
 | M6 | Unix socket listeners | ✅ done 2026-10-26 |
-| M7 | RPC from PHP and plugins | 🟡 in progress (`plans/M7-rpc.md`) |
+| M7 | RPC from PHP and plugins | ✅ done 2026-10-27 (`plans/M7-rpc.md`) |
 | M8 | Dynamic configuration | ⚪ candidate |
 | M9 | WASM sandbox | ⚪ candidate |
 | M10 | gRPC | ⚪ candidate |

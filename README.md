@@ -2,15 +2,16 @@
 
 An Envoy-inspired application server for PHP (and, later, WebAssembly), written in Go.
 
-> **Status: experimental.** Milestones M0–M6 are done: kest serves PHP applications through pools of
+> **Status: experimental.** Milestones M0–M7 are done: kest serves PHP applications through pools of
 > unmodified RoadRunner PSR-7 workers (`roadrunner/http`), behind strictly validated Envoy-style routing, with
 > Prometheus metrics, rolling restarts without failed requests, access logs and request IDs, and bounded
 > resources. It speaks HTTP/2 (h2c) to the proxy in front of it, takes the client's address from trusted proxies,
 > terminates TLS when needed, runs filters per listener, virtual host and route (CORS, headers, gzip, the files of
 > `public/`, `X-Sendfile`), redirects, and streams responses from PHP. A pool keeps a slow endpoint to a few of its
 > workers in a lane of its own, serves important routes first, turns requests away fast under overload instead of
-> letting them pile up, and grows under load. The proxy can reach it over a unix socket. A Symfony app runs on it
-> unchanged. No milestone is scheduled next: kest is being shaped by a real application running on it. The goal is
+> letting them pile up, and grows under load. The proxy can reach it over a unix socket. PHP workers call kest
+> through RoadRunner's RPC: `roadrunner/kv`'s cache works against kest's `kv` plugin, and plugins can be programs of
+> their own, written with a Go SDK. A Symfony app runs on it unchanged. No milestone is scheduled next: kest is being shaped by a real application running on it. The goal is
 > production quality; the candidates are in [`.ai/roadmap.md`](.ai/roadmap.md).
 
 ## Why
@@ -136,7 +137,7 @@ Details: [`.ai/architecture.md`](.ai/architecture.md).
 | **M4** HTTP features ✅ | TLS, HTTP/2 and h2c, trusted proxies, static files, compression, CORS, redirects, streaming |
 | **M5** Worker pools and routing ✅ | Lanes per route (worker limits, priorities, queue timeouts), overload control, dynamic pool size, `X-Sendfile`, richer matches |
 | **M6** Unix socket listeners ✅ | A unix socket for the proxy in front |
-| **M7** PHP → kest RPC (candidate) | The channel RoadRunner's PHP libraries call |
+| **M7** RPC from PHP and plugins ✅ | The RPC channel RoadRunner's PHP libraries call, the `kv` plugin, external plugins with a Go SDK |
 | **M8** Dynamic config (candidate) | Hot reload of the config file, config API |
 | **M9** WASM sandbox (candidate) | wazero runtime, `wasm` clusters and filters |
 | **M10** gRPC (candidate) | gRPC on the HTTP/2 listener, routed to PHP workers |

@@ -1,7 +1,8 @@
 # Plan: M7 — RPC from PHP and plugins
 
-- **Status:** Active. Approved by the user on 2026-10-26, with plugins at the root of the config (`plugins`, not
-  `rpc.services`: RPC is one channel to them, and a plugin may later work without it).
+- **Status:** Done (2026-10-27) on `feat/m7-rpc`, waiting for the user's look before the PR. Approved by the user on
+  2026-10-26, with plugins at the root of the config (`plugins`, not `rpc.services`: RPC is one channel to them, and
+  a plugin may later work without it); the rest delegated on 2026-10-27.
 - **Milestone:** M7
 - **Backlog:** K-900, K-166, K-167, K-168
 

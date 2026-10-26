@@ -1,14 +1,15 @@
 # Status
 
-_Last updated: 2026-10-27 (M7 RPC from PHP and plugins: plan approved, K-900 in progress on `feat/m7-rpc`)_
+_Last updated: 2026-10-27 (M7 RPC from PHP and plugins done on `feat/m7-rpc`, not pushed: the user checks the branch)_
 
 ## Current phase
 
-**M7 (RPC from PHP and plugins) is in progress** (`plans/M7-rpc.md`, Active, branch `feat/m7-rpc`). The user asked
-for it on 2026-10-26: a channel from workers to kest, compatible with RoadRunner's PHP libraries, on a unix socket by
-default; plugins at the root of the config (`plugins`), built in or external binaries kest starts (after HashiCorp's
-plugins), called from PHP through RPC by name; `kv` first, to hone the protocol. Metrics from PHP: not now. Research
-done: `research/roadrunner.md` § RPC and § KV, `research/hashicorp-plugins.md`. ADR-0010 is `Proposed`.
+**M7 (RPC from PHP and plugins) is done on `feat/m7-rpc`**, committed locally, not pushed and without a PR: the
+user delegated the rest of the milestone on 2026-10-27 and checks the branch before the PR (`plans/M7-rpc.md`, Done).
+PHP workers call kest through goridge RPC on a unix socket (`roadrunner/goridge` unchanged, answers byte for byte as
+RoadRunner's); `plugins` at the root of the config, called by name; the `kv` plugin serves `roadrunner/kv`'s PSR-16
+cache (`examples/php-kv`); external plugins run as programs kest starts, written with the public SDK `pkg/plugin`
+(`docs/plugins.md`). ADR-0010 is `Proposed`: its acceptance is the user's call, at the review.
 
 Before M7, **M6 (Unix socket listeners)** was merged (`plans/M6-unix-sockets.md`), and the user had decided that kest
 follows the application they build on it, with no release yet. M7 is that application's first request.
@@ -22,18 +23,21 @@ Dynamic configuration).
 
 ## In progress
 
-- M7, delegated by the user on 2026-10-27 ("bring it to the final PR in one branch, kv included; commit as you see
-  fit; don't open the PR, I'll check the branch"): K-900, K-166 `kv` and K-168 (external plugins, `pkg/plugin`) done;
-  next the docs review (`review.md`) and `make test-matrix`. ADR-0010 (K-167) stays `Proposed` for the user's
-  review.
+- M7 waits for the user's look at `feat/m7-rpc` (4 item commits and docs commits on top of `main`). Then, on their OK:
+  push the branch, `gh pr create`, the user's review (ADR-0010 included), merge with squash.
 
 ## Next up: how to continue in a fresh session
 
-1. **Git first:** `git checkout feat/m7-rpc`; see `git status` and `git log --oneline main..`.
-2. **Read** `plans/M7-rpc.md` (D1–D6, the steps and the log), `research/roadrunner.md` § RPC and § KV,
-   `research/hashicorp-plugins.md`, then `architecture.md` § 4 (registry, lifecycle) and § 6 (start/stop order).
-3. **Finish M7:** the docs review (`review.md`: `make docs-check` and the `docs-reviewer` agent), `make test-matrix`,
-   then `context.md` and `README.md` with M7 done; no push and no PR until the user has checked the branch.
+1. **Git first:** `git checkout feat/m7-rpc`; `git log --oneline main..` shows the plan, K-900, K-166, K-168 and the
+   docs review's fixes.
+2. **If the user approves the branch:** run `make check`, push (`git push -u origin feat/m7-rpc`; over HTTPS with `gh`
+   if SSH fails), `gh pr create` with the milestone's summary, its items, how it was tested (`make check`,
+   `make test-integration`, `make test-linux`, `make test-matrix`), that the docs review ran, and the choices made
+   while the user was away (the plan's log of 2026-10-27). Ask whether ADR-0010 is accepted. Merge only on their
+   go-ahead (`gh pr merge --squash --delete-branch`), then update this file: M7 merged, no milestone next.
+3. **After the merge:** kest follows the user's application again. Known follow-ups: calls from plugins to kest
+   (when a plugin needs them, e.g. jobs), a validate-only handshake for external plugins, RoadRunner's other
+   services (`metrics` from PHP was postponed by the user); K-153, K-150 and the icebox in `backlog.md`.
 4. **Q15** (below) is still open: ask the user when it fits.
 
 ## Open questions (need a decision from the user)
@@ -162,6 +166,14 @@ Dynamic configuration).
   directory. Without `ext-protobuf`: `PHPRC` pointing at a copy of `php.ini` without its first line.
 
 ## Session log (newest first, keep ~15)
+
+- **2026-10-27** — M7 on `feat/m7-rpc`. The user approved the plan with plugins at the root of the config, then
+  delegated the rest ("bring it to the final PR in one branch, kv included; no PR, I'll check the branch"). K-900 the
+  RPC server (answers checked byte for byte against goridge v4's codec; found that an error ORs ERROR into the codec
+  bit; PHP's client, `MultiRPC` included, over unix and TCP); K-166 `kv` (`roadrunner/kv` passed all 13 checks on
+  the first run; `examples/php-kv`); K-168 external plugins, the SDK `pkg/plugin`, the protocol
+  (`docs/plugins.md`), `internal/proc` moved out of `internal/worker`; kv as an external plugin passes the same checks.
+  Docs review and `make test-matrix`. Not pushed.
 
 - **2026-10-26** — The user asked for M7: a channel from workers to kest, RoadRunner compatible, unix sockets by
   default, no metrics for now; then proposed plugins after HashiCorp's (mounted by name, built in or external
