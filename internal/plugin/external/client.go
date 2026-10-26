@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"os"
 	"os/exec"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -47,9 +49,10 @@ type client struct {
 	pending map[uint32]chan *wire.Call // a nil value delivered: the connection broke
 	broken  error
 
-	exited  chan struct{} // closed when the process has exited
-	waitErr error         // set before exited is closed
-	wg      sync.WaitGroup
+	exited   chan struct{} // closed when the process has exited
+	waitErr  error         // set before exited is closed
+	stopping atomic.Bool   // stop has begun: the connection ends as the plugin exits
+	wg       sync.WaitGroup
 }
 
 // start runs the plugin and does the handshake. On error nothing is left
@@ -170,7 +173,9 @@ func (c *client) startError(what string, err error) error {
 }
 
 // read delivers answers to their calls until the connection ends; then
-// every call waiting fails.
+// every call waiting fails. A plugin whose connection ends while it isn't
+// stopping, or that breaks the protocol, is killed, so that the supervisor
+// restarts it rather than keep a process that can't be called.
 func (c *client) read() {
 	var err error
 	for {
@@ -197,6 +202,23 @@ func (c *client) read() {
 		ch <- nil
 	}
 	c.mu.Unlock()
+	if c.stopping.Load() {
+		return
+	}
+	if errors.Is(err, io.EOF) {
+		// A plugin that exits closes its socket first: give the exit a moment.
+		select {
+		case <-c.exited:
+			return
+		case <-time.After(waitDelay):
+		}
+	}
+	select {
+	case <-c.exited:
+	default:
+		c.logger.Warn("plugin broke the protocol or closed its socket; killing it", "err", err)
+		_ = proc.KillGroup(c.cmd.Process.Pid) // not kill(), which waits for this goroutine
+	}
 }
 
 // alive reports whether the connection still works.
@@ -268,6 +290,7 @@ func (c *client) send(f *relay.Frame) error {
 // stop asks the plugin to stop and waits for it to exit, until ctx ends or
 // timeout passes; then it kills it.
 func (c *client) stop(ctx context.Context, timeout time.Duration) {
+	c.stopping.Store(true)
 	if f, err := wire.ControlFrame(wire.Control{Stop: true}); err == nil {
 		_ = c.send(f)
 	}

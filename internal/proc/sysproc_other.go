@@ -8,6 +8,7 @@ import "syscall"
 func SysProcAttr() *syscall.SysProcAttr {
 	// Own process group: terminal signals don't reach the child, and
 	// KillGroup can stop the processes it started. There is no Pdeathsig
-	// here; if kest dies, the child sees EOF on stdin and exits.
+	// here; if kest dies, a worker sees EOF on stdin, and an external plugin
+	// its socket close; both should exit then.
 	return &syscall.SysProcAttr{Setpgid: true}
 }

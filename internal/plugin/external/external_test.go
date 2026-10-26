@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,7 +21,9 @@ import (
 	"github.com/berrymore/kest/internal/metrics"
 	"github.com/berrymore/kest/internal/metrics/metricstest"
 	"github.com/berrymore/kest/internal/plugin"
+	"github.com/berrymore/kest/internal/plugin/wire"
 	"github.com/berrymore/kest/internal/registry"
+	"github.com/berrymore/kest/internal/relay"
 	sdk "github.com/berrymore/kest/pkg/plugin"
 )
 
@@ -109,11 +112,33 @@ func runPlugin(mode string) int {
 		return 2
 	case "hang":
 		time.Sleep(time.Hour)
+	case "garbage":
+		return garbage()
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
+	return 0
+}
+
+// garbage does the handshake by hand, then sends a frame that is no answer,
+// and stays up.
+func garbage() int {
+	f := os.NewFile(wire.FD, "kest")
+	c, err := net.FileConn(f)
+	_ = f.Close()
+	if err != nil {
+		return 1
+	}
+	conn := relay.NewConn(c, c, 1<<20)
+	var hello relay.Frame
+	ready, _ := wire.ControlFrame(wire.Ready{Protocol: wire.Version})
+	if conn.Receive(&hello) != nil || conn.Send(ready) != nil {
+		return 1
+	}
+	_ = conn.Send(&relay.Frame{Flags: relay.CodecRaw, Options: []uint32{1}, Payload: []byte("not an answer")})
+	time.Sleep(time.Hour)
 	return 0
 }
 
@@ -287,6 +312,22 @@ func TestRestart(t *testing.T) {
 	}
 	if !strings.Contains(logs.String(), `"msg":"plugin exited; restarting it"`) {
 		t.Errorf("no log of the exit:\n%s", logs)
+	}
+	if strings.Contains(logs.String(), "broke the protocol") {
+		t.Errorf("an exit logged as a broken protocol:\n%s", logs)
+	}
+}
+
+// A plugin that breaks the protocol is killed and restarted, rather than
+// left running where nothing can call it.
+func TestProtocolBreakRestarts(t *testing.T) {
+	e, reg, logs := startExternal(t, "garbage", nil)
+	waitFor(t, func() bool { return metricstest.Value(t, reg, "kest_plugin_restarts_total", "plugin", "ext") >= 1 })
+	if !strings.Contains(logs.String(), "plugin broke the protocol or closed its socket; killing it") {
+		t.Errorf("no log of the kill:\n%s", logs)
+	}
+	if err := e.Stop(t.Context()); err != nil {
+		t.Fatal(err)
 	}
 }
 
