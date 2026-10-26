@@ -39,7 +39,8 @@ Longer term (M4+):
 7. **Worker pools and routing to them**: lanes that keep a slow endpoint from taking the whole pool, priorities,
    fast rejection under overload, a pool that grows under load, `X-Sendfile`, richer route matches (M5).
    Filters that take work off PHP (authentication, limits) come later.
-8. **Connections PHP can't hold**: WebSockets and SSE held by kest while PHP handles the events (M6).
+8. **Connections PHP can't hold**: WebSockets and SSE held by kest while PHP handles the events, when an
+   application needs them (researched, `research/websockets.md`).
 9. **PHP → kest RPC**, the channel RoadRunner's PHP libraries call (M7).
 10. Dynamic configuration: hot reload without dropping connections (M8).
 11. **WASM sandbox** on wazero: `wasm` clusters (handlers), `wasm` HTTP filters, possibly functions

@@ -12,4 +12,4 @@ Process: ADR-0001. Template: `0000-template.md`. Keep this index in sync when ad
 | [0006](0006-wasm-runtime-wazero.md) | Use wazero as the WASM runtime | Accepted (ABI open until the WASM milestone) |
 | [0007](0007-metrics-hand-written-prometheus-exposition.md) | Expose metrics with a hand-written Prometheus text exposition | Accepted |
 | [0008](0008-application-server-behind-a-proxy.md) | Position kest as an application server behind a proxy, not an edge proxy | Accepted |
-| [0009](0009-hold-sse-streams-grip.md) | Hold server-sent event streams in kest, decided by PHP through GRIP | Proposed |
+| [0009](0009-hold-sse-streams-grip.md) | Hold server-sent event streams in kest, decided by PHP through GRIP | Proposed (on hold) |

@@ -226,13 +226,11 @@ IDs start at K-140: the milestones were renumbered on 2026-10-25 (ADR-0008), and
   between releases belongs to the proxy or the orchestrator, and an A/B split needs a sticky assignment that PHP
   does itself (ADR-0008).
 
-## M6 — WebSockets, SSE and unix sockets
+## M6 — Unix socket listeners
 
-Reordered with the user on 2026-10-26 (`roadmap.md`): WebSockets and SSE first, WASM and gRPC last; prefork and
-socket relays to the icebox the same day. Plan: `plans/M6-websockets.md`. The items after the ADR are added with it.
+Reordered with the user on 2026-10-26 (`roadmap.md`): prefork and socket relays, then WebSockets and SSE, were planned
+here and went to the icebox the same day. Plan: `plans/M6-unix-sockets.md`.
 
-- [ ] K-163 Research and ADR: WebSockets and SSE held by kest while PHP handles the events (RoadRunner's
-  `centrifuge` and `broadcast` plugins ❓).
 - [x] K-164 Unix socket listeners (`address: unix:/run/kest.sock`, `socket_mode`), for a proxy on the same host;
   `client_ip` trusts `unix` peers (plan D1; 2026-10-26). The admin server stays on TCP: nothing asked for a socket.
 
@@ -295,3 +293,7 @@ socket relays to the icebox the same day. Plan: `plans/M6-websockets.md`. The it
   gain is memory density (unmeasured on real applications) and a worker's boot, the cost is processes kest didn't
   spawn, a PHP package, and fork safety that falls on the application. Revisit when a deployment runs short of memory,
   or when a framework designed to be fork-safe can make it safe by default. Design sketch in `research/prefork.md`.
+- [ ] K-163 WebSockets and SSE held by kest while PHP handles the events. Researched on 2026-10-26
+  (`research/websockets.md`); ADR-0009 proposes SSE streams held through a GRIP subset, with a broker for several
+  instances and deploys as a normal case (plan `M6-unix-sockets.md` D2). Shelved the same day with the user: most PHP
+  applications don't need it; revisit with a use case.

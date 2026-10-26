@@ -11,7 +11,7 @@ Work items live in `backlog.md` (IDs in brackets). Reprioritization is the user'
 | M3 | Operability | ✅ done 2026-10-25 |
 | M4 | HTTP edge features (narrowed by ADR-0008) | ✅ done 2026-10-25 |
 | M5 | Worker pools and routing to them | ✅ done 2026-10-25 |
-| M6 | WebSockets, SSE and unix sockets | ⚪ |
+| M6 | Unix socket listeners | 🟡 done on its branch, PR pending |
 | M7 | PHP → kest RPC | ⚪ |
 | M8 | Dynamic configuration | ⚪ |
 | M9 | WASM sandbox | ⚪ |
@@ -20,7 +20,8 @@ Work items live in `backlog.md` (IDs in brackets). Reprioritization is the user'
 Reordered with the user on 2026-10-26: what a PHP application needs from its server comes first (connections PHP
 can't hold, a reloadable config), and the WASM sandbox and gRPC, options rather than base features, come last.
 Prefork and socket relays went to the icebox the same day: their gain (a worker's boot, memory density) didn't pay
-for their complexity. The PHP framework the user plans in its own repository is the first application in mind; kest
+for their complexity. WebSockets and SSE followed once researched: most PHP applications don't need them, so they
+wait for a use case. The PHP framework the user plans in its own repository is the first application in mind; kest
 stays framework-agnostic.
 
 kest is an application server behind a proxy, not an edge proxy (ADR-0008): a feature belongs to kest when it
@@ -138,21 +139,17 @@ Exit criteria:
 - A pool grows while requests wait and shrinks when the load ends.
 - PHP hands a file to kest with `X-Sendfile`; kest sends it with ranges, only from configured directories.
 
-## M6 — WebSockets, SSE and unix sockets
+## M6 — Unix socket listeners
 
-**Goal:** the connections PHP can't hold: kest holds them, PHP handles the events; and a unix socket for the proxy in
-front.
+**Goal:** a unix socket for the proxy in front, on the same host.
 
-Scope [K-163, K-164…]: an ADR first (K-163; RoadRunner's `centrifuge` and `broadcast` plugins ❓): how a connection's
-events reach PHP, and how PHP sends to a connection or a channel outside a request, which may bring part of M7's
-channel forward; then WebSockets and SSE held by kest. Unix socket listeners, for a proxy on the same host (K-164).
-Plan: `plans/M6-websockets.md`.
+Scope [K-164]: `address: unix:<path>` with `socket_mode`, stale socket files, `client_ip` for peers on a unix socket.
+Plan: `plans/M6-unix-sockets.md`. What was planned here before, and shelved on 2026-10-26: prefork and socket relays
+(K-154, K-029), then WebSockets and SSE (K-163: researched, ADR-0009 proposed and on hold), until an application
+needs them.
 
-Exit criteria (the ADR may refine them):
-- A browser holds a WebSocket or SSE connection to kest while no PHP worker is busy for it; PHP decides who may
-  connect and subscribe, and a message PHP publishes reaches every subscriber.
-- Connections are bounded (count, message size, idle time) and closed cleanly when kest stops.
-- nginx reaches kest over a unix socket.
+Exit criteria:
+- nginx reaches kest over a unix socket; a stale socket file left by a killed kest doesn't block the start.
 
 ## M7 — PHP → kest RPC
 
@@ -181,9 +178,10 @@ errors as gRPC statuses), routed like any request. Last since 2026-10-26, after 
 ## Later / icebox
 
 CI on GitHub Actions (K-003, deferred until a release or a second contributor), prefork (K-154: workers forked from a
-booted PHP process, shelved on 2026-10-26, `research/prefork.md`), socket relays (K-029), queues/jobs, KV, systemd
-notify and socket activation, Envoy-style hot restart (passing FDs to a new process), a FastCGI listener in place of
-PHP-FPM (K-911), embedding PHP via SAPI (would need to revisit ADR-0003).
+booted PHP process, shelved on 2026-10-26, `research/prefork.md`), socket relays (K-029), WebSockets and SSE (K-163:
+`research/websockets.md`, ADR-0009 on hold), queues/jobs, KV, systemd notify and socket activation, Envoy-style hot
+restart (passing FDs to a new process), a FastCGI listener in place of PHP-FPM (K-911), embedding PHP via SAPI (would
+need to revisit ADR-0003).
 
 ---
 

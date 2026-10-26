@@ -1,7 +1,7 @@
 # WebSockets and SSE held by kest — prior art (K-163)
 
 Legend: ✅ verified in the source or docs at the version below (with a link) · ❓ unverified or an estimate.
-Checked on 2026-10-26 for M6 (`plans/M6-websockets.md` § D2). Research only: nothing is built. Sizes marked as
+Checked on 2026-10-26 for M6 (`plans/M6-unix-sockets.md` § D2, where the feature was then shelved). Research only: nothing is built. Sizes marked as
 estimates are guesses from the code read, not measurements.
 
 ## In brief

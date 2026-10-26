@@ -1,12 +1,12 @@
 # ADR-0009: Hold server-sent event streams in kest, decided by PHP through GRIP
 
-- **Status:** Proposed
+- **Status:** Proposed; on hold since 2026-10-26 (WebSockets and SSE shelved until an application needs them)
 - **Date:** 2026-10-26
 - **Deciders:** user, agent
 
 ## Context
 
-M6 is about the connections PHP can't hold (`plans/M6-websockets.md`). The goal is that a browser keeps a live
+M6 was about the connections PHP can't hold (`plans/M6-unix-sockets.md` § D2, where the feature was shelved). The goal is that a browser keeps a live
 connection to kest while no PHP worker is busy for it, PHP decides who may connect and subscribe, and a message PHP
 publishes reaches every subscriber. Today an SSE endpoint in PHP works through streamed responses (K-088), but it
 ties up one worker per open stream, so a pool of 16 workers serves 16 listeners.
@@ -110,6 +110,11 @@ We will hold SSE streams in kest, decided by PHP through a subset of GRIP, and l
     wait for a broker.
   - **HTTP/2 to browsers.** Browsers cap SSE at six connections per origin over HTTP/1.1, so the proxy in front
     should speak HTTP/2 to browsers (operations guide).
+- Learned before the feature was shelved (the plan's D2): several instances, including the two colors of a
+  blue-green deploy, need a broker (Redis pub/sub) from the start, not later; a deploy closes every held stream, so
+  kest needs a staggered drain, `retry:` with jitter and a lane for the reconnect burst; replay comes from the app
+  (`Last-Event-ID`) or from the broker's history. A hub outside the app's containers keeps connections through app
+  deploys. Revise points 3 and 4 above when this is picked up.
 - Follow-ups:
   - backlog items for the hub and the hold filter, the publish endpoint, the GRIP subset and the operations guide;
   - icebox entries for WebSockets (GRIP WebSocket-over-HTTP or Pusher), a Mercure adapter, and a broker for several

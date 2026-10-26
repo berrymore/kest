@@ -134,7 +134,7 @@ Details: [`.ai/architecture.md`](.ai/architecture.md).
 | **M3** Operability ✅ | Metrics, admin API, rolling restarts, access logs, limits, benchmarks |
 | **M4** HTTP features ✅ | TLS, HTTP/2 and h2c, trusted proxies, static files, compression, CORS, redirects, streaming |
 | **M5** Worker pools and routing ✅ | Lanes per route (worker limits, priorities, queue timeouts), overload control, dynamic pool size, `X-Sendfile`, richer matches |
-| **M6** WebSockets, SSE and unix sockets | Long-lived connections held by kest, events handled by PHP; unix socket listeners |
+| **M6** Unix socket listeners | A unix socket for the proxy in front |
 | **M7** PHP → kest RPC | The channel RoadRunner's PHP libraries call |
 | **M8** Dynamic config | Hot reload of the config file, config API |
 | **M9** WASM sandbox | wazero runtime, `wasm` clusters and filters |

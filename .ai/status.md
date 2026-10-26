@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-10-26 (M6: K-164 done; the K-163 research done, ADR-0009 proposed)_
+_Last updated: 2026-10-26 (M6 is the unix socket listeners, done; WebSockets and SSE shelved; docs review and PR next)_
 
 ## Current phase
 
@@ -14,35 +14,33 @@ relay reads; research on forking booted workers (`research/prefork.md`). `plans/
 them. `make bench` against RoadRunner did not run during M5 (no RoadRunner binary); A/B runs of kest's binaries
 stood in for it.
 
-**Roadmap reordered on 2026-10-26** (the user): M6 WebSockets, SSE and unix sockets, M7 PHP → kest RPC, M8 Dynamic
-configuration, M9 WASM sandbox, M10 gRPC; prefork (K-154) and socket relays (K-029) to the icebox. Milestone
-numbers in entries before that date below follow the old order (M6 WASM, M7 Protocols, M8 Dynamic configuration).
+**Roadmap reordered on 2026-10-26** (the user): M6 Unix socket listeners, M7 PHP → kest RPC, M8 Dynamic
+configuration, M9 WASM sandbox, M10 gRPC. Prefork (K-154), socket relays (K-029) and WebSockets and SSE (K-163) went
+to the icebox the same day, each after a look at what it would cost; their research stays (`research/prefork.md`,
+`research/roadrunner.md` § Socket relays, `research/websockets.md`, ADR-0009 on hold). Milestone numbers in entries
+before that date below follow the old order (M6 WASM, M7 Protocols, M8 Dynamic configuration).
 
 ## In progress
 
-**M6 (WebSockets, SSE and unix sockets)** on `feat/m6-websockets` (renamed from `feat/m6-sockets`, not pushed):
-`plans/M6-websockets.md` approved and committed. Step 3 done: K-164 unix socket listeners (`address: unix:…`,
-`socket_mode`, `client_ip`'s `unix`), committed. Step 2 done: `research/websockets.md`. Step 4: ADR-0009 proposed
-(SSE streams held by kest, decided by PHP through a GRIP subset; WebSockets and Pusher/Mercure adapters later),
-waiting for the user (Q16). The agent commits each item itself after a green `make check`, until the end of M6.
+**M6 (Unix socket listeners)** on `feat/m6-unix-sockets` (renamed twice, never pushed): K-164 done and committed;
+`plans/M6-unix-sockets.md` has the record. Left: the docs review and `make test-matrix`, then the PR on the user's
+OK. The agent commits each item itself after a green `make check`, until the end of M6.
 
 ## Next up: how to continue in a fresh session
 
-1. **Git first:** `git checkout feat/m6-websockets`; `git log --oneline -4` shows the reorders' and the plan's `docs:`
-   commits on top of M5's squash commit.
-2. **M6:** see the plan's steps for what is ticked. If the user hasn't answered Q16, walk them through ADR-0009 and
-   its alternatives (`research/websockets.md` § Options). Once accepted: set its status, add the backlog items (the
-   hub and the hold filter, the publish endpoint; icebox: WebSockets, a Mercure adapter, a broker), give the plan its
-   decisions and steps (vertical slice first: one SSE stream held and published to, end to end), and start; check
-   GRIP's subset against Pushpin's docs and source first.
+1. **Git first:** `git checkout feat/m6-unix-sockets`; `git log --oneline -6` shows the reorders, the plan, K-164,
+   the research and the shelving on top of M5's squash commit.
+2. **M6, step 5:** the docs review (`review.md`, `docs-reviewer` agent) and `make test-matrix`; fix the findings,
+   then ask the user to push and open the PR.
+3. **After M6:** agree on M7 with the user before planning it. By the yardstick the user applied on 2026-10-26 (build
+   what a PHP application needs; wait for a use case otherwise), RPC, dynamic configuration, WASM and gRPC are all
+   "when needed". The agent's suggestion is a first-release milestone instead, from the definition of 1.0
+   (`roadmap.md`): binaries and a Docker image, CI (K-003), guides for Laravel (Octane's RoadRunner worker under kest
+   ❓) and Symfony, migration notes from RoadRunner, the schema's compatibility policy.
 3. **Q15** (below) is open: ask the user when it fits.
 
 ## Open questions (need a decision from the user)
 
-- **Q16** — ADR-0009 (Proposed): hold SSE streams in kest through a GRIP subset (PHP answers its own subscribe
-  route with `Grip-Hold: stream` and `Grip-Channel`; publishing is an authenticated POST), with no WebSockets in M6,
-  and Pusher or Mercure adapters later over the same hub. The agent's recommendation; the alternatives and their
-  costs are in the ADR and `research/websockets.md`.
 - **Q15** — Cap kest's `GOMAXPROCS` by default? Measured (K-149, `docs/benchmarks.md` § kest's own CPU): on a host
   shared with the PHP workers, `GOMAXPROCS=2` to `4` cuts kest's CPU per request to a third or half and lets the
   pool serve 25–35 % more, since idle Go threads spin on cores PHP needs. Today it is advice in the operations guide
@@ -52,7 +50,11 @@ waiting for the user (Q16). The agent commits each item itself after a green `ma
 
 ## Resolved decisions
 
-- 2026-10-26 — `plans/M6-websockets.md` approved with D1's schema (`unix:` listener addresses, `socket_mode`,
+- 2026-10-26 — WebSockets and SSE shelved (was Q16): the user liked ADR-0009's GRIP mechanism, then raised several
+  instances (Nomad jobs) and blue-green deploys that close held connections, and decided to wait for a use case,
+  since most PHP applications don't need SSE. The research and ADR-0009 (on hold) stay. M6 is the unix socket
+  listeners alone (`plans/M6-unix-sockets.md`).
+- 2026-10-26 — The M6 plan approved with D1's schema (`unix:` listener addresses, `socket_mode`,
   `client_ip`'s `unix`). The agent commits each item itself after a green `make check`, until the end of M6 (push and
   PR still on the user's OK).
 - 2026-10-26 — Prefork and socket relays shelved (the user asked whether they were worth it): `relay: unix` is no
@@ -158,7 +160,10 @@ waiting for the user (Q16). The agent commits each item itself after a green `ma
   plan for M6 "Unix sockets and prefork" drafted; RoadRunner's socket relays checked in source and by experiment
   (`research/roadrunner.md` § Socket relays: PHP connects lazily after the boot and retries for a millisecond, RR
   matches connections by pid and throws stdout away). Then the user questioned `relay: unix` and prefork: both
-  shelved; M6 became WebSockets, SSE and unix sockets (`plans/M6-websockets.md`), branch `feat/m6-websockets`.
+  shelved; M6 became WebSockets, SSE and unix sockets. K-164 unix socket listeners done; the WebSockets and SSE
+  research (`research/websockets.md`) and ADR-0009 (SSE held through GRIP); the user then shelved WebSockets and
+  SSE too (blue-green deploys and several instances need a broker and reconnect handling; no use case yet). M6 is the
+  unix socket listeners alone, branch `feat/m6-unix-sockets`.
 - **2026-10-25** — M5 planned with the user (scope narrowed to the pool) and implemented on `feat/m5-pools` (the user
   delegated all steps, then left; they checked it locally, then PR #5, merged):
   K-910 route names; lanes in the pool (a dispatcher under one mutex, 3.1 → 1.8 µs per job) and on routes;
