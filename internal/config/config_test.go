@@ -272,6 +272,7 @@ listeners:
 		{
 			name: "unix addresses",
 			src: `version: v1
+admin: {address: "unix:/run/kest/admin.sock"}
 listeners:
   - name: a
     address: unix:run/kest.sock
@@ -293,11 +294,12 @@ listeners:
     http: *http
 `,
 			want: []string{
-				`kest.yaml:5:18: listeners[0].socket_mode: invalid mode "0999": want three octal digits, like "0660"`,
-				`kest.yaml:9:14: listeners[1].address: address unix:./run//kest.sock is already used by listeners[0].address`,
-				`kest.yaml:12:14: listeners[2].address: empty socket path: want unix:/path/to/kest.sock`,
-				`kest.yaml:16:18: listeners[3].socket_mode: only for unix socket addresses (unix:/path/to/kest.sock)`,
-				`kest.yaml:19:14: listeners[4].address: invalid address "localhost": want host:port, like 127.0.0.1:8080, or unix:/path/to/kest.sock`,
+				`kest.yaml:2:18: admin.address: the admin server takes host:port; unix sockets are for listeners`,
+				`kest.yaml:6:18: listeners[0].socket_mode: invalid mode "0999": want three octal digits, like "0660"`,
+				`kest.yaml:10:14: listeners[1].address: address unix:./run//kest.sock is already used by listeners[0].address`,
+				`kest.yaml:13:14: listeners[2].address: empty socket path: want unix:/path/to/kest.sock`,
+				`kest.yaml:17:18: listeners[3].socket_mode: only for unix socket addresses (unix:/path/to/kest.sock)`,
+				`kest.yaml:20:14: listeners[4].address: invalid address "localhost": want host:port, like 127.0.0.1:8080, or unix:/path/to/kest.sock`,
 			},
 		},
 		{

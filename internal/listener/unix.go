@@ -18,14 +18,18 @@ import (
 // live one.
 const staleCheckTimeout = time.Second
 
-// maxSocketPath returns the longest socket path the OS takes: sun_path holds
-// 108 bytes on Linux, and 104 with the terminating NUL on macOS.
+// maxSocketPath returns the longest socket path Go binds: sun_path holds 108
+// bytes on Linux and 104 on macOS, the terminating NUL included.
 func maxSocketPath() int {
 	if runtime.GOOS == "linux" {
-		return 108
+		return 107
 	}
 	return 103
 }
+
+// tmpPrefix starts the temporary name a socket is bound under, in the same
+// directory; eight random characters follow.
+const tmpPrefix = ".kest-"
 
 // unixSocket is the file of a listening unix socket.
 type unixSocket struct {
@@ -39,11 +43,13 @@ type unixSocket struct {
 // appears at path meanwhile is not replaced. A stale socket at path, one that
 // nobody listens on, is removed first.
 func listenUnix(ctx context.Context, path string, mode fs.FileMode) (net.Listener, *unixSocket, error) {
-	tmp := filepath.Join(filepath.Dir(path), ".kest-"+rand.Text()[:8])
-	for _, p := range []string{path, tmp} {
-		if len(p) > maxSocketPath() {
-			return nil, nil, fmt.Errorf("socket path %s is too long: the OS takes at most %d bytes", p, maxSocketPath())
-		}
+	tmp := filepath.Join(filepath.Dir(path), tmpPrefix+rand.Text()[:8])
+	switch limit := maxSocketPath(); {
+	case len(path) > limit:
+		return nil, nil, fmt.Errorf("socket path %s is %d bytes long; the OS takes at most %d", path, len(path), limit)
+	case len(tmp) > limit:
+		return nil, nil, fmt.Errorf("the directory of socket path %s is too long: kest binds a %d-byte temporary "+
+			"name there first, and the OS takes at most %d bytes", path, len(tmp)-len(filepath.Dir(path)), limit)
 	}
 	if err := removeStale(ctx, path); err != nil {
 		return nil, nil, err

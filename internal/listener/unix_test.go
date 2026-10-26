@@ -131,13 +131,16 @@ func TestUnixStartRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	long := filepath.Join(dir, strings.Repeat("x", 120)+".sock")
+	// The path fits, but the temporary name bound first doesn't.
+	longDir := "/" + strings.Repeat("d", maxSocketPath()-4) + "/a"
 
 	for _, tt := range []struct {
 		name, path, want string
 	}{
 		{"another process listens", live, "another process listens on " + live},
 		{"not a socket", file, file + " exists and is not a socket"},
-		{"path too long", long, "is too long"},
+		{"path too long", long, "the OS takes at most"},
+		{"directory too long for the temporary name", longDir, "kest binds a 15-byte temporary name there first"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			l := newUnix(tt.path, 0o660, http.NotFoundHandler())

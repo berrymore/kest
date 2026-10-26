@@ -100,7 +100,7 @@ The admin HTTP server, for probes and introspection.
 
 | Field | Default | |
 |---|---|---|
-| `address` | `127.0.0.1:9901` | Must differ from every listener address |
+| `address` | `127.0.0.1:9901` | `host:port` only (unix sockets are for listeners); must differ from every listener address |
 
 Endpoints:
 
@@ -144,7 +144,8 @@ A unix socket listener is for a proxy on the same host (see the [operations guid
 kest binds the socket under a temporary name, sets its mode and only then moves it into place, so nobody connects
 before the mode applies. At start it removes a socket file nobody listens on (left by a killed kest), and refuses to
 start if another process listens on the path or a file that isn't a socket is there. It removes the file when it
-stops. The path must fit the OS's limit (108 bytes on Linux, 103 on macOS). A peer on a unix socket has no IP address, so PHP sees
+stops. The path must fit the OS's limit (107 bytes on Linux, 103 on macOS), and its directory must leave room for the
+15-byte temporary name (`/.kest-` and eight characters). A peer on a unix socket has no IP address, so PHP sees
 an empty `REMOTE_ADDR` unless [`client_ip`](#filters) trusts `unix`.
 
 ### `listeners[].tls`

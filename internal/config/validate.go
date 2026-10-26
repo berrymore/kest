@@ -41,7 +41,9 @@ func (c *Config) validate() error {
 	if !slices.Contains([]string{"text", "json"}, c.Log.Format) {
 		v.errorf("log.format", "unknown format %q; use text or json", c.Log.Format)
 	}
-	if err := checkAddress(c.Admin.Address); err != nil {
+	if _, unix := UnixPath(c.Admin.Address); unix {
+		v.errorf("admin.address", "the admin server takes host:port; unix sockets are for listeners")
+	} else if err := checkAddress(c.Admin.Address); err != nil {
 		v.errorf("admin.address", "%v", err)
 	}
 	if c.Server.DrainTimeout.Std() < 0 {
