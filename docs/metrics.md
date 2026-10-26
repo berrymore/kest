@@ -27,7 +27,8 @@ stays bounded:
 - `route` on the `kest_pool_*` metrics: the lane of a pool. A route with `max_workers`, `priority` or `queue_timeout`
   has a lane of its own, labeled with the route's name; the other routes to the cluster share its default lane,
   labeled `""`.
-- `plugin` on the `kest_rpc_*` metrics: a plugin's name, empty for calls to a name no plugin has.
+- `plugin` on the `kest_rpc_*` metrics: a plugin's name, empty for calls to a name no plugin has. `storage`: a
+  storage of a `kv` plugin.
 - `code`: the HTTP status code of the response.
 - `state`, `reason`: the fixed values listed below.
 - `cert_file`: a TLS certificate file from the config.
@@ -76,6 +77,17 @@ When `rpc` is on:
 | `kest_rpc_refused_connections_total` | counter | | Connections closed at once because `rpc.max_connections` were open. |
 | `kest_rpc_calls_total` | counter | `plugin`, `result` | Calls by result: `ok`, `error` (the plugin answered an error, or the answer was over `rpc.max_frame_size`), `unknown` (no such plugin or method), `timeout` (over `rpc.call_timeout`). |
 | `kest_rpc_call_duration_seconds` | histogram | `plugin` | How long plugins took to answer. Buckets from 100 µs to 30 s. |
+
+## KV
+
+For each storage of a `kv` plugin:
+
+| Metric | Type | Labels | |
+|---|---|---|---|
+| `kest_kv_items` | gauge | `plugin`, `storage` | Items held, including expired ones not removed yet (at most a second). |
+| `kest_kv_bytes` | gauge | `plugin`, `storage` | What the items take, as counted against `max_size`. |
+| `kest_kv_max_bytes` | gauge | `plugin`, `storage` | The storage's `max_size`. |
+| `kest_kv_evictions_total` | counter | `plugin`, `storage` | Items removed before they expired, to make room. |
 
 ## Go runtime and process
 

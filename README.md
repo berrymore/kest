@@ -152,7 +152,8 @@ curl localhost:9901/ready          # admin API: ready
 ./bin/kest validate -c examples/php-hello/kest.yaml -dump
 ```
 
-[`examples/hello`](examples/hello) needs no PHP: it only has direct responses.
+[`examples/hello`](examples/hello) needs no PHP: it only has direct responses. [`examples/php-kv`](examples/php-kv)
+keeps the workers' shared state in kest's `kv` plugin, through `roadrunner/kv`.
 
 - [Getting started](docs/getting-started.md): your first PHP app on kest, long-lived workers, Symfony,
   coming from RoadRunner.

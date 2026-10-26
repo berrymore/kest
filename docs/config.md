@@ -718,8 +718,59 @@ plugins:
 | `type` | yes | Implementation |
 | `config` | depends on the type | Type-specific options |
 
-No plugin types are compiled in yet. An unknown `type` is rejected with the list of known types. A plugin that
-can't serve makes `/ready` answer `503`, naming it as `plugin <name>`.
+Built-in type: [`kv`](#kv). An unknown `type` is rejected with the list of known types. A plugin that can't serve
+makes `/ready` answer `503`, naming it as `plugin <name>`.
+
+### `kv`
+
+Named in-memory storages for PHP's [`roadrunner/kv`](https://github.com/roadrunner-php/kv) (formerly
+`spiral/roadrunner-kv`), whose `Cache` is a PSR-16 cache: what RoadRunner's `kv` plugin with the `memory` driver
+does. Every worker of every cluster sees the same data; it lives as long as kest. Name the plugin `kv`: that is the
+name `roadrunner/kv` calls.
+
+```yaml
+plugins:
+  - name: kv
+    type: kv
+    config:
+      storages:
+        - name: local
+          max_size: 64MB
+rpc:
+```
+
+```php
+use Spiral\Goridge\RPC\RPC;
+use Spiral\RoadRunner\Environment;
+use Spiral\RoadRunner\KeyValue\Factory;
+
+$cache = (new Factory(RPC::create(Environment::fromGlobals()->getRPCAddress())))->select('local');
+$cache->set('key', $value, 3600);   // any PSR-16 call
+```
+
+| Field | Default | |
+|---|---|---|
+| `storages` | required | At least one |
+| `storages[].name` | required | Unique; what PHP passes to `select()` |
+| `storages[].max_size` | `64MB` | What the storage may hold: keys, values and about 100 bytes per item; at least 1KB |
+
+**When a storage is full**, a write removes items that have expired, then the least recently used, until the new
+item fits; `kest_kv_evictions_total` counts them. An item larger than `max_size` is an error, and so is the whole
+`setMultiple()` it came in.
+
+**Where it differs from RoadRunner's memory driver**, which `roadrunner/kv`'s users won't miss:
+
+- A TTL of zero or less deletes the item, as PSR-16 says; RoadRunner keeps it forever.
+- An item expires at its timeout, to the second, and is removed within a second after; RoadRunner runs a goroutine
+  per item with a TTL.
+- `MExpire` (not called by `roadrunner/kv`) only changes the timeout of keys that exist; RoadRunner creates missing
+  keys, and empties the value of a key without a TTL.
+- A call with no keys answers nothing; RoadRunner answers an error. A storage has a size limit; RoadRunner's has
+  none.
+
+The values are what PHP stores: `roadrunner/kv` serializes them (`serialize()` by default, igbinary or sodium on
+request) and speaks protobuf, which the `protobuf` PHP extension makes faster. Only `kv` of `roadrunner/kv`'s plugins
+exists in kest: there is no `boltdb`, `redis` or `memcached` driver.
 
 ## `rpc`
 

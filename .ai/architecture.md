@@ -222,6 +222,8 @@ type Plugin interface {
 }
 var Types = registry.NewCategory[Plugin]("plugin")
 // Optional: Start/Stop, Prober { Serving() bool } (/ready).
+// Built in: kv (internal/plugin/kv): storages behind one mutex each, a map, an LRU list and an expiry heap; expired
+// items are invisible at once and swept every second; over max_size, expired then least recently used go.
 
 // internal/rpc: the RPC server. Routes "<name>.<Method>" at the last dot, never decodes bodies; one call at a time
 // per connection; answers and errors byte for byte as goridge's net/rpc codec (testdata/goridge_frames.txt).
@@ -430,6 +432,7 @@ internal/leaktest/           🟢 goroutine-leak check for test binaries (goleak
 internal/filters/            🟢 built-in HTTP filters, one package each: requestid/, accesslog/, recovery/, clientip/, headers/, cors/, compression/, static/, sendfile/
 internal/cluster/phpworkers/ 🟢 php_workers: config, worker environment, pool lifecycle, HTTP handler
 internal/plugin/             🟡 plugin interface and registry category (M7, ADR-0010)
+internal/plugin/kv/          🟢 kv: in-memory storages for roadrunner/kv (TTL, LRU within max_size, hand-written kv.v1 protobuf)
 internal/rpc/                🟡 the RPC server: goridge RPC from workers, routed to plugins (M7)
 internal/rrhttp/             🟢 HTTP ↔ RoadRunner HTTP payload (request context JSON/protobuf, form trees, responses)
 internal/worker/             🟢 process, pool, supervisor (language-agnostic); workertest/ has fake workers

@@ -2,7 +2,7 @@ GOLANGCI_LINT_VERSION := 2.15.0
 GO_IMAGE              := golang:1.27
 PHP_VERSIONS          := 8.3 8.4 8.5
 PHP_PROJECTS          := internal/worker/testdata/php internal/cluster/phpworkers/testdata/php internal/rpc/testdata/php \
-                         examples/php-hello test/e2e/testdata/symfony
+                         internal/plugin/kv/testdata/php examples/php-hello examples/php-kv test/e2e/testdata/symfony
 
 PKG     := github.com/berrymore/kest
 BIN     := bin/kest

@@ -245,7 +245,7 @@ Plan: `plans/M7-rpc.md`.
   2026-10-26: the RPC server compatible with `roadrunner/goridge` (unix socket by default, a private one without an
   address), `RR_RPC` for workers; `plugins` at the root of the config, a registry category, called by name (plan D1,
   D2).
-- [ ] K-166 `kv` plugin: in-memory storages compatible with `roadrunner/kv` (PSR-16), bounded by `max_size` with
+- [x] K-166 `kv` plugin: in-memory storages compatible with `roadrunner/kv` (PSR-16), bounded by `max_size` with
   eviction (plan D3).
 - [ ] K-167 ADR-0010: plugins (by name, one interface built in and external, the plugin protocol, `pkg/plugin`);
   research note `research/hashicorp-plugins.md` (plan D6).

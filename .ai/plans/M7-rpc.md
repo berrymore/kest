@@ -183,7 +183,7 @@ Drafted with the plan on 2026-10-26; `Proposed` until the user accepts it, which
 2. [x] K-900 the RPC server and plugins (D1, D2) — acceptance: unit tests on frames (golden frames from goridge's
    codec, fuzz), routing, `net/rpc`'s error messages, the bounds, start and stop order; a PHP integration test calls
    a test plugin through `RPC::create(getenv('RR_RPC'))`; the private default socket; `docs/config.md`.
-3. [ ] K-166 `kv` (D3) — acceptance: storage semantics in `synctest` (TTL, sweeping, eviction); protobuf golden bytes
+3. [x] K-166 `kv` (D3) — acceptance: storage semantics in `synctest` (TTL, sweeping, eviction); protobuf golden bytes
    from PHP's `roadrunner/api-dto`; PHP integration tests with `roadrunner/kv`'s `Cache`; `docs/config.md` and a
    usage section in the docs.
 4. [~] K-167 ADR-0010 (D6, drafted), from the research note on HashiCorp's plugins (`research/hashicorp-plugins.md`, done) —
@@ -223,3 +223,12 @@ Drafted with the plan on 2026-10-26; `Proposed` until the user accepts it, which
   RPC on (YAML null is taken as `{}`); a TCP address needs a host, no IPv6 literal and a fixed port, since PHP's
   goridge can't parse the others and workers get the address before kest binds it; `listener.ListenUnix` is
   exported for the RPC socket. `make check`, `make test-integration`, `make test-linux` green.
+- 2026-10-27 — The user delegated the rest of M7 (no PR; they check the branch first). K-166 done:
+  `internal/plugin/kv` (storages with a map, an LRU list and an expiry heap under one mutex each; hand-written
+  `kv.v1`, checked against bytes from PHP's `roadrunner/api-dto`, fuzzed), `examples/php-kv` (a visit counter and
+  notes shared by two workers) and its e2e test. `roadrunner/kv` 4.5.1's `Cache` passed all 13 checks of the PHP
+  integration test on the first run. Decided while coding: one sweeper goroutine per plugin, every second, instead of
+  a timer per storage (expired items are invisible at once anyway; the sweep frees memory); an item counts 96 bytes
+  besides its key and value against `max_size`, so that many tiny items are bounded too; stored values are copied
+  out of the call's payload, which they would keep alive; metrics `kest_kv_items`, `kest_kv_bytes`,
+  `kest_kv_max_bytes`, `kest_kv_evictions_total`; a `Set` with an item over `max_size` stores nothing.

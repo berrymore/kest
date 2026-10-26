@@ -23,16 +23,18 @@ Dynamic configuration).
 ## In progress
 
 - M7, delegated by the user on 2026-10-27 ("bring it to the final PR in one branch, kv included; commit as you see
-  fit; don't open the PR, I'll check the branch"): K-900 done and committed; next K-166 `kv`, then K-167, K-168, the
-  docs review and `make test-matrix`. ADR-0010 stays `Proposed` for the user's review.
+  fit; don't open the PR, I'll check the branch"): K-900 and K-166 `kv` done and committed; next K-168 (external
+  plugins, `pkg/plugin`), then the docs review and `make test-matrix`. ADR-0010 (K-167) stays `Proposed` for the
+  user's review.
 
 ## Next up: how to continue in a fresh session
 
 1. **Git first:** `git checkout feat/m7-rpc`; see `git status` and `git log --oneline main..`.
 2. **Read** `plans/M7-rpc.md` (D1–D6, the steps and the log), `research/roadrunner.md` § RPC and § KV,
    `research/hashicorp-plugins.md`, then `architecture.md` § 4 (registry, lifecycle) and § 6 (start/stop order).
-3. **Continue the plan's steps:** K-166 `kv` next (K-900 is done); K-168 waits for the user to accept ADR-0010 (K-167,
-   `Proposed`). Update `context.md`, `README.md` and `architecture.md` with M7's name and scope as the code lands.
+3. **Continue the plan's steps:** K-168 next (K-900 and K-166 are done). The user delegated the rest of M7, so K-168
+   goes ahead with ADR-0010 still `Proposed`; its acceptance is part of the user's review of the branch. Update
+   `context.md` and `README.md` with M7's name and scope once the milestone is done.
 4. **Q15** (below) is still open: ask the user when it fits.
 
 ## Open questions (need a decision from the user)

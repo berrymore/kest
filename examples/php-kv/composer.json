@@ -1,0 +1,15 @@
+{
+    "name": "kest/php-kv",
+    "description": "PHP workers that share a cache in kest's kv plugin",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.2",
+        "nyholm/psr7": "^1.8",
+        "roadrunner/http": "^4.2",
+        "roadrunner/kv": "^4.5"
+    },
+    "config": {
+        "sort-packages": true
+    }
+}

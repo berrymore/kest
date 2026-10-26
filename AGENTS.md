@@ -83,7 +83,7 @@ internal/httpx/      HTTP filter chain and router
 internal/listener/   HTTP listeners on TCP and unix sockets
 internal/filters/    built-in HTTP filters, one package each: requestid/, accesslog/, recovery/, clientip/, headers/, cors/, compression/, static/, sendfile/
 internal/cluster/    cluster interface and registry category; types: phpworkers/
-internal/plugin/     plugin interface and registry category (ADR-0010): what PHP calls through RPC
+internal/plugin/     plugin interface and registry category (ADR-0010): what PHP calls through RPC; types: kv/
 internal/rpc/        the RPC server: goridge RPC from PHP workers, routed to plugins by name
 internal/rrhttp/     HTTP ↔ RoadRunner HTTP payload (request context JSON/protobuf, forms, uploads, responses)
 internal/relay/      goridge frame codec and connection (RoadRunner worker protocol)
@@ -93,7 +93,7 @@ internal/metrics/    metrics core and Prometheus text exposition (ADR-0007); met
 internal/logging/    slog setup
 internal/buildinfo/  version information
 internal/leaktest/   goroutine-leak check for tests (TestMain)
-examples/            runnable configs: hello (no PHP), php-hello (PSR-7 worker)
+examples/            runnable configs: hello (no PHP), php-hello (PSR-7 worker), php-kv (workers sharing kv)
 docs/                user documentation: getting started, config reference, metrics, operations, benchmarks
 test/e2e/            end-to-end tests against the real binary; testdata/symfony is the framework smoke test
 test/docs/           docs drift checks: the docs against the code and the Makefile

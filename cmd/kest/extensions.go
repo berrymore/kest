@@ -13,4 +13,5 @@ import (
 	_ "github.com/berrymore/kest/internal/filters/requestid"
 	_ "github.com/berrymore/kest/internal/filters/sendfile"
 	_ "github.com/berrymore/kest/internal/filters/static"
+	_ "github.com/berrymore/kest/internal/plugin/kv"
 )

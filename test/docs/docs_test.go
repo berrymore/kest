@@ -34,6 +34,7 @@ import (
 	_ "github.com/berrymore/kest/internal/filters/static"
 	"github.com/berrymore/kest/internal/httpx"
 	"github.com/berrymore/kest/internal/plugin"
+	_ "github.com/berrymore/kest/internal/plugin/kv"
 )
 
 var linkRE = regexp.MustCompile(`!?\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)`)
