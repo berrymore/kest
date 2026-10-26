@@ -168,6 +168,59 @@ listeners:
 	}
 }
 
+func TestParseRPC(t *testing.T) {
+	const listeners = `
+listeners:
+  - name: a
+    address: 127.0.0.1:8080
+    http: {virtual_hosts: [{name: a, domains: ["*"], routes: [{match: {prefix: /}, direct_response: {}}]}]}
+`
+	tests := []struct {
+		name string
+		src  string
+		want *RPC
+	}{
+		{"off without the block", "version: v1\n", nil},
+		{"on when empty", "version: v1\nrpc:\n", &RPC{MaxConnections: DefaultRPCMaxConnections,
+			MaxFrameSize: DefaultRPCMaxFrameSize}},
+		{"defaults", "version: v1\nrpc: {}\n", &RPC{MaxConnections: DefaultRPCMaxConnections,
+			MaxFrameSize: DefaultRPCMaxFrameSize}},
+		{"a unix socket", "version: v1\nrpc: {address: unix:/run/kest/rpc.sock, max_connections: 8}\n",
+			&RPC{Address: "unix:/run/kest/rpc.sock", SocketMode: DefaultSocketMode, MaxConnections: 8,
+				MaxFrameSize: DefaultRPCMaxFrameSize}},
+		{"tcp", "version: v1\nrpc: {address: 127.0.0.1:6001, max_frame_size: 1MB, call_timeout: 5s}\n",
+			&RPC{Address: "127.0.0.1:6001", MaxConnections: DefaultRPCMaxConnections, MaxFrameSize: 1 << 20}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := parse(t, tt.src+listeners, nil)
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			got := cfg.RPC
+			if tt.want == nil || got == nil {
+				if got != tt.want {
+					t.Fatalf("rpc = %+v, want %+v", got, tt.want)
+				}
+				return
+			}
+			timeout := got.CallTimeout.Std()
+			got.CallTimeout = nil
+			if *got != *tt.want {
+				t.Errorf("rpc = %+v, want %+v", *got, *tt.want)
+			}
+			if want := DefaultRPCCallTimeout; strings.Contains(tt.src, "call_timeout") {
+				want = 5 * time.Second
+				if timeout != want {
+					t.Errorf("call_timeout = %v, want %v", timeout, want)
+				}
+			} else if timeout != want {
+				t.Errorf("call_timeout = %v, want %v", timeout, want)
+			}
+		})
+	}
+}
+
 func TestParseErrors(t *testing.T) {
 	tests := []struct {
 		name string
@@ -348,6 +401,105 @@ listeners:
 				`kest.yaml:6:18: listeners[0].http.protocols: at least one protocol is required: http1 or http2`,
 				`kest.yaml:11:26: listeners[1].http.protocols[1]: unknown protocol "h3"; use http1 or http2`,
 				`kest.yaml:11:30: listeners[1].http.protocols[2]: duplicate protocol "http2"`,
+			},
+		},
+		{
+			name: "plugins and rpc",
+			src: `version: v1
+listeners:
+  - name: a
+    address: unix:/run/kest/kest.sock
+    http: {virtual_hosts: [{name: a, domains: ["*"], routes: [{match: {prefix: /}, direct_response: {}}]}]}
+plugins:
+  - name: kv
+    type: kv
+  - name: kv
+  - name: my.kv
+    type: kv
+rpc:
+  address: unix:/run/kest/../kest/kest.sock
+  socket_mode: "0800"
+  max_connections: -1
+  max_frame_size: 2GB
+  call_timeout: 0s
+`,
+			want: []string{
+				`kest.yaml:9:5: plugins[1].type: required`,
+				`kest.yaml:9:11: plugins[1].name: duplicate plugin name "kv"`,
+				`kest.yaml:10:11: plugins[2].name: invalid name "my.kv": use up to 64 letters, digits, '_' or '-'; PHP calls <name>.<Method>`,
+				`kest.yaml:13:12: rpc.address: address unix:/run/kest/../kest/kest.sock is already used by listeners[0].address`,
+				`kest.yaml:14:16: rpc.socket_mode: invalid mode "0800"`,
+				`kest.yaml:15:20: rpc.max_connections: must be positive, got -1`,
+				`kest.yaml:16:19: rpc.max_frame_size: must be between 1KB and 1GB, got 2GB`,
+				`kest.yaml:17:17: rpc.call_timeout: must be positive`,
+			},
+		},
+		{
+			name: "rpc addresses",
+			src: `version: v1
+listeners:
+  - name: a
+    address: 127.0.0.1:8080
+    http: {virtual_hosts: [{name: a, domains: ["*"], routes: [{match: {prefix: /}, direct_response: {}}]}]}
+rpc:
+  address: "unix:/run/kest:rpc.sock"
+  socket_mode: "0600"
+`,
+			want: []string{
+				`kest.yaml:7:12: rpc.address: invalid socket path "/run/kest:rpc.sock": PHP's goridge can't parse a path with ':'`,
+			},
+		},
+		{
+			name: "rpc tcp addresses",
+			src: `version: v1
+listeners:
+  - name: a
+    address: 127.0.0.1:8080
+    http: {virtual_hosts: [{name: a, domains: ["*"], routes: [{match: {prefix: /}, direct_response: {}}]}]}
+rpc: {address: ":6001"}
+`,
+			want: []string{
+				`kest.yaml:6:16: rpc.address: a host is required: PHP's goridge can't connect to ":6001"; use 127.0.0.1:6001`,
+			},
+		},
+		{
+			name: "rpc ipv6",
+			src: `version: v1
+listeners:
+  - name: a
+    address: 127.0.0.1:8080
+    http: {virtual_hosts: [{name: a, domains: ["*"], routes: [{match: {prefix: /}, direct_response: {}}]}]}
+rpc: {address: "[::1]:6001"}
+`,
+			want: []string{
+				`kest.yaml:6:16: rpc.address: PHP's goridge can't parse an IPv6 address`,
+			},
+		},
+		{
+			name: "rpc port 0",
+			src: `version: v1
+listeners:
+  - name: a
+    address: 127.0.0.1:8080
+    http: {virtual_hosts: [{name: a, domains: ["*"], routes: [{match: {prefix: /}, direct_response: {}}]}]}
+rpc: {address: "127.0.0.1:0"}
+`,
+			want: []string{
+				`kest.yaml:6:16: rpc.address: a fixed port is required`,
+			},
+		},
+		{
+			name: "rpc socket mode without a unix address",
+			src: `version: v1
+listeners:
+  - name: a
+    address: 127.0.0.1:8080
+    http: {virtual_hosts: [{name: a, domains: ["*"], routes: [{match: {prefix: /}, direct_response: {}}]}]}
+rpc:
+  socket_mode: "0600"
+`,
+			want: []string{
+				`kest.yaml:7:16: rpc.socket_mode: only for unix socket addresses (unix:/path/to/kest.sock)`,
 			},
 		},
 		{

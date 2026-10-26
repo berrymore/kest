@@ -1,0 +1,13 @@
+{
+    "name": "kest/kv-integration-test",
+    "description": "roadrunner/kv against kest's kv plugin, for internal/plugin/kv's integration tests",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.2",
+        "roadrunner/kv": "^4.5"
+    },
+    "config": {
+        "sort-packages": true
+    }
+}

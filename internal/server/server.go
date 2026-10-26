@@ -23,7 +23,9 @@ import (
 	"github.com/berrymore/kest/internal/httpx"
 	"github.com/berrymore/kest/internal/listener"
 	"github.com/berrymore/kest/internal/metrics"
+	"github.com/berrymore/kest/internal/plugin"
 	"github.com/berrymore/kest/internal/registry"
+	"github.com/berrymore/kest/internal/rpc"
 )
 
 // adminStopTimeout bounds the admin server shutdown, which runs last.
@@ -34,12 +36,27 @@ type lifecycle interface {
 	Stop(ctx context.Context) error
 }
 
+// Kinds of components.
+const (
+	kindListener = "listener"
+	kindCluster  = "cluster"
+	kindRPC      = "rpc"
+	kindPlugin   = "plugin"
+	kindAdmin    = "admin"
+)
+
 type component struct {
-	kind string // "cluster", "listener", "admin"
+	kind string // kindListener, …
 	name string
-	typ  string // the extension type of a cluster
+	typ  string // the extension type of a cluster or a plugin
 	lifecycle
 }
+
+// noLifecycle is the lifecycle of a plugin that has none.
+type noLifecycle struct{}
+
+func (noLifecycle) Start(context.Context) error { return nil }
+func (noLifecycle) Stop(context.Context) error  { return nil }
 
 // Server is a built component graph. Building has no side effects; Run
 // starts everything.
@@ -49,6 +66,8 @@ type Server struct {
 	startedAt time.Time
 	metrics   *metrics.Registry
 
+	plugins   []component
+	rpc       *rpc.Server // nil when rpc is off
 	clusters  []component
 	listeners []*listener.HTTP
 	admin     *listener.HTTP
@@ -81,18 +100,46 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 		return nil, err
 	}
 
+	plugins := make(map[string]plugin.Plugin, len(cfg.Plugins))
+	for i := range cfg.Plugins {
+		p := &cfg.Plugins[i]
+		bc := registry.BuildContext{Name: p.Name, Logger: logger.With("plugin", p.Name), ConfigDir: configDir,
+			Metrics: s.metrics}
+		pl, err := registry.Build(plugin.Types, &p.Extension, bc)
+		if err != nil {
+			errs.Append(err)
+			continue
+		}
+		plugins[p.Name] = pl
+		var lc lifecycle = noLifecycle{}
+		if l, ok := pl.(lifecycle); ok {
+			lc = l
+		}
+		s.plugins = append(s.plugins, component{kind: kindPlugin, name: p.Name, typ: p.Type, lifecycle: lc})
+	}
+
+	var rpcAddress string
+	if r := cfg.RPC; r != nil {
+		srv, err := newRPC(r, configDir, plugins, logger.With("component", "rpc"), s.metrics)
+		if err != nil {
+			errs.Append(cfg.ErrorAt("rpc", err.Error()))
+		} else {
+			s.rpc, rpcAddress = srv, srv.Address()
+		}
+	}
+
 	handlers := make(map[string]http.Handler, len(cfg.Clusters))
 	for i := range cfg.Clusters {
 		c := &cfg.Clusters[i]
 		bc := registry.BuildContext{Name: c.Name, Logger: logger.With("cluster", c.Name), ConfigDir: configDir,
-			Metrics: s.metrics}
+			Metrics: s.metrics, RPCAddress: rpcAddress}
 		cl, err := registry.Build(cluster.Types, &c.Extension, bc)
 		if err != nil {
 			errs.Append(err)
 			continue
 		}
 		handlers[c.Name] = cl
-		s.clusters = append(s.clusters, component{kind: "cluster", name: c.Name, typ: c.Type, lifecycle: cl})
+		s.clusters = append(s.clusters, component{kind: kindCluster, name: c.Name, typ: c.Type, lifecycle: cl})
 	}
 	lookup := func(name string, lane *httpx.Lane) (http.Handler, error) {
 		h, ok := handlers[name]
@@ -155,6 +202,27 @@ func New(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	return s, nil
 }
 
+// newRPC builds the RPC server of r; a relative socket path resolves
+// against configDir.
+func newRPC(r *config.RPC, configDir string, plugins map[string]plugin.Plugin, logger *slog.Logger,
+	reg *metrics.Registry) (*rpc.Server, error) {
+	cfg := rpc.Config{
+		Address:        r.Address,
+		MaxConnections: r.MaxConnections,
+		MaxFrameSize:   int(r.MaxFrameSize),
+		CallTimeout:    r.CallTimeout.Std(),
+	}
+	if path, unix := config.UnixPath(r.Address); unix {
+		cfg.Address = "unix:" + resolve(configDir, path)
+		mode, err := config.ParseSocketMode(r.SocketMode) // validated
+		if err != nil {
+			return nil, err
+		}
+		cfg.SocketMode = mode
+	}
+	return rpc.New(cfg, plugins, logger, reg)
+}
+
 // loadCertificates loads the certificates of listener i, with paths relative
 // to configDir. A pair that doesn't load is a config error at its path.
 func loadCertificates(cfg *config.Config, i int, configDir string) (*listener.Certificates, error) {
@@ -210,9 +278,10 @@ func configDir(file string) (string, error) {
 	return dir, nil
 }
 
-// Run starts clusters, the admin server and listeners, in that order, and
-// serves until ctx is canceled or a component fails. Then it drains and
-// stops everything: listeners first, then clusters, then the admin server.
+// Run starts plugins, the RPC server, clusters, the admin server and
+// listeners, in that order, and serves until ctx is canceled or a component
+// fails. Then it drains and stops everything in the reverse order, except the
+// admin server, which stops last.
 func (s *Server) Run(ctx context.Context) error {
 	var started []component
 	for _, c := range s.startOrder() {
@@ -285,6 +354,11 @@ func (s *Server) ConfigFile() string {
 // NotServing implements admin.Source.
 func (s *Server) NotServing() []string {
 	var down []string
+	for _, c := range s.plugins {
+		if p, ok := c.lifecycle.(plugin.Prober); ok && !p.Serving() {
+			down = append(down, "plugin "+c.name)
+		}
+	}
 	for _, c := range s.clusters {
 		if p, ok := c.lifecycle.(cluster.Prober); ok && !p.Serving() {
 			down = append(down, c.name)
@@ -386,38 +460,44 @@ func (s *Server) drainTimeout() time.Duration {
 }
 
 func (s *Server) startOrder() []component {
-	order := make([]component, 0, len(s.clusters)+len(s.listeners)+1)
+	order := make([]component, 0, len(s.plugins)+len(s.clusters)+len(s.listeners)+2)
+	order = append(order, s.plugins...)
+	if s.rpc != nil {
+		order = append(order, component{kind: kindRPC, name: "rpc", lifecycle: s.rpc})
+	}
 	order = append(order, s.clusters...)
-	order = append(order, component{kind: "admin", name: "admin", lifecycle: s.admin})
+	order = append(order, component{kind: kindAdmin, name: "admin", lifecycle: s.admin})
 	for _, l := range s.listeners {
-		order = append(order, component{kind: "listener", name: l.Name(), lifecycle: l})
+		order = append(order, component{kind: kindListener, name: l.Name(), lifecycle: l})
 	}
 	return order
 }
 
-// shutdown stops the started components in phases: listeners drain within
-// the drain timeout, then clusters stop within the same budget, then the
-// admin server, which reports "draining" until the end.
+// stopPhases are the kinds of components in the order they stop: listeners
+// drain first; the RPC server and plugins outlive the workers, which call
+// them until they exit; the admin server reports "draining" until the end.
+var stopPhases = []string{kindListener, kindCluster, kindRPC, kindPlugin, kindAdmin}
+
+// shutdown stops the started components in phases (stopPhases), the
+// components of a phase together. Each phase has the drain timeout; the admin
+// server has adminStopTimeout.
 func (s *Server) shutdown(ctx context.Context, started []component) error {
 	s.state.Store(admin.StateDraining)
 
-	var phases [3][]component
-	for _, c := range started {
-		switch c.kind {
-		case "listener":
-			phases[0] = append(phases[0], c)
-		case "cluster":
-			phases[1] = append(phases[1], c)
-		default:
-			phases[2] = append(phases[2], c)
-		}
-	}
-
 	base := context.WithoutCancel(ctx)
-	budgets := [3]time.Duration{s.drainTimeout(), s.drainTimeout(), adminStopTimeout}
 	var errs []error
-	for i, phase := range phases {
-		errs = append(errs, stopAll(base, budgets[i], phase)...)
+	for _, kind := range stopPhases {
+		var phase []component
+		for _, c := range started {
+			if c.kind == kind {
+				phase = append(phase, c)
+			}
+		}
+		budget := s.drainTimeout()
+		if kind == kindAdmin {
+			budget = adminStopTimeout
+		}
+		errs = append(errs, stopAll(base, budget, phase)...)
 	}
 	return errors.Join(errs...)
 }

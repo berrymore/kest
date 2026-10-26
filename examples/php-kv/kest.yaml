@@ -1,0 +1,46 @@
+# PHP workers that share a cache: kest's kv plugin, reached through RPC with
+# roadrunner/kv's PSR-16 Cache, as under RoadRunner. Install the PHP packages
+# first, then start kest:
+#
+#   composer install --working-dir=examples/php-kv
+#   kest serve -c examples/php-kv/kest.yaml
+#   curl localhost:8080/          # a visit counter in kv, whichever worker answers
+#   curl -X PUT -d 'hello' localhost:8080/notes/a
+#   curl localhost:8080/notes/a
+#
+# Set KEST_ADDRESS and KEST_ADMIN_ADDRESS to listen elsewhere.
+version: v1
+
+admin:
+  address: ${KEST_ADMIN_ADDRESS:-127.0.0.1:9901}
+
+listeners:
+  - name: main
+    address: ${KEST_ADDRESS:-127.0.0.1:8080}
+    http:
+      virtual_hosts:
+        - name: default
+          domains: ["*"]
+          routes:
+            - match: { prefix: / }
+              route: { cluster: app }
+
+clusters:
+  - name: app
+    type: php_workers
+    config:
+      command: [php, worker.php]
+      pool:
+        workers: 2
+
+plugins:
+  - name: kv                # PHP calls kv.Set, kv.MGet, …: roadrunner/kv's Cache uses this name
+    type: kv
+    config:
+      storages:
+        - name: local       # (new Factory($rpc))->select('local')
+          max_size: 16MB    # the least recently used items go when it is full
+
+# The RPC channel the workers call kv through. Without an address, the socket
+# is private to kest and its workers, which find it in RR_RPC.
+rpc:

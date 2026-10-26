@@ -342,10 +342,81 @@ there. It has to be a real environment variable (kest: the cluster's `env`; Road
 `extra.runtime.class`. Without it the app handles one request built from the CLI environment (`GET http://:/`),
 prints the response to stdout and exits; reproduced with Symfony 8.1 in `playground/` (K-071).
 
+## RPC ✅ (checked 2026-10-26 for M7)
+
+Sources, at RR v3.0.1's module versions: goridge v4.0.0 [`pkg/rpc/codec.go`](https://github.com/roadrunner-server/goridge/blob/a83478ade026cbc0d2968333c40f0f895a031ec3/pkg/rpc/codec.go);
+rpc v6.0.0 [`plugin.go`](https://github.com/roadrunner-server/rpc/blob/9d5c4b7546207bbeb81fe71d17c35644efc12b93/plugin.go),
+[`config.go`](https://github.com/roadrunner-server/rpc/blob/9d5c4b7546207bbeb81fe71d17c35644efc12b93/config.go),
+[`rpc.go`](https://github.com/roadrunner-server/rpc/blob/9d5c4b7546207bbeb81fe71d17c35644efc12b93/rpc.go);
+server v6.0.0 [`plugin.go`](https://github.com/roadrunner-server/server/blob/6e60760ccc76559aa54c107d57703a23566259f7/plugin.go#L104-L107);
+PHP `roadrunner/goridge` 4.6.0 [`src/RPC/AbstractRPC.php`](https://github.com/roadrunner-php/goridge/blob/887bd3a6f89a0b95252db608856d33d7a1284406/src/RPC/AbstractRPC.php),
+[`RPC.php`](https://github.com/roadrunner-php/goridge/blob/887bd3a6f89a0b95252db608856d33d7a1284406/src/RPC/RPC.php),
+[`MultiRPC.php`](https://github.com/roadrunner-php/goridge/blob/887bd3a6f89a0b95252db608856d33d7a1284406/src/RPC/MultiRPC.php),
+[`Relay.php`](https://github.com/roadrunner-php/goridge/blob/887bd3a6f89a0b95252db608856d33d7a1284406/src/Relay.php),
+`src/RPC/Codec/*.php`. **Also checked by experiment** (2026-10-27, K-900): kest's answers match goridge v4.0.0's
+codec byte for byte (`internal/rpc/testdata/goridge_frames.txt`, made with goridge itself), and PHP's
+`roadrunner/goridge` 4.6 (`RPC`, the service prefix, the raw codec, errors, `MultiRPC`) calls kest over a unix socket
+and TCP (`internal/rpc/php_integration_test.go`); `roadrunner/kv` 4.5.1 too (`internal/plugin/kv`).
+
+- **Server.** The `rpc` plugin is Go's `net/rpc` with goridge's codec on a listener: `rpc.listen`, default
+  `tcp://127.0.0.1:6001`, or `unix://file.sock` (with `rpc.unix_socket` options). No authentication. It registers
+  every plugin that has an `RPC()` method under the plugin's name, plus its own `rpc.Config` (the config file) and
+  `rpc.Version`. The server plugin passes `RR_RPC=<rpc.listen>` to workers, verbatim, when `rpc` is configured.
+- **Request frame:** the codec in the flags, options `[seq, len(method)]`, payload `method ‖ body`. The codec bits:
+  `CODEC_PROTO`, `CODEC_JSON`, `CODEC_RAW` (body as bytes), `CODEC_GOB`, and gob when none is set; msgpack is an
+  error in goridge v4. Other than 2 options, or a method length past the payload, is an error.
+- **Response frame:** options `[seq, len(method)]`, payload `method ‖ body` in the request's codec, the codec bit in
+  the flags (gob when the request named none). An error adds `ERROR` to the codec bit (`WriteFlags` ORs; JSON: `0x48`)
+  and has payload `method ‖ message`. Unknown names get `net/rpc`'s messages:
+  `rpc: can't find service kv.Foo` or `rpc: can't find method kv.Foo` (`net/rpc` splits at the **last** dot).
+  `net/rpc` runs the requests of one connection concurrently and answers in any order.
+- **PHP client.** `RPC::create($address, $codec = new JsonCodec())`; `withServicePrefix('kv')` makes `Set` into
+  `kv.Set` (`ucfirst`), `withCodec()` switches the codec. `call()` sends one frame and waits for one: it checks two
+  options and `options[0] == seq` (a static counter per process), cuts the method off by `options[1]`, and throws
+  `ServiceException("Error '<message>' on <relay>")` on `ERROR`. It never checks the method name in the answer.
+  One call at a time per connection; `MultiRPC` (async calls) keeps up to 50 connections per process (`$count`),
+  each with one call in flight, so the server sees no pipelining from PHP.
+- **Addresses.** `Relay::create` matches `/(?P<protocol>[^:\/]+):\/\/(?P<arg1>[^:]+)(:(?P<arg2>[^:]+))?/`:
+  `tcp://host:port`, `unix:///abs/path` (a path with `:` doesn't parse). The socket connects lazily on the first
+  call, with retries.
+- **Services of RR's core plugins** (v6.0.0 of each, `rpc.go`): `informer` (`List`, `Workers`, `Jobs`, `AddWorker`,
+  `RemoveWorker`), `resetter` (`List`, `Reset`), `status` (`Status`, `Ready`, protobuf), `metrics` (`Add`, `Sub`,
+  `Observe`, `Set`, `Declare`, `Unregister`), `app` from app-logger (`Error`, `Info`, `Warning`, `Debug`, `Log`, and
+  `*WithContext` in protobuf). Plugin libraries: `roadrunner/kv`, `roadrunner-php/lock`, jobs, centrifuge and others
+  call the services of their own plugins.
+
+## KV ✅ (checked 2026-10-26 for M7)
+
+Sources: kv v6.0.0 [`rpc.go`](https://github.com/roadrunner-server/kv/blob/274d0c6c5a3764e5e60417dd409e0df7b7d0dff4/rpc.go),
+[`plugin.go`](https://github.com/roadrunner-server/kv/blob/274d0c6c5a3764e5e60417dd409e0df7b7d0dff4/plugin.go);
+memory v6.0.0 [`memorykv/driver.go`](https://github.com/roadrunner-server/memory/blob/8c64763756d37cee845add08aaf5d03d31ad3e89/memorykv/driver.go);
+[`kv.proto`](https://github.com/roadrunner-server/api/blob/6a6e30c791a89e0396405ad779055ba1b5550048/roadrunner/api/kv/v1/kv.proto);
+PHP `roadrunner/kv` v4.5.1 [`src/Cache.php`](https://github.com/roadrunner-php/kv/blob/6b6db9cf80649fb2bb506e6abe8a22f2d4c9004f/src/Cache.php)
+(requires `roadrunner/goridge ^4.5`, `roadrunner/api-dto ^2.1`, `psr/simple-cache 2 - 3`).
+
+- **Messages** (`kv.v1`): `Request {string storage = 1; repeated Item items = 2}`,
+  `Item {string key = 1; bytes value = 2; string timeout = 3}` (an absolute RFC 3339 time), `Response {repeated Item
+  items = 1}`. Every method takes a `Request` and answers a `Response`, protobuf only.
+- **Methods:** `Has` (answers the keys that exist), `Set`, `MGet` (the found keys with values), `MExpire`, `TTL`
+  (the found keys with their `timeout`, empty without one), `Delete`, `Clear`. A storage is looked up by
+  `Request.storage`: `no storage provided`, `no such storage: <name>`. Storages are named in config, each with a
+  `driver` (`memory`, `boltdb`, `redis`, `memcached`).
+- **PHP's `Cache`** (PSR-16, `Factory::select($storage)`) switches to `ProtobufCodec` and calls `kv.MGet` (`get`,
+  `getMultiple`), `kv.Set` (`set`, `setMultiple`: one timeout for all), `kv.Has`, `kv.Delete`, `kv.Clear`, `kv.TTL`
+  (`getTtl`). It never calls `MExpire`. Values go through a serializer (`serialize()` by default; igbinary and sodium
+  optional). A TTL becomes `now + ttl` in UTC, formatted with seconds only. Errors: a message with `no such storage`
+  becomes `StorageException`, one with `_plugin_ttl` `NotImplementedException`, `can't find method kv.Clear` a hint
+  to upgrade RR; anything else `KeyValueException`.
+- **The memory driver:** a map under a mutex, no size limit; one goroutine and ticker per key with a TTL, at
+  whole seconds. Empty key lists (`no keys`) and blank keys (`empty key`) are errors. Its quirks: a `timeout` in the
+  past stores the item **without** a TTL (PSR-16 wants it deleted), so `set($k, $v, 0)` keeps it forever;
+  `MExpire` on a key without a TTL replaces its value with the request's (empty) value, and on a missing key creates
+  it; `MExpire` on a key with a TTL doesn't update what `TTL` reports.
+
 ## Other RR notes ❓
 
-- Plugins are wired by the Endure container; the RPC plugin (goridge RPC over TCP, default `127.0.0.1:6001`)
-  is used by the `rr` CLI (`reset`, `workers`) and by some PHP libraries.
+- Plugins are wired by the Endure container; the RPC plugin is used by the `rr` CLI (`reset`, `workers`) and by
+  the PHP libraries of the plugins (§ RPC).
 - RR server features kest doesn't plan yet: `server.user`/`group`, `server.on_init`, `pool.debug`.
 
 ## `sendfile` middleware ✅ (checked 2026-10-25 for M5)
@@ -388,6 +459,9 @@ K-040 (answered above, 2026-10-25):
 
 K-029 (answered above, 2026-10-26):
 9. ✅ Socket relays: RR's listener, pid matching, stdout, the PHP side's lazy connect → "Socket relays".
+
+K-900 (answered above, 2026-10-26):
+10. ✅ The RPC frames, error messages and the PHP client → "RPC"; the kv service and `roadrunner/kv` → "KV".
 
 ## What to learn from RR / what we do differently
 

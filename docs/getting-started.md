@@ -153,9 +153,9 @@ Anything that runs on RoadRunner's HTTP worker should run on kest; kest is teste
   before it reads `.env`. Without it the app runs as a plain script, prints a page to stdout, and the worker
   fails to start.
 
-Other integrations (Laravel Octane, Spiral, Yii) haven't been tested yet. Those that need RoadRunner's
-RPC plugin, for example to reset workers from PHP or for RoadRunner's KV and jobs plugins, won't work:
-kest has no RPC yet.
+Other integrations (Laravel Octane, Spiral, Yii) haven't been tested yet. kest serves RoadRunner's RPC channel
+([`rpc`](config.md#rpc)) and its `kv` plugin, so `roadrunner/kv`'s cache works; integrations that call RoadRunner's
+other plugins over RPC (resetting workers from PHP, jobs, locks, metrics) don't work yet.
 
 ## 5. Coming from RoadRunner
 
@@ -182,7 +182,9 @@ kest has no RPC yet.
 | `http.middleware: [sendfile]` | the `sendfile` filter | the same `X-Sendfile` header, but only absolute paths inside its `dirs`, with ranges and the application's `Content-Type` |
 | `http.middleware: [headers]` | the `headers` and `cors` filters | CORS preflights are answered by kest |
 | `http.trusted_subnets` | the `client_ip` filter | kest reads `X-Forwarded-For` from the right, so clients can't spoof it |
+| `rpc.listen` | [`rpc.address`](config.md#rpc) | without it, a socket private to kest and its workers (RR: `tcp://127.0.0.1:6001`); workers get it in `RR_RPC` as under RR |
+| `kv.<storage>: {driver: memory}` | a [`kv` plugin](config.md#kv): `storages: [{name: <storage>}]` | bounded by `max_size`; a TTL of 0 deletes, as PSR-16 says; no `boltdb`, `redis` or `memcached` driver |
 
 Streaming responses (generators, `PSR7Worker::$chunkSize`) and 103 Early Hints work as with RoadRunner. Not there
-yet: gRPC, RPC, jobs, KV and the other RoadRunner plugins. Client certificates and ACME are left to the proxy in
-front of kest.
+yet: gRPC, jobs, locks and RoadRunner's other plugins; plugins of your own can run as [external
+plugins](plugins.md). Client certificates and ACME are left to the proxy in front of kest.

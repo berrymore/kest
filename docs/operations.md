@@ -18,8 +18,9 @@ After=network.target
 [Service]
 ExecStart=/usr/local/bin/kest serve -c /etc/kest/kest.yaml
 ExecReload=/bin/kill -HUP $MAINPID
-# drain_delay + 2 × drain_timeout + a little: kest stops listeners, then clusters
-TimeoutStopSec=60
+# drain_delay + 2 × drain_timeout + a little: kest stops listeners, then clusters;
+# with rpc and plugins, 2 × drain_timeout more (each phase has the budget)
+TimeoutStopSec=90
 Restart=on-failure
 User=www-data
 # /run/kest for a unix socket listener: /run is emptied at boot
@@ -125,18 +126,20 @@ passes TCP through, traffic that must stay encrypted inside the network. With Le
 
 | Signal | Effect |
 |---|---|
-| SIGTERM, SIGINT | Graceful shutdown: `/ready` answers `503 draining`; the listeners keep serving for `server.drain_delay`; then they stop accepting and let running requests finish within `server.drain_timeout`; the clusters stop their workers within the same budget; the admin server stops last. |
+| SIGTERM, SIGINT | Graceful shutdown: `/ready` answers `503 draining`; the listeners keep serving for `server.drain_delay`; then they stop accepting and let running requests finish within `server.drain_timeout`; the clusters stop their workers within the same budget, then the RPC server and the plugins, each within it too; the admin server stops last. |
 | a second SIGTERM or SIGINT | Exit at once. |
 | SIGHUP | A rolling reset of every cluster's workers, as `POST /clusters/{name}/reset`; the outcome is logged. |
 
 ## Probes
 
-- **Startup:** kest boots every worker before it opens the admin port and the listeners, so until then probes
+- **Startup:** kest starts the plugins (each within its `start_timeout`) and boots every worker before it opens the
+  admin port and the listeners, so until then probes
   get "connection refused". That can take up to `pool.start_timeout` (60s by default) if your application boots
   slowly: give probes an initial delay, or a startup probe, at least that long.
 - **Readiness: `GET /ready`** on the admin address. `200 ready` while kest serves; `503 starting` for the moment
   between the admin port and the listeners opening, `503 draining` once shutdown begins, and
-  `503 not serving: <clusters>` while a cluster has no live worker at all. A pool that is only replacing some
+  `503 not serving: <names>` while a cluster has no live worker at all or a plugin can't serve (`plugin <name>`: an
+  external plugin that is down or restarting). A pool that is only replacing some
   workers still counts as serving. Point load balancers here, and set `server.drain_delay` a little above their
   check interval, so that they stop sending traffic before the listeners close.
 - **Liveness:** `GET /server_info` answers as long as the process serves, once it has started. Don't use
@@ -255,7 +258,8 @@ Scrape `GET /metrics` (Prometheus text format). Worth an alert:
 ## Logs
 
 Logs go to stderr, as text or JSON (`log.format`). Lines from a worker's stderr are logged with `cluster` and
-`worker_pid`; PHP's `echo` in a worker goes there too. Turn on the `access_log` filter for a line per request,
+`worker_pid`; PHP's `echo` in a worker goes there too. An external plugin's stdout and stderr are logged as
+`plugin stdout` and `plugin stderr`, with `plugin` and `plugin_pid`. Turn on the `access_log` filter for a line per request,
 and `request_id` to find a request's line, its PHP logs (the `X-Request-Id` header) and the client's report.
 Failed requests are logged with their status: `5xx` at error or warn level, client errors at debug.
 

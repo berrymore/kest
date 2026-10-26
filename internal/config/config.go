@@ -36,6 +36,10 @@ const (
 	DefaultMaxHeaderBytes    = ByteSize(1 << 20)
 	DefaultRouteTimeout      = 30 * time.Second
 	DefaultStatus            = 200
+
+	DefaultRPCMaxConnections = 1024
+	DefaultRPCMaxFrameSize   = ByteSize(16 << 20)
+	DefaultRPCCallTimeout    = 30 * time.Second
 )
 
 // Config is the whole configuration file.
@@ -46,6 +50,9 @@ type Config struct {
 	Server    Server     `yaml:"server"`
 	Listeners []Listener `yaml:"listeners"`
 	Clusters  []Cluster  `yaml:"clusters,omitempty"`
+	Plugins   []Plugin   `yaml:"plugins,omitempty"`
+	// RPC, if set, opens the channel PHP workers call plugins through.
+	RPC *RPC `yaml:"rpc,omitempty"`
 
 	src *source
 }
@@ -94,6 +101,10 @@ func (c *Config) DumpRedacted() ([]byte, error) {
 	out.Clusters = slices.Clone(c.Clusters)
 	for i := range out.Clusters {
 		out.Clusters[i].Extension = out.Clusters[i].redacted()
+	}
+	out.Plugins = slices.Clone(c.Plugins)
+	for i := range out.Plugins {
+		out.Plugins[i].Extension = out.Plugins[i].redacted()
 	}
 	out.Listeners = slices.Clone(c.Listeners)
 	for i := range out.Listeners {
@@ -338,6 +349,26 @@ type Cluster struct {
 	Extension `yaml:",inline"`
 }
 
+// Plugin is a named component that PHP calls through RPC, by its name: "kv"
+// for kv.Set. Its type selects the implementation.
+type Plugin struct {
+	Name      string `yaml:"name"`
+	Extension `yaml:",inline"`
+}
+
+// RPC configures the channel PHP workers call plugins through: goridge RPC,
+// as RoadRunner's PHP libraries speak it. The block's presence turns it on.
+type RPC struct {
+	// Address is unix:<path> or host:port. Without it, the socket goes into a
+	// private temporary directory, which kest's workers find through RR_RPC.
+	Address string `yaml:"address,omitempty"`
+	// SocketMode is the file mode of a unix socket at Address, in octal.
+	SocketMode     string    `yaml:"socket_mode,omitempty"`
+	MaxConnections int       `yaml:"max_connections"` // open connections at once
+	MaxFrameSize   ByteSize  `yaml:"max_frame_size"`  // the payload of a call or an answer
+	CallTimeout    *Duration `yaml:"call_timeout"`    // a call, from its frame to its answer
+}
+
 func (c *Config) applyDefaults() {
 	if c.Log.Level == "" {
 		c.Log.Level = DefaultLogLevel
@@ -351,6 +382,21 @@ func (c *Config) applyDefaults() {
 	if c.Server.DrainTimeout == nil {
 		d := Duration(DefaultDrainTimeout)
 		c.Server.DrainTimeout = &d
+	}
+	if r := c.RPC; r != nil {
+		if _, ok := UnixPath(r.Address); ok && r.SocketMode == "" {
+			r.SocketMode = DefaultSocketMode
+		}
+		if r.MaxConnections == 0 {
+			r.MaxConnections = DefaultRPCMaxConnections
+		}
+		if r.MaxFrameSize == 0 {
+			r.MaxFrameSize = DefaultRPCMaxFrameSize
+		}
+		if r.CallTimeout == nil {
+			d := Duration(DefaultRPCCallTimeout)
+			r.CallTimeout = &d
+		}
 	}
 	for i := range c.Listeners {
 		if _, ok := UnixPath(c.Listeners[i].Address); ok && c.Listeners[i].SocketMode == "" {

@@ -237,9 +237,21 @@ here and went to the icebox the same day. Plan: `plans/M6-unix-sockets.md`.
 - [x] K-164 Unix socket listeners (`address: unix:/run/kest.sock`, `socket_mode`), for a proxy on the same host;
   `client_ip` trusts `unix` peers (plan D1; 2026-10-26). The admin server stays on TCP: nothing asked for a socket.
 
-## M7 — PHP → kest RPC
+## M7 — RPC from PHP and plugins
 
-- [ ] K-900 PHP → kest RPC channel (RoadRunner `rpc` plugin equivalent). From the icebox on 2026-10-26.
+Plan: `plans/M7-rpc.md`.
+
+- [x] K-900 PHP → kest RPC channel (RoadRunner `rpc` plugin equivalent). From the icebox on 2026-10-26. Narrowed on
+  2026-10-26: the RPC server compatible with `roadrunner/goridge` (unix socket by default, a private one without an
+  address), `RR_RPC` for workers; `plugins` at the root of the config, a registry category, called by name (plan D1,
+  D2).
+- [x] K-166 `kv` plugin: in-memory storages compatible with `roadrunner/kv` (PSR-16), bounded by `max_size` with
+  eviction (plan D3).
+- [x] K-167 ADR-0010: plugins (by name, one interface built in and external, the plugin protocol, `pkg/plugin`);
+  research note `research/hashicorp-plugins.md` (plan D6). Written 2026-10-26, accepted by the user on 2026-10-27.
+- [x] K-168 External plugins: the `external` plugin type, the protocol on goridge frames over a socketpair, the
+  supervisor, the Go SDK in `pkg/plugin`, `docs/plugins.md`; `kv` passes its PHP tests as an external plugin (plan
+  D4, D5).
 
 ## M8 — Dynamic configuration
 
@@ -300,3 +312,10 @@ here and went to the icebox the same day. Plan: `plans/M6-unix-sockets.md`.
   (proposed, on hold) has the design, plus what a production version needs from the start: a broker for several
   instances and blue-green deploys, and reconnects as a normal case (plan `M6-unix-sockets.md` D2). Shelved on
   2026-10-26 with the user: most PHP applications don't need it; revisit with a use case.
+- [ ] K-169 Calls from plugins to kest (plugin protocol 2): the direction ADR-0010 reserves, for a plugin that hands
+  jobs to a worker pool (RoadRunner's jobs) or reads kest's state. From M7, 2026-10-27; when a plugin needs it.
+- [ ] K-170 A validate-only handshake for external plugins, so that `kest validate` checks `plugin_config` (today
+  only the plugin's start does). From M7, 2026-10-27.
+- [ ] K-171 RoadRunner's own RPC services: `informer`, `resetter`, `status`, `metrics` (metrics from PHP: postponed
+  by the user on 2026-10-26) and `app` (app-logger), each a built-in plugin, if an application needs one. From M7.
+- [ ] K-172 Locks plugin for `roadrunner-php/lock` (RoadRunner's `lock` plugin). From M7, 2026-10-27.

@@ -14,10 +14,11 @@ import (
 var nameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 
 type validator struct {
-	src      *source
-	errs     Errors
-	clusters map[string]bool // cluster names
-	routes   map[string]bool // route names, unique in the whole config
+	src       *source
+	errs      Errors
+	clusters  map[string]bool   // cluster names
+	routes    map[string]bool   // route names, unique in the whole config
+	addresses map[string]string // the YAML path that binds each address (addressKey)
 }
 
 func (v *validator) errorf(path, format string, args ...any) {
@@ -25,7 +26,7 @@ func (v *validator) errorf(path, format string, args ...any) {
 }
 
 func (c *Config) validate() error {
-	v := &validator{src: c.src, routes: make(map[string]bool)}
+	v := &validator{src: c.src, routes: make(map[string]bool), addresses: map[string]string{c.Admin.Address: "admin.address"}}
 
 	switch c.Version {
 	case SchemaVersion:
@@ -54,7 +55,11 @@ func (c *Config) validate() error {
 	}
 
 	v.clusters = v.clusterNames(c.Clusters)
-	v.listeners(c.Listeners, c.Admin.Address)
+	v.listeners(c.Listeners)
+	v.plugins(c.Plugins)
+	if c.RPC != nil {
+		v.rpc(c.RPC)
+	}
 
 	return v.errs.Err()
 }
@@ -75,33 +80,115 @@ func (v *validator) clusterNames(list []Cluster) map[string]bool {
 	return names
 }
 
-func (v *validator) listeners(list []Listener, adminAddress string) {
+// pluginNameRE is nameRE without dots: RPC splits "kv.Set" at the last dot.
+var pluginNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
+
+// plugins validates plugin declarations.
+func (v *validator) plugins(list []Plugin) {
+	names := make(map[string]bool, len(list))
+	for i := range list {
+		p := &list[i]
+		path := indexPath("plugins", i)
+		p.bind(v.src, path)
+
+		if p.Name != "" && !pluginNameRE.MatchString(p.Name) {
+			v.errorf(path+".name", "invalid name %q: use up to 64 letters, digits, '_' or '-'; PHP calls "+
+				"<name>.<Method>", p.Name)
+		} else {
+			v.name(path, p.Name, names, "plugin")
+		}
+		if p.Type == "" {
+			v.errorf(path+".type", "required")
+		}
+	}
+}
+
+// Bounds of rpc.max_frame_size.
+const (
+	minRPCFrameSize = ByteSize(1 << 10)
+	maxRPCFrameSize = ByteSize(1 << 30)
+)
+
+func (v *validator) rpc(r *RPC) {
+	if r.Address != "" {
+		v.rpcAddress(r.Address)
+	}
+	v.socketMode("rpc", r.Address, r.SocketMode)
+	if r.MaxConnections < 0 {
+		v.errorf("rpc.max_connections", "must be positive, got %d", r.MaxConnections)
+	}
+	if r.MaxFrameSize < minRPCFrameSize || r.MaxFrameSize > maxRPCFrameSize {
+		v.errorf("rpc.max_frame_size", "must be between %s and %s, got %s", minRPCFrameSize, maxRPCFrameSize,
+			r.MaxFrameSize)
+	}
+	if r.CallTimeout.Std() <= 0 {
+		v.errorf("rpc.call_timeout", "must be positive")
+	}
+}
+
+// rpcAddress checks what PHP's goridge can't connect to: it parses RR_RPC
+// with /(?P<protocol>[^:\/]+):\/\/(?P<arg1>[^:]+)(:(?P<arg2>[^:]+))?/.
+func (v *validator) rpcAddress(addr string) {
+	const path = "rpc.address"
+	n := len(v.errs)
+	v.address(path, addr)
+	if len(v.errs) > n {
+		return
+	}
+	if p, unix := UnixPath(addr); unix {
+		if strings.Contains(p, ":") {
+			v.errorf(path, "invalid socket path %q: PHP's goridge can't parse a path with ':'", p)
+		}
+		return
+	}
+	host, port, _ := net.SplitHostPort(addr) // checked by address
+	switch {
+	case host == "":
+		v.errorf(path, "a host is required: PHP's goridge can't connect to %q; use 127.0.0.1:%s", addr, port)
+	case strings.Contains(host, ":"):
+		v.errorf(path, "PHP's goridge can't parse an IPv6 address; use a host name or an IPv4 address")
+	case port == "0":
+		v.errorf(path, "a fixed port is required: workers get the address before kest binds it")
+	}
+}
+
+// address checks a listener or rpc address at path and that no other
+// component binds it.
+func (v *validator) address(path, addr string) {
+	if err := checkListenerAddress(addr); err != nil {
+		v.errorf(path, "%v", err)
+	} else if key := v.addressKey(addr); v.addresses[key] != "" && !isEphemeral(addr) {
+		v.errorf(path, "address %s is already used by %s", addr, v.addresses[key])
+	} else {
+		v.addresses[key] = path
+	}
+}
+
+// socketMode checks the socket_mode of the block at path, which binds addr.
+func (v *validator) socketMode(path, addr, mode string) {
+	if _, unix := UnixPath(addr); unix {
+		if _, err := ParseSocketMode(mode); err != nil {
+			v.errorf(path+".socket_mode", "%v", err)
+		}
+	} else if mode != "" {
+		v.errorf(path+".socket_mode", "only for unix socket addresses (unix:/path/to/kest.sock)")
+	}
+}
+
+func (v *validator) listeners(list []Listener) {
 	if len(list) == 0 {
 		v.errorf("listeners", "at least one listener is required")
 		return
 	}
 
 	names := make(map[string]bool, len(list))
-	addresses := map[string]string{adminAddress: "admin.address"}
 	for i := range list {
 		l := &list[i]
 		path := indexPath("listeners", i)
 
 		v.name(path, l.Name, names, "listener")
-		if err := checkListenerAddress(l.Address); err != nil {
-			v.errorf(path+".address", "%v", err)
-		} else if key := v.addressKey(l.Address); addresses[key] != "" && !isEphemeral(l.Address) {
-			v.errorf(path+".address", "address %s is already used by %s", l.Address, addresses[key])
-		} else {
-			addresses[key] = path + ".address"
-		}
-		if _, unix := UnixPath(l.Address); unix {
-			if _, err := ParseSocketMode(l.SocketMode); err != nil {
-				v.errorf(path+".socket_mode", "%v", err)
-			}
-		} else if l.SocketMode != "" {
-			v.errorf(path+".socket_mode", "only for unix socket addresses (unix:/path/to/kest.sock)")
-		}
+		v.address(path+".address", l.Address)
+		v.socketMode(path, l.Address, l.SocketMode)
 
 		if l.TLS != nil {
 			v.tls(path+".tls", l.TLS)

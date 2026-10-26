@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"go.yaml.in/yaml/v4"
@@ -43,6 +44,7 @@ func Parse(data []byte, file string, lookupEnv func(string) (string, bool)) (*Co
 		return nil, errs.Err()
 	}
 
+	emptyIfNull(doc.Content[0], "rpc")
 	cfg := &Config{src: src}
 	if err := doc.Load(cfg, yaml.WithKnownFields()); err != nil {
 		return nil, src.convert(err).Err()
@@ -84,6 +86,18 @@ func walk(n *yaml.Node, path string, src *source, lookupEnv func(string) (string
 		}
 	default:
 		// Alias nodes: the anchored node is walked where it is defined.
+	}
+}
+
+// emptyIfNull turns the null values of keys in the mapping m into empty
+// mappings. These are blocks whose presence turns a feature on, so "rpc:"
+// alone means rpc with its defaults, as "rpc: {}" does.
+func emptyIfNull(m *yaml.Node, keys ...string) {
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		k, v := m.Content[i], m.Content[i+1]
+		if v.Kind == yaml.ScalarNode && v.ShortTag() == "!!null" && slices.Contains(keys, k.Value) {
+			*v = yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Line: v.Line, Column: v.Column}
+		}
 	}
 }
 

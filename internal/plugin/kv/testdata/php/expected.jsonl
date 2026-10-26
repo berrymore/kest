@@ -1,0 +1,13 @@
+{"check":"set and get","got":{"x":1,"y":[true,null]}}
+{"check":"missing","got":"default"}
+{"check":"has","got":[true,false]}
+{"check":"multiple","got":{"m1":1,"m2":"two","m3":"none"}}
+{"check":"delete","got":[false,false]}
+{"check":"ttl","got":[true,null]}
+{"check":"ttl interval","got":true}
+{"check":"zero ttl deletes","got":false}
+{"check":"expires","got":"gone"}
+{"check":"large value","got":100000}
+{"check":"clear","got":[false,false]}
+{"check":"other storage","got":["other","local"]}
+{"check":"no such storage","error":"Spiral\\RoadRunner\\KeyValue\\Exception\\StorageException","message":"Storage \"nope\" has not been defined. Please make sure your RoadRunner \"kv\" configuration contains a storage key named \"nope\""}

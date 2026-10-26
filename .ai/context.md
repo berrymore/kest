@@ -41,11 +41,12 @@ Longer term (M4+):
    Filters that take work off PHP (authentication, limits) come later.
 8. **Connections PHP can't hold**: WebSockets and SSE held by kest while PHP handles the events, when an
    application needs them (researched, `research/websockets.md`).
-9. **PHP → kest RPC**, the channel RoadRunner's PHP libraries call (M7).
+9. **PHP → kest RPC and plugins** (M7): the channel RoadRunner's PHP libraries call, plugins reached by name, built
+   in (`kv`) or external programs written with a Go SDK (ADR-0010).
 10. Dynamic configuration: hot reload without dropping connections (M8).
 11. **WASM sandbox** on wazero: `wasm` clusters (handlers), `wasm` HTTP filters, possibly functions
     callable from PHP (M9). An option, so it comes near the end.
-12. More plugins (queues/jobs, KV) once the core is solid.
+12. More plugins (queues/jobs, locks) when an application needs them; `kv` came with M7.
 
 ## Non-goals (for now)
 
@@ -55,7 +56,8 @@ Longer term (M4+):
 - Full Envoy parity, service mesh, or xDS wire compatibility.
 - Config compatibility with `.rr.yaml`. Worker-side (PHP) compatibility, yes; config compatibility, no.
 - Embedding PHP in the Go process via CGO (the FrankenPHP approach). kest uses external worker processes (ADR-0003).
-- Runtime-loaded plugins (Go `plugin` / `.so`). Extensions are compiled in (ADR-0004).
+- Runtime-loaded code in kest's process (Go `plugin` / `.so`). Extensions are compiled in (ADR-0004); a plugin of
+  one's own runs as a separate process instead (ADR-0010).
 - Windows support (Linux and macOS only, at least until 1.0).
 
 ## Principles

@@ -1,0 +1,13 @@
+{
+    "name": "kest/rpc-integration-test",
+    "description": "PHP RPC client for kest's internal/rpc integration tests",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.2",
+        "roadrunner/goridge": "^4.6"
+    },
+    "config": {
+        "sort-packages": true
+    }
+}

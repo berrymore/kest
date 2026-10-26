@@ -64,7 +64,7 @@ type HTTP struct {
 
 	mu        sync.Mutex
 	ln        net.Listener
-	socket    *unixSocket        // the socket file of a unix address, once bound
+	socket    *UnixSocket        // the socket file of a unix address, once bound
 	stopWatch context.CancelFunc // stops the certificate checks; nil without TLS
 	wg        sync.WaitGroup
 }
@@ -159,11 +159,11 @@ func (l *HTTP) Addr() net.Addr {
 func (l *HTTP) Start(ctx context.Context) error {
 	var (
 		ln     net.Listener
-		socket *unixSocket
+		socket *UnixSocket
 		err    error
 	)
 	if path, unix := unixPath(l.address); unix {
-		ln, socket, err = listenUnix(ctx, path, l.socketMode)
+		ln, socket, err = ListenUnix(ctx, path, l.socketMode)
 	} else {
 		var lc net.ListenConfig
 		ln, err = lc.Listen(ctx, "tcp", l.address)
@@ -213,7 +213,7 @@ func (l *HTTP) Stop(ctx context.Context) error {
 	socket := l.socket
 	l.mu.Unlock()
 	if socket != nil {
-		if rerr := socket.remove(); rerr != nil {
+		if rerr := socket.Remove(); rerr != nil {
 			l.logger.Warn("can't remove the socket file", "path", socket.path, "err", rerr)
 		}
 	}

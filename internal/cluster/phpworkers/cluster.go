@@ -143,12 +143,12 @@ func (b *bodyBudget) release(n int64) {
 }
 
 // New builds a cluster from a validated config. bc.ConfigDir resolves
-// relative paths, and bc.Name labels the pool's metrics; environ is kest's
-// environment. Nothing starts before Start.
+// relative paths, bc.Name labels the pool's metrics, and bc.RPCAddress is the
+// workers' RR_RPC; environ is kest's environment. Nothing starts before Start.
 func New(cfg *Config, bc registry.BuildContext, environ []string) (*Cluster, error) {
 	reg := bc.MetricsRegistry()
 	pm := newPoolMetrics(reg, bc.Name)
-	wc := cfg.worker(bc.ConfigDir, environ)
+	wc := cfg.worker(bc.ConfigDir, environ, bc.RPCAddress)
 	wc.Observer = pm
 	p, err := worker.New(wc, bc.Logger)
 	if err != nil {
